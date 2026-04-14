@@ -2,6 +2,8 @@
 
 Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to review code or delegate tasks.
 
+**Why bring Gemini into Claude Code?** Gemini 2.5 Pro offers a 1M-token context window, a distinct reasoning style, and strong code analysis — making it a useful second opinion alongside Claude. Instead of switching tools, you get both models collaborating in the same session: Claude drives, Gemini reviews or investigates, results come back inline.
+
 > **Origin:** This plugin is a port of [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), adapted from OpenAI's Codex App Server Protocol to Google's ACP (Agent Client Protocol). See [Differences from codex-plugin-cc](#differences-from-codex-plugin-cc) for details.
 
 ## What You Get
@@ -24,27 +26,27 @@ Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from insi
 
 ## Install
 
-### 1. Add the marketplace
+Steps 1–2 run in your **terminal**. Steps 3–4 run **inside a Claude Code session**.
+
+### 1. Add the marketplace (terminal)
 
 ```bash
-claude /plugin marketplace add sakibsadmanshajib/gemini-plugin-cc
+claude plugin marketplace add sakibsadmanshajib/gemini-plugin-cc
 ```
 
-### 2. Install the plugin
+### 2. Install the plugin (terminal)
 
 ```bash
-claude /plugin install gemini@google-gemini
+claude plugin install gemini@google-gemini
 ```
 
-### 3. Reload plugins
-
-In an active Claude Code session:
+### 3. Reload plugins (inside Claude Code)
 
 ```
 /reload-plugins
 ```
 
-### 4. Run setup
+### 4. Run setup (inside Claude Code)
 
 ```
 /gemini:setup
@@ -274,11 +276,11 @@ Check out the [Gemini CLI docs](https://github.com/google-gemini/gemini-cli) for
 
 ### Authentication Methods
 
-| Method | Setup | Best For |
-|--------|-------|----------|
-| Sign in with Google | `gemini` (interactive) | Desktop use |
-| Gemini API Key | `export GEMINI_API_KEY=...` | CI/headless |
-| Vertex AI | `export GOOGLE_CLOUD_PROJECT=...` | Enterprise |
+| Method | Setup | Best For | Tested |
+|--------|-------|----------|--------|
+| Sign in with Google | `gemini` (interactive) | Desktop use | Yes |
+| Gemini API Key | `export GEMINI_API_KEY=...` | CI/headless | No |
+| Vertex AI | `export GOOGLE_CLOUD_PROJECT=...` | Enterprise | No |
 
 ### Moving The Work Over To Gemini
 
@@ -317,6 +319,24 @@ Yes. The plugin inherits your `~/.gemini/settings.json` and any project-level `.
 ### Can I keep using my current API key or Vertex AI setup?
 
 Yes. Because the plugin uses your local Gemini CLI, your existing authentication method and config still apply. If you use Vertex AI, ensure `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` are set.
+
+## Status & Known Limitations
+
+**Current version:** v1.0.0 — tested on Linux/macOS with Google OAuth only. Windows is untested.
+
+| Area | Status |
+|------|--------|
+| Core commands (`review`, `rescue`, `status`, `result`, `cancel`) | Working |
+| Background jobs + broker persistence | Working |
+| Review gate (`/gemini:setup --enable-review-gate`) | Working — see warning in docs |
+| Scope validation (`--scope` flag) | [Known bug #1](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/1) — falls through to default silently |
+| Protocol method mismatch edge cases | [Known bug #2](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/2) |
+| Windows (Native) and macOS | Untested |
+| WSL and Linux | Tested |
+| `GEMINI_API_KEY` auth | Untested |
+| Vertex AI auth | Untested |
+
+**Requirements reminder:** Gemini CLI (`@google/gemini-cli`) must be installed and authenticated separately — this plugin is a bridge, not a bundled runtime.
 
 ## License
 
