@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "gemini");
+const COMPANION_SCRIPT = path.join(PLUGIN_ROOT, "scripts", "gemini-companion.mjs");
 
 function read(relativePath) {
   return fs.readFileSync(path.join(PLUGIN_ROOT, relativePath), "utf8");
@@ -148,4 +149,11 @@ test("setup command can offer Gemini install and still points users to gemini au
   assert.match(readme, /offer to install.*for you/i);
   assert.match(readme, /\/gemini:setup --enable-review-gate/);
   assert.match(readme, /\/gemini:setup --disable-review-gate/);
+});
+
+test("companion command handlers use raw command argument parsing", () => {
+  const source = fs.readFileSync(COMPANION_SCRIPT, "utf8");
+
+  assert.match(source, /import \{ parseCommandInput \} from "\.\/lib\/args\.mjs"/);
+  assert.doesNotMatch(source, /\bparseArgs\(/);
 });

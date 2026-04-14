@@ -127,5 +127,17 @@ export function splitRawArgumentString(raw) {
  * @returns {ParsedArgs}
  */
 export function parseCommandInput(argv, schema = {}) {
-  return parseArgs(argv, schema);
+  const normalizedArgv = argv.flatMap((arg) => {
+    if (!arg || typeof arg !== "string") {
+      return [];
+    }
+
+    const hasRawOptionBoundary = /\s/.test(arg) && /(^|\s)--\S/.test(arg);
+    if (argv.length === 1 || hasRawOptionBoundary) {
+      return splitRawArgumentString(arg);
+    }
+
+    return [arg];
+  });
+  return parseArgs(normalizedArgv, schema);
 }
