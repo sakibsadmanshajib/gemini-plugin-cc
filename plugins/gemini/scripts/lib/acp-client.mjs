@@ -148,6 +148,7 @@ class AcpClientBase {
    */
   async handshake() {
     const result = await this.request("initialize", {
+      protocolVersion: 1,
       clientInfo: {
         name: PLUGIN_MANIFEST.name ?? "gemini-plugin-cc",
         version: PLUGIN_MANIFEST.version ?? "1.0.0"

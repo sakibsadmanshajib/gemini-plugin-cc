@@ -70,15 +70,31 @@ export async function getGeminiAuthStatus(cwd) {
     return { authenticated: true, method: "service_account" };
   }
 
-  // Try ACP authenticate method.
+  // Try ACP: connect, inspect authMethods from initialize, then probe each.
   try {
     const client = await GeminiAcpClient.connect(cwd, { disableBroker: true });
     try {
-      const result = await client.request("authenticate", {});
-      return {
-        authenticated: result?.authenticated ?? false,
-        method: result?.method ?? null
-      };
+      const authMethods = client.capabilities?.authMethods ?? [];
+      // Try oauth-personal first (most common for interactive users),
+      // then fall back to any other available method.
+      const methodOrder = ["oauth-personal", "gemini-api-key", "vertex-ai", "cloud-shell", "compute-default-credentials", "gateway"];
+      const available = methodOrder.filter((m) => authMethods.some((am) => am.id === m));
+
+      for (const methodId of available) {
+        try {
+          const result = await client.request("authenticate", { methodId });
+          // A successful (non-error) response that doesn't explicitly say
+          // authenticated:false means the user is already authenticated.
+          if (result && result.authenticated !== false) {
+            return { authenticated: true, method: methodId };
+          }
+        } catch {
+          // This method isn't authenticated, try next.
+          continue;
+        }
+      }
+
+      return { authenticated: false, method: null };
     } finally {
       await client.close();
     }
@@ -114,65 +130,103 @@ export function getSessionRuntimeStatus(env, cwd) {
  * @returns {Promise<TurnResult>}
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
+  // Collect streamed text and tool calls from session/update notifications.
+  const textChunks = [];
+  const toolCalls = [];
+  const fileChanges = [];
+
+  const notificationHandler = (notification) => {
+    const update = notification.params?.update;
+    if (!update) {
+      return;
+    }
+
+    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
+      textChunks.push(update.content.text);
+    } else if (update.sessionUpdate === "tool_call") {
+      toolCalls.push({
+        name: update.toolName ?? update.name ?? "unknown",
+        arguments: update.arguments ?? update.input ?? {},
+        result: update.result ?? undefined
+      });
+    } else if (update.sessionUpdate === "file_change") {
+      fileChanges.push({
+        path: update.path ?? "",
+        action: update.action ?? "modify"
+      });
+    }
+
+    // Forward to caller's handler if provided.
+    if (options.onNotification) {
+      options.onNotification(notification);
+    }
+  };
+
   const client = await GeminiAcpClient.connect(cwd, {
     env: options.env,
-    onNotification: options.onNotification
+    onNotification: notificationHandler
   });
 
   try {
-    // Set approval mode if requested.
-    if (options.approvalMode) {
-      await client.request("setSessionMode", {
-        approvalMode: options.approvalMode
+    // Create or load session.
+    let sessionId = options.sessionId ?? null;
+    if (sessionId) {
+      await client.request("session/load", { sessionId, cwd, mcpServers: [] });
+    } else {
+      const session = await client.request("session/new", {
+        cwd,
+        mcpServers: []
       });
+      sessionId = session?.sessionId ?? null;
+    }
+
+    // Set approval mode (defaults to autoEdit if not specified).
+    {
+      const modeMap = { auto_edit: "autoEdit", default: "default", yolo: "yolo", plan: "plan" };
+      const modeId = modeMap[options.approvalMode ?? "auto_edit"] ?? options.approvalMode;
+      try {
+        await client.request("session/set_mode", { sessionId, modeId });
+      } catch (error) {
+        process.stderr.write(`Warning: could not set mode to ${modeId}: ${error?.message ?? error}\n`);
+      }
     }
 
     // Set model if requested.
     if (options.model) {
       try {
-        await client.request("unstable_setSessionModel", {
-          model: options.model
-        });
+        await client.request("session/set_model", { sessionId, modelId: options.model });
       } catch (error) {
         process.stderr.write(`Warning: could not set model to ${options.model}: ${error?.message ?? error}\n`);
       }
     }
 
-    // Create or load session.
-    let sessionId = options.sessionId ?? null;
-    if (sessionId) {
-      await client.request("loadSession", { sessionId });
-    } else {
-      const session = await client.request("newSession", {
-        approvalMode: options.approvalMode ?? "auto_edit"
-      });
-      sessionId = session?.sessionId ?? null;
-    }
-
-    // Send prompt.
-    const result = await client.request("prompt", {
-      text: prompt,
+    // Send prompt — ACP v1 expects prompt as ContentBlock[].
+    // Text is streamed via session/update notifications; the response only has metadata.
+    const result = await client.request("session/prompt", {
       sessionId,
-      model: options.model ?? undefined
+      prompt: [{ type: "text", text: prompt }]
     });
 
+    const text = textChunks.join("");
+    const usage = result?._meta?.quota?.token_count ?? null;
+
     return {
-      sessionId: result?.sessionId ?? sessionId,
-      text: result?.text ?? "",
-      model: result?.model ?? options.model ?? null,
-      usage: result?.usage ?? null,
-      toolCalls: result?.toolCalls ?? [],
-      fileChanges: result?.fileChanges ?? [],
+      sessionId,
+      text,
+      model: result?._meta?.quota?.model_usage?.[0]?.model ?? options.model ?? null,
+      usage,
+      toolCalls,
+      fileChanges,
       error: null
     };
   } catch (error) {
     return {
       sessionId: null,
-      text: "",
+      text: textChunks.join(""),
       model: null,
       usage: null,
-      toolCalls: [],
-      fileChanges: [],
+      toolCalls,
+      fileChanges,
       error
     };
   } finally {
@@ -301,10 +355,10 @@ export async function interruptAcpPrompt(cwd, options = {}) {
       env: options.env
     });
     try {
-      const result = await client.request("cancel", {
+      client.notify("session/cancel", {
         sessionId: options.sessionId
       });
-      return { attempted: true, interrupted: result?.cancelled ?? false };
+      return { attempted: true, interrupted: true };
     } finally {
       await client.close();
     }
