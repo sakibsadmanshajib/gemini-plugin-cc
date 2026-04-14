@@ -32,6 +32,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
+# Local Claude Code settings (contain absolute paths)
+.claude/settings.local.json
+
 # Debug logs
 npm-debug.log*
 yarn-debug.log*

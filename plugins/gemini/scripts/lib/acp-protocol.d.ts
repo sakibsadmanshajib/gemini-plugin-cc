@@ -158,11 +158,11 @@ export type AcpNotification =
 export interface AcpMethodMap {
   initialize: { params: InitializeParams; result: InitializeResult };
   authenticate: { params: AuthenticateParams; result: AuthenticateResult };
-  newSession: { params: NewSessionParams; result: NewSessionResult };
-  loadSession: { params: LoadSessionParams; result: LoadSessionResult };
-  prompt: { params: PromptParams; result: PromptResult };
-  cancel: { params: CancelParams; result: CancelResult };
-  setSessionMode: { params: SetSessionModeParams; result: SetSessionModeResult };
-  "unstable_setSessionModel": { params: SetSessionModelParams; result: SetSessionModelResult };
+  "session/new": { params: NewSessionParams; result: NewSessionResult };
+  "session/load": { params: LoadSessionParams; result: LoadSessionResult };
+  "session/send_message": { params: PromptParams; result: PromptResult };
+  "session/cancel": { params: CancelParams; result: CancelResult };
+  "session/set_mode": { params: SetSessionModeParams; result: SetSessionModeResult };
+  "session/set_model": { params: SetSessionModelParams; result: SetSessionModelResult };
   "broker/shutdown": { params: BrokerShutdownParams; result: BrokerShutdownResult };
 }

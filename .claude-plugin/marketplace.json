@@ -1,7 +1,7 @@
 {
   "name": "google-gemini",
   "owner": {
-    "name": "Google"
+    "name": "Sakib Sadman Shajib"
   },
   "metadata": {
     "description": "Gemini plugins to use in Claude Code for delegation and code review.",
@@ -13,7 +13,7 @@
       "description": "Use Gemini from Claude Code to review code or delegate tasks.",
       "version": "1.0.0",
       "author": {
-        "name": "Google"
+        "name": "Sakib Sadman Shajib"
       },
       "source": "./plugins/gemini"
     }

@@ -2,7 +2,7 @@
 
 Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to review code or delegate tasks.
 
-> **Origin:** This plugin is a port of [codex-plugin-cc](https://github.com/sakibsadmanshajib/codex-plugin-cc), adapted from OpenAI's Codex App Server Protocol to Google's ACP (Agent Client Protocol). See [Differences from codex-plugin-cc](#differences-from-codex-plugin-cc) for details.
+> **Origin:** This plugin is a port of [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), adapted from OpenAI's Codex App Server Protocol to Google's ACP (Agent Client Protocol). See [Differences from codex-plugin-cc](#differences-from-codex-plugin-cc) for details.
 
 ## What You Get
 
@@ -212,7 +212,7 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 
 ## Differences from codex-plugin-cc
 
-This plugin is a port of [codex-plugin-cc](https://github.com/sakibsadmanshajib/codex-plugin-cc), which wraps OpenAI's Codex CLI. The two plugins share the same command interface and plugin structure, but differ in how they communicate with their respective AI backends.
+This plugin is a port of [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), which wraps OpenAI's Codex CLI. The two plugins share the same command interface and plugin structure, but differ in how they communicate with their respective AI backends.
 
 ### Protocol
 

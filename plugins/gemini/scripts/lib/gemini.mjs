@@ -14,6 +14,22 @@ import { collectReviewContext } from "./git.mjs";
 import { loadPrompt } from "./prompts.mjs";
 
 /**
+ * Escape content embedded in XML-style prompt tags so that user-controlled
+ * text (diffs, file contents) cannot close the containing tag and break
+ * the prompt structure.
+ *
+ * @param {string} content
+ * @param {string} tagName — the enclosing tag name to protect
+ * @returns {string}
+ */
+function escapeXmlContent(content, tagName) {
+  if (!content) return content;
+  // Escape any closing tag that matches the container (case-insensitive).
+  const pattern = new RegExp(`</${tagName}`, "gi");
+  return content.replace(pattern, `<\\/${tagName}`);
+}
+
+/**
  * @typedef {{
  *   onProgress?: (message: string) => void
  * }} ProgressReporter
@@ -297,12 +313,12 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
   // Build the collection guidance based on context.
   let reviewCollectionGuidance = "";
   if (context.diff) {
-    reviewCollectionGuidance += `\n<diff>\n${context.diff}\n</diff>\n`;
+    reviewCollectionGuidance += `\n<diff>\n${escapeXmlContent(context.diff, "diff")}\n</diff>\n`;
   }
   if (context.untrackedContents?.length > 0) {
     for (const file of context.untrackedContents) {
       if (file.content) {
-        reviewCollectionGuidance += `\n<untracked_file path="${file.path}">\n${file.content}\n</untracked_file>\n`;
+        reviewCollectionGuidance += `\n<untracked_file path="${file.path}">\n${escapeXmlContent(file.content, "untracked_file")}\n</untracked_file>\n`;
       }
     }
   }
@@ -477,14 +493,14 @@ function buildReviewPrompt(scope, context) {
 
   if (context.diff) {
     lines.push("<diff>");
-    lines.push(context.diff);
+    lines.push(escapeXmlContent(context.diff, "diff"));
     lines.push("</diff>");
     lines.push("");
   }
 
   if (context.commits) {
     lines.push("<commits>");
-    lines.push(context.commits);
+    lines.push(escapeXmlContent(context.commits, "commits"));
     lines.push("</commits>");
     lines.push("");
   }
@@ -493,7 +509,7 @@ function buildReviewPrompt(scope, context) {
     for (const file of context.untrackedContents) {
       if (file.content) {
         lines.push(`<untracked_file path="${file.path}">`);
-        lines.push(file.content);
+        lines.push(escapeXmlContent(file.content, "untracked_file"));
         lines.push("</untracked_file>");
         lines.push("");
       }

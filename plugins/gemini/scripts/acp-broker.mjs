@@ -276,8 +276,8 @@ function writePidFile(pidFile) {
   if (!pidFile) {
     return;
   }
-  fs.mkdirSync(path.dirname(pidFile), { recursive: true });
-  fs.writeFileSync(pidFile, `${process.pid}\n`, "utf8");
+  fs.mkdirSync(path.dirname(pidFile), { recursive: true, mode: 0o700 });
+  fs.writeFileSync(pidFile, `${process.pid}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
 let server = null;
@@ -338,8 +338,9 @@ async function main() {
   server = net.createServer(handleClientConnection);
 
   if (target.kind === "unix") {
-    fs.mkdirSync(path.dirname(target.path), { recursive: true });
+    fs.mkdirSync(path.dirname(target.path), { recursive: true, mode: 0o700 });
     server.listen(target.path, () => {
+      try { fs.chmodSync(target.path, 0o600); } catch { /* best-effort */ }
       process.stderr.write(`ACP broker listening on ${target.path}\n`);
     });
   } else {

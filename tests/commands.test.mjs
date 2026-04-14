@@ -14,7 +14,7 @@ function read(relativePath) {
 test("review command is a deterministic direct-execution entrypoint", () => {
   const source = read("commands/review.md");
   assert.match(source, /disable-model-invocation:\s*true/);
-  assert.match(source, /gemini-companion\.mjs" review \$ARGUMENTS/);
+  assert.match(source, /gemini-companion\.mjs" review "\$ARGUMENTS"/);
   assert.match(source, /Do not paraphrase, summarize, or add your own commentary/i);
   assert.match(source, /Do not make any code changes/i);
   assert.match(source, /\[--base <ref>\]/);
@@ -24,7 +24,7 @@ test("review command is a deterministic direct-execution entrypoint", () => {
 test("adversarial review command is a deterministic direct-execution entrypoint", () => {
   const source = read("commands/adversarial-review.md");
   assert.match(source, /disable-model-invocation:\s*true/);
-  assert.match(source, /gemini-companion\.mjs" adversarial-review \$ARGUMENTS/);
+  assert.match(source, /gemini-companion\.mjs" adversarial-review "\$ARGUMENTS"/);
   assert.match(source, /Do not paraphrase, summarize, or add your own commentary/i);
   assert.match(source, /Do not make any code changes/i);
   assert.match(source, /Do not fix any issues/i);
@@ -143,7 +143,7 @@ test("setup command can offer Gemini install and still points users to gemini au
   assert.match(setup, /argument-hint:\s*'\[--enable-review-gate\|--disable-review-gate\]'/);
   assert.match(setup, /AskUserQuestion/);
   assert.match(setup, /npm install -g @google\/gemini-cli/);
-  assert.match(setup, /gemini-companion\.mjs" setup --json \$ARGUMENTS/);
+  assert.match(setup, /gemini-companion\.mjs" setup --json "\$ARGUMENTS"/);
   assert.match(readme, /!gemini/);
   assert.match(readme, /offer to install.*for you/i);
   assert.match(readme, /\/gemini:setup --enable-review-gate/);

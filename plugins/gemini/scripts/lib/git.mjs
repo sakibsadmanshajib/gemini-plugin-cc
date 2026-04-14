@@ -170,9 +170,21 @@ export function readUntrackedFiles(cwd, files, options = {}) {
   for (const file of files) {
     const fullPath = path.join(cwd, file);
     try {
-      const stat = fs.statSync(fullPath);
+      // Use lstat to detect symlinks without following them.
+      const stat = fs.lstatSync(fullPath);
+      if (stat.isSymbolicLink()) {
+        results.push({ path: file, skipped: "symlink" });
+        continue;
+      }
       if (!stat.isFile()) {
         results.push({ path: file, skipped: "not a regular file" });
+        continue;
+      }
+      // Verify the resolved path stays inside the workspace.
+      const realPath = fs.realpathSync(fullPath);
+      const realCwd = fs.realpathSync(cwd);
+      if (!realPath.startsWith(realCwd + path.sep) && realPath !== realCwd) {
+        results.push({ path: file, skipped: "outside workspace" });
         continue;
       }
       if (totalBytes + stat.size > maxBytes) {

@@ -81,7 +81,7 @@ export function resolveBrokerSessionFile(cwd) {
 }
 
 export function ensureStateDir(cwd) {
-  fs.mkdirSync(resolveJobsDir(cwd), { recursive: true });
+  fs.mkdirSync(resolveJobsDir(cwd), { recursive: true, mode: 0o700 });
 }
 
 export function loadState(cwd) {
@@ -139,7 +139,7 @@ export function saveState(cwd, state) {
     }
   }
 
-  fs.writeFileSync(resolveStateFile(cwd), JSON.stringify(nextState, null, 2), "utf8");
+  fs.writeFileSync(resolveStateFile(cwd), JSON.stringify(nextState, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
 export function getConfig(cwd) {
@@ -183,14 +183,14 @@ export function readJobFile(cwd, jobId) {
 export function writeJobFile(cwd, jobId, data) {
   ensureStateDir(cwd);
   const filePath = resolveJobFile(cwd, jobId);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
 }
 
 export function appendJobLog(cwd, jobId, line) {
   ensureStateDir(cwd);
   const logPath = resolveJobLogFile(cwd, jobId);
   const timestamp = new Date().toISOString();
-  fs.appendFileSync(logPath, `[${timestamp}] ${line}\n`, "utf8");
+  fs.appendFileSync(logPath, `[${timestamp}] ${line}\n`, { encoding: "utf8", mode: 0o600 });
 }
 
 export function readJobLog(cwd, jobId) {
