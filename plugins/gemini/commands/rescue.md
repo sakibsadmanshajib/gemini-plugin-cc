@@ -1,5 +1,4 @@
 ---
-name: rescue
 description: Delegate a task to Gemini for debugging, implementation, or deeper investigation
 argument-hint: '<task description> [--background] [--wait] [--resume] [--fresh] [--model <name>] [--thinking-budget <number>] [--approval-mode <mode>]'
 context: fork

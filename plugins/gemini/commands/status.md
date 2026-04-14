@@ -1,5 +1,4 @@
 ---
-name: status
 description: Show active and recent Gemini jobs for this repository, including review-gate status
 argument-hint: '[job-id] [--wait] [--timeout-ms <ms>] [--all]'
 disable-model-invocation: true

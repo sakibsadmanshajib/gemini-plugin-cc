@@ -1,5 +1,4 @@
 ---
-name: adversarial-review
 description: Run a steerable adversarial Gemini review of working-tree or branch changes in this repository
 argument-hint: '[focus text] [--base <ref>] [--scope <auto|working-tree|branch>] [--wait|--background] [--model <name>] [--json]'
 disable-model-invocation: true

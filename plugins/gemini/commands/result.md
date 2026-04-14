@@ -1,5 +1,4 @@
 ---
-name: result
 description: Show the stored final output for a finished Gemini job in this repository
 argument-hint: '[job-id]'
 disable-model-invocation: true

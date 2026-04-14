@@ -1,5 +1,4 @@
 ---
-name: review
 description: Run a Gemini code review of working-tree or branch changes in this repository
 argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--wait|--background] [--model <name>] [--json]'
 disable-model-invocation: true
