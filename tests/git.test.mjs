@@ -84,6 +84,44 @@ test("collectReviewContext skips broken untracked symlinks instead of crashing",
   assert.ok(typeof context === "object");
 });
 
+test("collectReviewContext throws on invalid scope value", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  assert.throws(
+    () => collectReviewContext(cwd, { scope: "invalid" }),
+    /Invalid scope "invalid"\. Must be one of: auto, working-tree, branch/
+  );
+});
+
+test("collectReviewContext throws on typo like 'brach' instead of 'branch'", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  assert.throws(
+    () => collectReviewContext(cwd, { scope: "brach", base: "main" }),
+    /Invalid scope "brach"/
+  );
+});
+
+test("collectReviewContext accepts valid 'working-tree' scope", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  const result = collectReviewContext(cwd, { scope: "working-tree" });
+
+  assert.equal(result.scope, "working-tree");
+});
+
 test("collectReviewContext handles untracked directories in working tree", () => {
   const cwd = makeTempDir();
   initGitRepo(cwd);
