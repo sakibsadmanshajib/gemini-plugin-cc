@@ -45,7 +45,7 @@ Invocation:
   - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`
   - Gemini 3.x concrete: `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-preview`, `gemini-3-flash-preview`
   - Gemini 2.5 concrete: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
-- `pro` resolves to `gemini-3.1-pro-preview` (use for deep reasoning, complex implementation, security analysis). `flash` resolves to `gemini-3-flash-preview` and `flash-lite` resolves to `gemini-3.1-flash-lite-preview` — use those only when the user explicitly requests speed over capability.
+- `pro` resolves to `gemini-3.1-pro-preview` (use for deep reasoning, complex implementation, security analysis). `flash` resolves to `gemini-3-flash-preview`; `flash-lite` resolves to `gemini-3.1-flash-lite-preview`. These aliases are optimized for speed-sensitive scenarios and are honored whenever the user explicitly passes them.
 - Treat `--resume` as `--resume-last` when building the command.
 - Treat `--fresh` as meaning do not add `--resume-last`.
 - Strip `--resume`, `--fresh`, `--background`, and `--wait` from the task text.

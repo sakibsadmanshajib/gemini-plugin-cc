@@ -55,7 +55,7 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion/);
   assert.match(rescue, /--background\|--wait/);
   assert.match(rescue, /--resume\|--fresh/);
-  assert.match(rescue, /--model auto-gemini-3/);
+  assert.match(rescue, /--model auto-gemini-3\|auto-gemini-2\.5\|pro\|flash\|flash-lite\|/);
   assert.match(rescue, /--thinking-budget <number>/);
   assert.match(rescue, /task-resume-candidate --json/);
   assert.match(rescue, /AskUserQuestion/);
@@ -84,6 +84,8 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget/i);
   assert.match(agent, /The default model is `auto-gemini-3`/i);
+  assert.match(agent, /auto-gemini-2\.5/i);
+  assert.match(agent, /\bpro\b/i);
   assert.match(agent, /If the user asks for `flash`, map that to `--model gemini-3-flash-preview`/i);
   assert.match(agent, /Return the stdout of the `gemini-companion` command exactly as-is/i);
   assert.match(agent, /If the Bash call fails or Gemini cannot be invoked, return nothing/i);

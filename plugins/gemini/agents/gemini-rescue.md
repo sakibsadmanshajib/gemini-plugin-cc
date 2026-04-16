@@ -28,7 +28,7 @@ Forwarding rules:
 - Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`. This subagent only forwards to `task`.
 - Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget.
 - The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly asks for a different model — the runtime applies the default automatically.
-- If the user specifies a model, pass it as `--model <name>`. Accepted values:
+- If the user specifies a model, pass it as `--model <name>`. The runtime forwards the value to Gemini CLI; any model ID supported by Gemini CLI is valid. Common values include:
   - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`
   - Gemini 3.x concrete: `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-preview`, `gemini-3-flash-preview`
   - Gemini 2.5 concrete: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`

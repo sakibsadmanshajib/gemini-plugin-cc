@@ -54,6 +54,8 @@ The default model is **`auto-gemini-3`**, which routes to the best available Gem
 | `gemini-2.5-flash` | Gemini 2.5 |
 | `gemini-2.5-flash-lite` | Gemini 2.5 |
 
+Unlisted model IDs are forwarded as-is to Gemini CLI.
+
 ## Safety Rules
 
 - Exactly one Bash call per rescue invocation.
