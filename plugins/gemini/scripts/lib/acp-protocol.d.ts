@@ -160,7 +160,7 @@ export interface AcpMethodMap {
   authenticate: { params: AuthenticateParams; result: AuthenticateResult };
   "session/new": { params: NewSessionParams; result: NewSessionResult };
   "session/load": { params: LoadSessionParams; result: LoadSessionResult };
-  "session/send_message": { params: PromptParams; result: PromptResult };
+  "session/prompt": { params: PromptParams; result: PromptResult };
   "session/cancel": { params: CancelParams; result: CancelResult };
   "session/set_mode": { params: SetSessionModeParams; result: SetSessionModeResult };
   "session/set_model": { params: SetSessionModelParams; result: SetSessionModelResult };
