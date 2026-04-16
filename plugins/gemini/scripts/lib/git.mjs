@@ -293,8 +293,16 @@ export function buildBranchComparison(cwd, baseRef) {
  * @param {{ scope?: "auto" | "working-tree" | "branch", base?: string }} [options]
  * @returns {{ scope: string, context: any }}
  */
+const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
+
 export function collectReviewContext(cwd, options = {}) {
   const scope = options.scope ?? "auto";
+
+  if (!VALID_SCOPES.has(scope)) {
+    throw new Error(
+      `Invalid scope "${scope}". Must be one of: ${[...VALID_SCOPES].join(", ")}`
+    );
+  }
 
   if (scope === "branch" && options.base) {
     return {
