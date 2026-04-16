@@ -55,7 +55,7 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion/);
   assert.match(rescue, /--background\|--wait/);
   assert.match(rescue, /--resume\|--fresh/);
-  assert.match(rescue, /--model <name>/);
+  assert.match(rescue, /--model auto-gemini-3\|auto-gemini-2\.5\|pro\|flash\|flash-lite\|/);
   assert.match(rescue, /--thinking-budget <number>/);
   assert.match(rescue, /task-resume-candidate --json/);
   assert.match(rescue, /AskUserQuestion/);
@@ -65,8 +65,8 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /Do not forward them to `task`/i);
   assert.match(rescue, /`--model` and `--thinking-budget` are runtime-selection flags/i);
   assert.match(rescue, /Leave `--thinking-budget` unset unless the user explicitly asks/i);
-  assert.match(rescue, /If they ask for `flash`, map it to `--model gemini-2\.5-flash`/i);
-  assert.match(rescue, /If they ask for `flash-lite`, map it to `--model gemini-2\.5-flash-lite`/i);
+  assert.match(rescue, /The default model is `auto-gemini-3`/i);
+  assert.match(rescue, /auto-gemini-2\.5/i);
   assert.match(rescue, /If the request includes `--resume`, do not ask whether to continue/i);
   assert.match(rescue, /If the request includes `--fresh`, do not ask whether to continue/i);
   assert.match(rescue, /thin forwarding wrapper/i);
@@ -83,8 +83,10 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
   assert.match(agent, /Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget/i);
-  assert.match(agent, /Leave model unset by default/i);
-  assert.match(agent, /If the user asks for `flash`, map that to `--model gemini-2\.5-flash`/i);
+  assert.match(agent, /The default model is `auto-gemini-3`/i);
+  assert.match(agent, /auto-gemini-2\.5/i);
+  assert.match(agent, /\bpro\b/i);
+  assert.match(agent, /If the user asks for `flash`, map that to `--model gemini-3-flash-preview`/i);
   assert.match(agent, /Return the stdout of the `gemini-companion` command exactly as-is/i);
   assert.match(agent, /If the Bash call fails or Gemini cannot be invoked, return nothing/i);
   assert.match(agent, /gemini-prompting/);
@@ -93,7 +95,7 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(runtimeSkill, /gemini-companion\.mjs" task/);
   assert.match(runtimeSkill, /--resume-last/);
   assert.match(readme, /`gemini:gemini-rescue` subagent/i);
-  assert.match(readme, /if you do not pass `--model`, Gemini chooses its own defaults/i);
+  assert.match(readme, /if you do not pass `--model`, the plugin defaults to `auto-gemini-3`/i);
   assert.match(readme, /### `\/gemini:setup`/);
   assert.match(readme, /### `\/gemini:review`/);
   assert.match(readme, /### `\/gemini:adversarial-review`/);

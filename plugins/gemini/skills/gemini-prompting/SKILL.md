@@ -10,6 +10,30 @@ user-invocable: false
 
 Use this skill only to shape the prompt text before forwarding it to the `gemini-companion` runtime. Do not use it to do independent work, inspect the repository, or draft solutions.
 
+## Model Selection
+
+The default model is **`auto-gemini-3`**. Only override it when the action type has a clear reason to use a different tier.
+
+### Action-based routing
+
+| Action type | Examples | Recommended model |
+|-------------|----------|-------------------|
+| Deep reasoning / root-cause diagnosis | Multi-file bug investigation, security audit, architecture review | `pro` (`gemini-3.1-pro-preview`) |
+| Complex implementation | Refactor across many files, design a new subsystem, write an algorithm | `pro` (`gemini-3.1-pro-preview`) |
+| Standard code tasks | Fix a specific bug, implement a well-scoped feature, write tests | `auto-gemini-3` (default — omit `--model`) |
+| Code review / adversarial review | `/gemini:review`, `/gemini:adversarial-review` | `auto-gemini-3` (default — omit `--model`) |
+| Quick lookup / simple edit | One-liner fix, rename, trivial grep-and-replace | `flash` (`gemini-3-flash-preview`) |
+| Latency-critical / high-volume | CI pre-check, tight feedback loop, batch summarisation | `flash-lite` (`gemini-3.1-flash-lite-preview`) |
+| Production-stable (no previews) | Workloads that must avoid preview model churn | `auto-gemini-2.5` |
+
+### Decision rule
+
+1. User explicitly named a model → use it, pass as `--model <name>`.
+2. Task involves deep reasoning, complex multi-file implementation, or security analysis → use `--model pro`.
+3. Task is a standard code fix, feature, or review → omit `--model` (defaults to `auto-gemini-3`).
+4. User asked for speed or the task is trivially small → use `--model flash` or `--model flash-lite`.
+5. User requires preview-free stability → use `--model auto-gemini-2.5`.
+
 ## Gemini Model Characteristics
 
 - **Long context**: Gemini models handle up to 1M tokens of context. Lean into providing full file contents rather than snippets.

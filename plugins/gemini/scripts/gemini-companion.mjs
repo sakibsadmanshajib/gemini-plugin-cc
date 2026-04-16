@@ -65,10 +65,56 @@ const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
+const DEFAULT_MODEL = "auto-gemini-3";
+const MIN_GEMINI_VERSION_FOR_V3_MODELS = [0, 33, 0];
+
+function parseVersionTuple(versionString) {
+  const m = String(versionString ?? "").match(/^(\d+)\.(\d+)\.(\d+)/);
+  return m ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)] : null;
+}
+
+function versionMeetsMinimum(tuple, minimum) {
+  for (let i = 0; i < 3; i++) {
+    if (tuple[i] > minimum[i]) return true;
+    if (tuple[i] < minimum[i]) return false;
+  }
+  return true;
+}
+
+function assertGemini3ModelVersionCompatibility(requestedModel) {
+  const key = requestedModel ?? DEFAULT_MODEL;
+  const resolved = MODEL_ALIASES.get(key) ?? key;
+  if (!/^(auto-gemini-3|gemini-3)/.test(resolved)) return;
+
+  const { available, version } = getGeminiAvailability();
+  if (!available || !version) return;
+
+  const tuple = parseVersionTuple(version);
+  if (tuple && !versionMeetsMinimum(tuple, MIN_GEMINI_VERSION_FOR_V3_MODELS)) {
+    throw new Error(
+      `Model "${key}" (→ "${resolved}") requires @google/gemini-cli >= 0.33.0 but ${version} is installed.\n` +
+      `Upgrade with: npm install -g @google/gemini-cli\n` +
+      `Or use a Gemini 2.5 model: --model auto-gemini-2.5`
+    );
+  }
+}
+
 const MODEL_ALIASES = new Map([
-  ["flash", "gemini-2.5-flash"],
-  ["flash-lite", "gemini-2.5-flash-lite"],
-  ["pro", "gemini-2.5-pro"]
+  // Auto-routing aliases (recommended — CLI routes to best available model in tier)
+  ["auto-gemini-3", "auto-gemini-3"],           // Routes to Gemini 3.1 or 3 models
+  ["auto-gemini-2.5", "auto-gemini-2.5"],       // Routes to Gemini 2.5 models
+  ["pro", "gemini-3.1-pro-preview"],             // "pro" maps to Gemini 3.1 Pro
+  ["flash", "gemini-3-flash-preview"],
+  ["flash-lite", "gemini-3.1-flash-lite-preview"],
+  // Gemini 3.x concrete model IDs
+  ["gemini-3.1-pro-preview", "gemini-3.1-pro-preview"],
+  ["gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"],
+  ["gemini-3-pro-preview", "gemini-3-pro-preview"],
+  ["gemini-3-flash-preview", "gemini-3-flash-preview"],
+  // Gemini 2.5 concrete model IDs
+  ["gemini-2.5-pro", "gemini-2.5-pro"],
+  ["gemini-2.5-flash", "gemini-2.5-flash"],
+  ["gemini-2.5-flash-lite", "gemini-2.5-flash-lite"]
 ]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
@@ -94,10 +140,8 @@ function resolveCommandCwd(options) {
 }
 
 function resolveModel(value) {
-  if (!value) {
-    return undefined;
-  }
-  return MODEL_ALIASES.get(value) ?? value;
+  const key = value ?? DEFAULT_MODEL;
+  return MODEL_ALIASES.get(key) ?? key;
 }
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
@@ -162,6 +206,7 @@ async function handleReview(argv) {
     return runReviewInBackground(workspaceRoot, options, "review");
   }
 
+  assertGemini3ModelVersionCompatibility(options.model);
   const result = await runAcpReview(cwd, {
     scope: options.scope,
     base: options.base,
@@ -199,6 +244,7 @@ async function handleReviewCommand(argv, { reviewName }) {
     return runReviewInBackground(workspaceRoot, { ...options, focus }, "adversarial-review");
   }
 
+  assertGemini3ModelVersionCompatibility(options.model);
   const result = await runAcpAdversarialReview(cwd, {
     scope: options.scope,
     base: options.base,
@@ -238,6 +284,7 @@ async function handleTask(argv) {
     process.exit(1);
   }
 
+  assertGemini3ModelVersionCompatibility(options.model);
   const model = resolveModel(options.model);
   const approvalMode = options.write ? "auto_edit" : (options["approval-mode"] ?? "default");
 
@@ -538,6 +585,7 @@ async function handleTaskResumeCandidate(argv) {
 // ─── Background Helpers ───────────────────────────────────────────────────────
 
 function runReviewInBackground(workspaceRoot, options, kind) {
+  assertGemini3ModelVersionCompatibility(options.model);
   const job = createTrackedJob({
     workspaceRoot,
     kind,

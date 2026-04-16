@@ -1,6 +1,6 @@
 ---
 description: Delegate a task to Gemini for debugging, implementation, or deeper investigation
-argument-hint: "[--background|--wait] [--resume|--fresh] [--model <name>] [--thinking-budget <number>] [--approval-mode <mode>] [what Gemini should investigate, solve, or continue]"
+argument-hint: "[--background|--wait] [--resume|--fresh] [--model auto-gemini-3|auto-gemini-2.5|pro|flash|flash-lite|<concrete-model-id>] [--thinking-budget <number>] [--approval-mode <mode>] [what Gemini should investigate, solve, or continue]"
 context: fork
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -40,8 +40,12 @@ Invocation:
 - Use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-companion.mjs" task ...` and return that command's stdout as-is.
 - Default to a write-capable Gemini run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
 - Leave `--thinking-budget` unset unless the user explicitly asks for a specific thinking budget.
-- Leave the model unset unless the user explicitly asks for one. If they ask for `flash`, map it to `--model gemini-2.5-flash`. If they ask for `flash-lite`, map it to `--model gemini-2.5-flash-lite`.
-- If the user asks for a concrete model name such as `gemini-3-pro-preview`, pass it through with `--model`.
+- The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly names a different model — the runtime applies the default automatically.
+- If the user specifies a model name, pass it as `--model <name>`. Accepted values:
+  - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`
+  - Gemini 3.x concrete: `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-preview`, `gemini-3-flash-preview`
+  - Gemini 2.5 concrete: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
+- `pro` resolves to `gemini-3.1-pro-preview` (use for deep reasoning, complex implementation, security analysis). `flash` resolves to `gemini-3-flash-preview`; `flash-lite` resolves to `gemini-3.1-flash-lite-preview`. These aliases are optimized for speed-sensitive scenarios and are honored whenever the user explicitly passes them.
 - Treat `--resume` as `--resume-last` when building the command.
 - Treat `--fresh` as meaning do not add `--resume-last`.
 - Strip `--resume`, `--fresh`, `--background`, and `--wait` from the task text.
