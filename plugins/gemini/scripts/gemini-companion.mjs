@@ -65,10 +65,24 @@ const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
 const DEFAULT_STATUS_WAIT_TIMEOUT_MS = 240000;
 const DEFAULT_STATUS_POLL_INTERVAL_MS = 2000;
+const DEFAULT_MODEL = "auto-gemini-3";
+
 const MODEL_ALIASES = new Map([
-  ["flash", "gemini-2.5-flash"],
-  ["flash-lite", "gemini-2.5-flash-lite"],
-  ["pro", "gemini-2.5-pro"]
+  // Auto-routing aliases (recommended — CLI routes to best available model in tier)
+  ["auto-gemini-3", "auto-gemini-3"],           // Routes to Gemini 3.1 or 3 models
+  ["auto-gemini-2.5", "auto-gemini-2.5"],       // Routes to Gemini 2.5 models
+  ["pro", "auto-gemini-3"],                     // "pro" now routes via auto-gemini-3
+  ["flash", "gemini-3-flash-preview"],
+  ["flash-lite", "gemini-3.1-flash-lite-preview"],
+  // Gemini 3.x concrete model IDs
+  ["gemini-3.1-pro-preview", "gemini-3.1-pro-preview"],
+  ["gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"],
+  ["gemini-3-pro-preview", "gemini-3-pro-preview"],
+  ["gemini-3-flash-preview", "gemini-3-flash-preview"],
+  // Gemini 2.5 concrete model IDs
+  ["gemini-2.5-pro", "gemini-2.5-pro"],
+  ["gemini-2.5-flash", "gemini-2.5-flash"],
+  ["gemini-2.5-flash-lite", "gemini-2.5-flash-lite"]
 ]);
 const STOP_REVIEW_TASK_MARKER = "Run a stop-gate review of the previous Claude turn.";
 
@@ -94,10 +108,8 @@ function resolveCommandCwd(options) {
 }
 
 function resolveModel(value) {
-  if (!value) {
-    return undefined;
-  }
-  return MODEL_ALIASES.get(value) ?? value;
+  const key = value ?? DEFAULT_MODEL;
+  return MODEL_ALIASES.get(key) ?? key;
 }
 
 // ─── Setup ────────────────────────────────────────────────────────────────────

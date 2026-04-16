@@ -27,10 +27,13 @@ Forwarding rules:
 - Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own.
 - Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`. This subagent only forwards to `task`.
 - Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget.
-- Leave model unset by default. Only add `--model` when the user explicitly asks for a specific model.
-- If the user asks for `flash`, map that to `--model gemini-2.5-flash`.
-- If the user asks for `flash-lite`, map that to `--model gemini-2.5-flash-lite`.
-- If the user asks for a concrete model name such as `gemini-3-pro-preview`, pass it through with `--model`.
+- The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly asks for a different model — the runtime applies the default automatically.
+- If the user specifies a model, pass it as `--model <name>`. Accepted values:
+  - Auto-routing: `auto-gemini-3`, `auto-gemini-2.5`, `pro`, `flash`, `flash-lite`
+  - Gemini 3.x concrete: `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-preview`, `gemini-3-flash-preview`
+  - Gemini 2.5 concrete: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
+- If the user asks for `flash`, map that to `--model gemini-3-flash-preview`.
+- If the user asks for `flash-lite`, map that to `--model gemini-3.1-flash-lite-preview`.
 - Treat `--thinking-budget <value>` and `--model <value>` as runtime controls and do not include them in the task text you pass through.
 - Default to a write-capable Gemini run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
 - Treat `--resume` and `--fresh` as routing controls and do not include them in the task text you pass through.

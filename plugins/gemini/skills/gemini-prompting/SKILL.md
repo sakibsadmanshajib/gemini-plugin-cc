@@ -10,6 +10,21 @@ user-invocable: false
 
 Use this skill only to shape the prompt text before forwarding it to the `gemini-companion` runtime. Do not use it to do independent work, inspect the repository, or draft solutions.
 
+## Model Selection
+
+The default model is **`auto-gemini-3`**. Only override it when the task has a clear reason to use a different tier.
+
+| Task type | Recommended model |
+|-----------|-------------------|
+| Complex reasoning, architecture review, deep diagnosis | `auto-gemini-3` (default) or `gemini-3.1-pro-preview` |
+| Standard code tasks, reviews, implementations | `auto-gemini-3` (default — no override needed) |
+| Speed-sensitive tasks, large batch processing | `flash` (`gemini-3-flash-preview`) |
+| Fastest possible, latency-critical | `flash-lite` (`gemini-3.1-flash-lite-preview`) |
+| Production-stable workloads (no preview models) | `auto-gemini-2.5` |
+| Pinned to a specific Gemini 3 preview | `gemini-3.1-pro-preview`, `gemini-3-pro-preview`, etc. |
+
+**Decision rule:** if the user did not specify a model and the task does not clearly demand speed or stability over capability, use the default (`auto-gemini-3`) and omit `--model` entirely.
+
 ## Gemini Model Characteristics
 
 - **Long context**: Gemini models handle up to 1M tokens of context. Lean into providing full file contents rather than snippets.

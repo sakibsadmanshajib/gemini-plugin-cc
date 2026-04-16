@@ -1,6 +1,6 @@
 ---
 description: Run a Gemini code review of working-tree or branch changes in this repository
-argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--wait|--background] [--model <name>] [--json]'
+argument-hint: '[--base <ref>] [--scope <auto|working-tree|branch>] [--wait|--background] [--model auto-gemini-3|flash|flash-lite|<model-id>] [--json]'
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Bash(node:*), Bash(git:*), AskUserQuestion
 ---
