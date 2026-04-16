@@ -29,9 +29,10 @@ Forwarding rules:
 - Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget.
 - The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly asks for a different model — the runtime applies the default automatically.
 - If the user specifies a model, pass it as `--model <name>`. Accepted values:
-  - Auto-routing: `auto-gemini-3`, `auto-gemini-2.5`, `pro`, `flash`, `flash-lite`
+  - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`
   - Gemini 3.x concrete: `gemini-3.1-pro-preview`, `gemini-3.1-flash-lite-preview`, `gemini-3-pro-preview`, `gemini-3-flash-preview`
   - Gemini 2.5 concrete: `gemini-2.5-pro`, `gemini-2.5-flash`, `gemini-2.5-flash-lite`
+- If the user asks for `pro`, map that to `--model gemini-3.1-pro-preview`.
 - If the user asks for `flash`, map that to `--model gemini-3-flash-preview`.
 - If the user asks for `flash-lite`, map that to `--model gemini-3.1-flash-lite-preview`.
 - Treat `--thinking-budget <value>` and `--model <value>` as runtime controls and do not include them in the task text you pass through.

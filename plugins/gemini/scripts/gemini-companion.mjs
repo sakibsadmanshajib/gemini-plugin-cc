@@ -71,7 +71,7 @@ const MODEL_ALIASES = new Map([
   // Auto-routing aliases (recommended — CLI routes to best available model in tier)
   ["auto-gemini-3", "auto-gemini-3"],           // Routes to Gemini 3.1 or 3 models
   ["auto-gemini-2.5", "auto-gemini-2.5"],       // Routes to Gemini 2.5 models
-  ["pro", "auto-gemini-3"],                     // "pro" now routes via auto-gemini-3
+  ["pro", "gemini-3.1-pro-preview"],             // "pro" maps to Gemini 3.1 Pro
   ["flash", "gemini-3-flash-preview"],
   ["flash-lite", "gemini-3.1-flash-lite-preview"],
   // Gemini 3.x concrete model IDs

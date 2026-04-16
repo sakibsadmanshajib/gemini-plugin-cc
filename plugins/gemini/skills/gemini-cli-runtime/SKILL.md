@@ -38,7 +38,7 @@ The default model is **`auto-gemini-3`**, which routes to the best available Gem
 |-------|-----------|
 | `auto-gemini-3` | Gemini 3.1 or 3 (best available) — **default** |
 | `auto-gemini-2.5` | Gemini 2.5 (stable, production) |
-| `pro` | Same as `auto-gemini-3` |
+| `pro` | `gemini-3.1-pro-preview` (highest capability) |
 | `flash` | `gemini-3-flash-preview` (speed-optimised) |
 | `flash-lite` | `gemini-3.1-flash-lite-preview` (fastest) |
 
