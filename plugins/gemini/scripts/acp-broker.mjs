@@ -19,6 +19,7 @@ import process from "node:process";
 import { parseArgs } from "./lib/args.mjs";
 import { BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
+import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 
@@ -339,8 +340,7 @@ async function main() {
 
   if (target.kind === "unix") {
     fs.mkdirSync(path.dirname(target.path), { recursive: true, mode: 0o700 });
-    server.listen(target.path, () => {
-      try { fs.chmodSync(target.path, 0o600); } catch { /* best-effort */ }
+    listenOnRestrictedUnixSocket(server, target.path, () => {
       process.stderr.write(`ACP broker listening on ${target.path}\n`);
     });
   } else {
