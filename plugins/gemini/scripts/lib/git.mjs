@@ -159,11 +159,12 @@ export function getWorkingTreeDiff(cwd) {
  *
  * @param {string} cwd
  * @param {string[]} files
- * @param {{ maxBytes?: number }} [options]
+ * @param {{ maxBytes?: number, realpathSync?: typeof fs.realpathSync }} [options]
  * @returns {Array<{ path: string, content: string } | { path: string, skipped: string }>}
  */
 export function readUntrackedFiles(cwd, files, options = {}) {
   const maxBytes = options.maxBytes ?? MAX_UNTRACKED_BYTES;
+  const realpathSync = options.realpathSync ?? fs.realpathSync;
   let totalBytes = 0;
   const results = [];
 
@@ -181,9 +182,14 @@ export function readUntrackedFiles(cwd, files, options = {}) {
         continue;
       }
       // Verify the resolved path stays inside the workspace.
-      const realPath = fs.realpathSync(fullPath);
-      const realCwd = fs.realpathSync(cwd);
-      if (!realPath.startsWith(realCwd + path.sep) && realPath !== realCwd) {
+      const realPath = realpathSync(fullPath);
+      const realCwd = realpathSync(cwd);
+      const relativePath = path.relative(realCwd, realPath);
+      const outsideWorkspace =
+        relativePath === ".." ||
+        relativePath.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(relativePath);
+      if (outsideWorkspace) {
         results.push({ path: file, skipped: "outside workspace" });
         continue;
       }
@@ -211,7 +217,7 @@ export function readUntrackedFiles(cwd, files, options = {}) {
  * Collect complete working-tree context for a code review.
  *
  * @param {string} cwd
- * @param {{ maxInlineFiles?: number, maxInlineDiffBytes?: number }} [options]
+ * @param {{ maxInlineFiles?: number, maxInlineDiffBytes?: number, realpathSync?: typeof fs.realpathSync }} [options]
  * @returns {{ branch: string | null, headSha: string, diff: string, files: { staged: string[], unstaged: string[], untracked: string[] }, untrackedContents: Array<any>, summary: string }}
  */
 export function collectWorkingTreeContext(cwd, options = {}) {
@@ -219,7 +225,9 @@ export function collectWorkingTreeContext(cwd, options = {}) {
   const headSha = getHeadSha(cwd);
   const files = getWorkingTreeFiles(cwd);
   const diff = getWorkingTreeDiff(cwd);
-  const untrackedContents = readUntrackedFiles(cwd, files.untracked);
+  const untrackedContents = readUntrackedFiles(cwd, files.untracked, {
+    realpathSync: options.realpathSync
+  });
 
   const allFiles = listUniqueFiles(files.staged, files.unstaged);
   const summary = buildWorkingTreeSummary(branch, headSha, allFiles, files.untracked);
@@ -290,7 +298,7 @@ export function buildBranchComparison(cwd, baseRef) {
  * Collect git context based on scope (working-tree or branch).
  *
  * @param {string} cwd
- * @param {{ scope?: "auto" | "working-tree" | "branch", base?: string }} [options]
+ * @param {{ scope?: "auto" | "working-tree" | "branch", base?: string, realpathSync?: typeof fs.realpathSync }} [options]
  * @returns {{ scope: string, context: any }}
  */
 const VALID_SCOPES = new Set(["auto", "working-tree", "branch"]);
@@ -318,7 +326,7 @@ export function collectReviewContext(cwd, options = {}) {
     if (hasChanges) {
       return {
         scope: "working-tree",
-        context: collectWorkingTreeContext(cwd)
+        context: collectWorkingTreeContext(cwd, options)
       };
     }
     // Try branch comparison against main/master.
@@ -336,6 +344,6 @@ export function collectReviewContext(cwd, options = {}) {
   // Default to working-tree.
   return {
     scope: "working-tree",
-    context: collectWorkingTreeContext(cwd)
+    context: collectWorkingTreeContext(cwd, options)
   };
 }
