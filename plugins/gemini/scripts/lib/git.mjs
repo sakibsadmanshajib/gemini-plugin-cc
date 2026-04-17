@@ -183,7 +183,8 @@ export function readUntrackedFiles(cwd, files, options = {}) {
       // Verify the resolved path stays inside the workspace.
       const realPath = fs.realpathSync(fullPath);
       const realCwd = fs.realpathSync(cwd);
-      if (!realPath.startsWith(realCwd + path.sep) && realPath !== realCwd) {
+      const workspacePrefix = realCwd.endsWith(path.sep) ? realCwd : realCwd + path.sep;
+      if (!realPath.startsWith(workspacePrefix) && realPath !== realCwd) {
         results.push({ path: file, skipped: "outside workspace" });
         continue;
       }

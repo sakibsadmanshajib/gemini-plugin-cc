@@ -84,6 +84,41 @@ test("collectReviewContext skips broken untracked symlinks instead of crashing",
   assert.ok(typeof context === "object");
 });
 
+test("collectReviewContext includes untracked files when workspace resolves to filesystem root", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  fs.writeFileSync(path.join(cwd, "app.js"), "console.log('v1');\n");
+  run("git", ["add", "app.js"], { cwd });
+  run("git", ["commit", "-m", "init"], { cwd });
+
+  const file = "notes.txt";
+  const fullPath = path.join(cwd, file);
+  fs.writeFileSync(fullPath, "review me\n");
+
+  const root = path.parse(cwd).root;
+  const originalRealpathSync = fs.realpathSync;
+  fs.realpathSync = (target, options) => {
+    const targetPath = path.resolve(String(target));
+    if (targetPath === path.resolve(cwd)) {
+      return root;
+    }
+    if (targetPath === path.resolve(fullPath)) {
+      return path.join(root, file);
+    }
+    return originalRealpathSync.call(fs, target, options);
+  };
+
+  try {
+    const result = collectReviewContext(cwd, { scope: "working-tree" });
+
+    assert.deepEqual(result.context.untrackedContents, [
+      { path: file, content: "review me\n" }
+    ]);
+  } finally {
+    fs.realpathSync = originalRealpathSync;
+  }
+});
+
 test("collectReviewContext throws on invalid scope value", () => {
   const cwd = makeTempDir();
   initGitRepo(cwd);
