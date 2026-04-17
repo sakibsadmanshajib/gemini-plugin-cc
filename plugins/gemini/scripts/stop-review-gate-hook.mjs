@@ -14,11 +14,10 @@
 import fs from "node:fs";
 import process from "node:process";
 
-import { getGeminiAvailability, getGeminiAuthStatus, runAcpPrompt } from "./lib/gemini.mjs";
+import { getGeminiAvailability } from "./lib/gemini.mjs";
 import { getConfig, listJobs } from "./lib/state.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import { loadPrompt } from "./lib/prompts.mjs";
-import { loadBrokerSession } from "./lib/broker-lifecycle.mjs";
 import { runCommand } from "./lib/process.mjs";
 
 function readHookInput() {
@@ -39,21 +38,12 @@ function logNote(note) {
   }
 }
 
-function buildSetupNote(cwd) {
+function buildSetupNote() {
   const { available } = getGeminiAvailability();
   if (!available) {
     return "Gemini CLI is not installed. Run /gemini:setup to install.";
   }
   return null;
-}
-
-function isRunningTask(cwd) {
-  try {
-    const jobs = listJobs(cwd);
-    return jobs.some((j) => j.status === "running" || j.status === "queued");
-  } catch {
-    return false;
-  }
 }
 
 function runStopReview(cwd, input) {
@@ -129,7 +119,7 @@ function main() {
     return;
   }
 
-  const setupNote = buildSetupNote(workspaceRoot);
+  const setupNote = buildSetupNote();
   if (setupNote) {
     logNote(setupNote);
     logNote(runningTaskNote);
