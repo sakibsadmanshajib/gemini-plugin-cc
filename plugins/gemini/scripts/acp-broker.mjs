@@ -21,6 +21,7 @@ import { parseArgs } from "./lib/args.mjs";
 import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
 import {
   attachStderrDiagnosticCollector,
+  BROKER_DIAGNOSTIC_METHOD,
   buildBrokerDiagnosticNotification,
   sanitizeDiagnosticMessage
 } from "./lib/acp-diagnostics.mjs";
@@ -200,6 +201,17 @@ function handleAcpLine(line) {
 
   // Handle notification — forward to active client if any.
   if (message.method && activeClient && !activeClient.destroyed) {
+    // Trust boundary: the broker is the sole legitimate emitter of
+    // broker/diagnostic. A notification with this method on the child's
+    // stdout is a forgery attempt (e.g. a compromised gemini --acp child
+    // trying to phish the user via /gemini:status healthMessage). Drop it
+    // instead of forwarding unchanged.
+    if (message.method === BROKER_DIAGNOSTIC_METHOD) {
+      process.stderr.write(
+        "[acp-broker] security: dropped child-originated broker/diagnostic notification.\n"
+      );
+      return;
+    }
     send(activeClient, message);
   }
 }
@@ -363,6 +375,10 @@ let server = null;
 
 export const __testing = {
   handleClientConnection,
+  handleAcpLine,
+  setActiveClient(socket) {
+    activeClient = socket;
+  },
   resetBrokerState() {
     diagnosticRing.length = 0;
     pendingRequests.clear();
