@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { initGitRepo, makeTempDir } from "./helpers.mjs";
-import { createTrackedJob } from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
+import {
+  createTrackedJob,
+  markTrackedJobCancelled,
+  runTrackedJob,
+  updateJobPhase
+} from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
 import { loadState, readJobFile } from "../plugins/gemini/scripts/lib/state.mjs";
 import {
   classifyDiagnostic,
@@ -31,6 +36,106 @@ test("recordJobEvent retains bounded recent events and updates progress fields",
   assert.equal(stored.healthStatus, "active");
   assert.equal(stored.lastProgressAt, stored.events.at(-1).timestamp);
   assert.equal(stored.lastModelOutputAt, stored.events.at(-1).timestamp);
+});
+
+test("createTrackedJob initializes queued health and an empty event list", () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+
+  const job = createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "queued health",
+    request: { prompt: "private prompt" }
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  assert.deepEqual(stored.events, []);
+  assert.equal(stored.healthStatus, "queued");
+
+  const [indexJob] = loadState(workspace).jobs;
+  assert.equal(indexJob.id, job.id);
+  assert.equal(indexJob.healthStatus, "queued");
+  assert.equal("request" in indexJob, false);
+  assert.equal(JSON.stringify(indexJob).includes("private prompt"), false);
+});
+
+test("runTrackedJob records worker start and completion events", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "complete" });
+
+  await runTrackedJob(job, async () => ({
+    exitStatus: 0,
+    threadId: "thread-1",
+    turnId: "turn-1",
+    payload: { ok: true },
+    rendered: "done",
+    summary: "done"
+  }));
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.status, "completed");
+  assert.equal(stored.healthStatus, "completed");
+  assert.deepEqual(stored.events.map((event) => event.type), ["worker_started", "completed"]);
+  assert.equal(stored.events.at(-1).message, "Job completed.");
+});
+
+test("runTrackedJob records failure events without swallowing the original error", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "fail" });
+
+  await assert.rejects(
+    runTrackedJob(job, async () => {
+      throw new Error("boom");
+    }),
+    /boom/
+  );
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.status, "failed");
+  assert.equal(stored.healthStatus, "failed");
+  assert.deepEqual(stored.events.map((event) => event.type), ["worker_started", "failed"]);
+  assert.equal(stored.events.at(-1).message, "boom");
+});
+
+test("updateJobPhase records phase change events", () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "phase" });
+
+  runTrackedJob(job, async () => new Promise(() => {})).catch(() => {});
+  updateJobPhase(workspace, job.id, "collecting_context");
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.phase, "collecting_context");
+  assert.equal(stored.events.at(-1).type, "phase_changed");
+  assert.equal(stored.events.at(-1).phase, "collecting_context");
+});
+
+test("markTrackedJobCancelled records cancellation health and recommended action", () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "cancel" });
+
+  markTrackedJobCancelled(workspace, job.id, {
+    source: "user",
+    message: "Cancelled by user request."
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.status, "cancelled");
+  assert.equal(stored.phase, "cancelled");
+  assert.equal(stored.healthStatus, "cancelled");
+  assert.match(stored.recommendedAction, /status|result|retry/i);
+  assert.equal(stored.events.at(-1).type, "worker_cancelled");
+  assert.equal(stored.events.at(-1).source, "user");
+
+  const [indexJob] = loadState(workspace).jobs;
+  assert.equal(indexJob.status, "cancelled");
+  assert.equal(indexJob.healthStatus, "cancelled");
+  assert.equal("events" in indexJob, false);
 });
 
 test("classifyDiagnostic recognizes quota, auth, broker, model, and network messages", () => {

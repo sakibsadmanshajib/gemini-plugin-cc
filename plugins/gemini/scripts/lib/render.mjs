@@ -76,11 +76,13 @@ export function renderStatusSnapshot(snapshot) {
   if (snapshot.running.length > 0) {
     lines.push("## Active Jobs");
     lines.push("");
-    lines.push("| Job ID | Kind | Status | Phase | Elapsed | Summary |");
-    lines.push("|--------|------|--------|-------|---------|---------|");
+    lines.push("| Job ID | Kind | Status | Phase | Health | Last Progress | Elapsed | Summary |");
+    lines.push("|--------|------|--------|-------|--------|---------------|---------|---------|");
     for (const job of snapshot.running) {
       const elapsed = computeElapsedDisplay(job);
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${elapsed} | ${job.summary ?? "-"} |`);
+      lines.push(
+        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${job.phase ?? "-"} | ${job.healthStatus ?? "-"} | ${job.lastProgressAt ?? "-"} | ${elapsed} | ${job.summary ?? "-"} |`
+      );
     }
     lines.push("");
   }
@@ -122,15 +124,35 @@ export function renderSingleJobStatus(snapshot) {
   lines.push(`- **Status:** ${job.status}`);
   lines.push(`- **Phase:** ${job.phase ?? "-"}`);
   lines.push(`- **Title:** ${job.title ?? "-"}`);
-  if (job.elapsed) {
-    lines.push(`- **Elapsed:** ${job.elapsed}`);
-  }
   if (job.threadId) {
     lines.push(`- **Session ID:** ${job.threadId}`);
   }
   if (job.summary) {
     lines.push(`- **Summary:** ${job.summary}`);
   }
+
+  lines.push("");
+  lines.push("## Health");
+  lines.push("");
+  lines.push(`- **Health:** ${job.healthStatus ?? "-"}`);
+  lines.push(`- **Diagnostic:** ${job.healthMessage ?? "-"}`);
+  lines.push(`- **Recommended Action:** ${job.recommendedAction ?? "-"}`);
+
+  lines.push("");
+  lines.push("## Runtime");
+  lines.push("");
+  lines.push(`- **Elapsed:** ${job.elapsed ?? "-"}`);
+  lines.push(`- **PID:** ${job.pid ?? "-"}`);
+  lines.push(`- **Created:** ${job.createdAt ?? "-"}`);
+  lines.push(`- **Started:** ${job.startedAt ?? "-"}`);
+  lines.push(`- **Updated:** ${job.updatedAt ?? "-"}`);
+  lines.push(`- **Completed:** ${job.completedAt ?? "-"}`);
+  lines.push(`- **Last Heartbeat:** ${job.lastHeartbeatAt ?? "-"}`);
+  lines.push(`- **Last Progress:** ${job.lastProgressAt ?? "-"}`);
+  lines.push(`- **Last Model Output:** ${job.lastModelOutputAt ?? "-"}`);
+  lines.push(`- **Last Tool Call:** ${job.lastToolCallAt ?? "-"}`);
+  lines.push(`- **Last Diagnostic:** ${job.lastDiagnosticAt ?? "-"}`);
+
   if (job.errorMessage) {
     lines.push("");
     lines.push("## Error");
@@ -144,6 +166,15 @@ export function renderSingleJobStatus(snapshot) {
     lines.push("");
     for (const line of job.recentProgress) {
       lines.push(line);
+    }
+  }
+
+  if (job.events && job.events.length > 0) {
+    lines.push("");
+    lines.push("## Recent Events");
+    lines.push("");
+    for (const event of job.events) {
+      lines.push(`- ${formatEventLine(event)}`);
     }
   }
 
@@ -306,4 +337,34 @@ function computeElapsedDisplay(job) {
     return `${Math.round(ms / 1000)}s`;
   }
   return `${Math.round(ms / 60000)}m`;
+}
+
+function formatEventLine(event) {
+  const parts = [
+    event.timestamp ?? "-",
+    event.type ?? "event"
+  ];
+  const details = [];
+  if (event.phase) {
+    details.push(`phase=${event.phase}`);
+  }
+  if (event.toolName) {
+    details.push(`tool=${event.toolName}`);
+  }
+  if (event.path) {
+    details.push(`path=${event.path}`);
+  }
+  if (event.action) {
+    details.push(`action=${event.action}`);
+  }
+  if (event.source) {
+    details.push(`source=${event.source}`);
+  }
+  if (event.transport) {
+    details.push(`transport=${event.transport}`);
+  }
+  if (event.message) {
+    details.push(event.message);
+  }
+  return details.length > 0 ? `${parts.join(" ")} - ${details.join("; ")}` : parts.join(" ");
 }

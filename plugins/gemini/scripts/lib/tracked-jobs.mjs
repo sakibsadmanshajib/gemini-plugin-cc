@@ -6,7 +6,8 @@
 import fs from "node:fs";
 import process from "node:process";
 
-import { readJobFile, resolveJobFile, resolveJobLogFile, upsertJob, writeJobFile } from "./state.mjs";
+import { readJobFile, resolveJobLogFile, writeJobFile } from "./state.mjs";
+import { recordJobEvent, upsertCompactJobIndexEntry } from "./job-observability.mjs";
 
 export const SESSION_ID_ENV = "GEMINI_COMPANION_SESSION_ID";
 
@@ -35,6 +36,14 @@ function readStoredJobOrNull(cwd, jobId) {
   }
 }
 
+function safeRecordJobEvent(workspaceRoot, jobId, event) {
+  try {
+    return recordJobEvent(workspaceRoot, jobId, event);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Create a tracked job record.
  *
@@ -55,12 +64,14 @@ export function createTrackedJob({ workspaceRoot, kind, title, request }) {
     workspaceRoot,
     logFile,
     request: request ?? null,
+    events: [],
+    healthStatus: "queued",
     createdAt: nowIso(),
     updatedAt: nowIso()
   };
 
   writeJobFile(workspaceRoot, id, job);
-  upsertJob(workspaceRoot, job);
+  upsertCompactJobIndexEntry(workspaceRoot, job);
 
   return job;
 }
@@ -73,41 +84,65 @@ export function createTrackedJob({ workspaceRoot, kind, title, request }) {
  * @param {{ logFile?: string }} [options]
  */
 export async function runTrackedJob(job, runner, options = {}) {
+  const startedAt = nowIso();
   const runningRecord = {
     ...job,
     status: "running",
-    startedAt: nowIso(),
+    startedAt,
     phase: "starting",
     pid: process.pid,
-    logFile: options.logFile ?? job.logFile ?? null
+    logFile: options.logFile ?? job.logFile ?? null,
+    healthStatus: "active",
+    updatedAt: startedAt
   };
   writeJobFile(job.workspaceRoot, job.id, runningRecord);
-  upsertJob(job.workspaceRoot, runningRecord);
+  upsertCompactJobIndexEntry(job.workspaceRoot, runningRecord);
+  safeRecordJobEvent(job.workspaceRoot, job.id, {
+    type: "worker_started",
+    message: "Worker started.",
+    timestamp: startedAt
+  });
 
   try {
     const execution = await runner();
     const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
     const completedAt = nowIso();
+    const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
     writeJobFile(job.workspaceRoot, job.id, {
-      ...runningRecord,
+      ...existing,
       status: completionStatus,
       threadId: execution.threadId ?? null,
       turnId: execution.turnId ?? null,
       pid: null,
       phase: completionStatus === "completed" ? "done" : "failed",
       completedAt,
+      updatedAt: completedAt,
+      healthStatus: completionStatus,
       result: execution.payload,
       rendered: execution.rendered
     });
-    upsertJob(job.workspaceRoot, {
+    upsertCompactJobIndexEntry(job.workspaceRoot, {
+      ...existing,
       id: job.id,
+      kind: existing.kind ?? job.kind,
+      title: existing.title ?? job.title,
       status: completionStatus,
+      sessionId: existing.sessionId ?? job.sessionId,
+      workspaceRoot: existing.workspaceRoot ?? job.workspaceRoot,
+      logFile: existing.logFile ?? options.logFile ?? job.logFile ?? null,
       threadId: execution.threadId ?? null,
       turnId: execution.turnId ?? null,
       summary: execution.summary,
       phase: completionStatus === "completed" ? "done" : "failed",
       pid: null,
-      completedAt
+      completedAt,
+      updatedAt: completedAt,
+      healthStatus: completionStatus
+    });
+    safeRecordJobEvent(job.workspaceRoot, job.id, {
+      type: completionStatus,
+      message: completionStatus === "completed" ? "Job completed." : "Job failed.",
+      timestamp: completedAt
     });
     appendLogBlock(options.logFile ?? job.logFile ?? null, "Final output", execution.rendered);
     return execution;
@@ -121,15 +156,25 @@ export async function runTrackedJob(job, runner, options = {}) {
       phase: "failed",
       pid: null,
       completedAt: failedAt,
+      updatedAt: failedAt,
+      healthStatus: "failed",
       errorMessage
     });
-    upsertJob(job.workspaceRoot, {
+    upsertCompactJobIndexEntry(job.workspaceRoot, {
+      ...existing,
       id: job.id,
       status: "failed",
       phase: "failed",
       pid: null,
       completedAt: failedAt,
+      updatedAt: failedAt,
+      healthStatus: "failed",
       summary: `Failed: ${errorMessage.slice(0, 120)}`
+    });
+    safeRecordJobEvent(job.workspaceRoot, job.id, {
+      type: "failed",
+      message: errorMessage,
+      timestamp: failedAt
     });
     appendLogBlock(options.logFile ?? job.logFile ?? null, "Error", errorMessage);
     throw error;
@@ -146,7 +191,45 @@ export async function runTrackedJob(job, runner, options = {}) {
 export function updateJobPhase(workspaceRoot, jobId, phase) {
   const existing = readStoredJobOrNull(workspaceRoot, jobId);
   if (existing && existing.status === "running") {
-    writeJobFile(workspaceRoot, jobId, { ...existing, phase, updatedAt: nowIso() });
-    upsertJob(workspaceRoot, { id: jobId, phase, updatedAt: nowIso() });
+    const updatedAt = nowIso();
+    const nextJob = { ...existing, phase, updatedAt };
+    writeJobFile(workspaceRoot, jobId, nextJob);
+    upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+    safeRecordJobEvent(workspaceRoot, jobId, {
+      type: "phase_changed",
+      phase,
+      message: `Phase changed to ${phase}.`,
+      timestamp: updatedAt
+    });
   }
+}
+
+export function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) {
+  const existing = readStoredJobOrNull(workspaceRoot, jobId);
+  if (!existing) {
+    return null;
+  }
+
+  const completedAt = patch.completedAt ?? nowIso();
+  const message = patch.message ?? "Job cancelled.";
+  const nextJob = {
+    ...existing,
+    ...patch,
+    status: "cancelled",
+    phase: "cancelled",
+    pid: null,
+    completedAt,
+    updatedAt: completedAt,
+    healthStatus: "cancelled",
+    healthMessage: message,
+    recommendedAction: "Check /gemini:status or /gemini:result, then retry if the result is incomplete."
+  };
+  writeJobFile(workspaceRoot, jobId, nextJob);
+  upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+  return safeRecordJobEvent(workspaceRoot, jobId, {
+    type: "worker_cancelled",
+    message,
+    source: patch.source,
+    timestamp: completedAt
+  }) ?? nextJob;
 }

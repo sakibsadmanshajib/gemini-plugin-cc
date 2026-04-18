@@ -3,7 +3,15 @@ import { loadState, readJobFile, saveState, writeJobFile } from "./state.mjs";
 export const MAX_JOB_EVENTS = 50;
 export const MAX_DIAGNOSTIC_LENGTH = 500;
 
-const PROGRESS_EVENT_TYPES = new Set(["model_text_chunk", "tool_call", "file_change", "phase", "status"]);
+const PROGRESS_EVENT_TYPES = new Set([
+  "model_text_chunk",
+  "tool_call",
+  "file_change",
+  "phase",
+  "phase_changed",
+  "status",
+  "worker_started"
+]);
 const DIAGNOSTIC_EVENT_TYPES = new Set(["diagnostic", "error", "stderr"]);
 const SAFE_EVENT_FIELDS = new Set([
   "type",
@@ -76,6 +84,7 @@ function compactJobIndexEntry(job) {
     logFile: job.logFile,
     threadId: job.threadId,
     turnId: job.turnId,
+    summary: job.summary,
     pid: job.pid,
     phase: job.phase,
     createdAt: job.createdAt,
@@ -93,7 +102,7 @@ function compactJobIndexEntry(job) {
   };
 }
 
-function replaceJobIndexEntry(workspaceRoot, job) {
+export function upsertCompactJobIndexEntry(workspaceRoot, job) {
   const state = loadState(workspaceRoot);
   const compact = compactJobIndexEntry(job);
   const index = state.jobs.findIndex((entry) => entry.id === job.id);
@@ -167,9 +176,26 @@ export function recordJobEvent(workspaceRoot, jobId, event) {
     patch.recommendedAction = recommendedActionFor(classification.kind);
   }
 
+  if (normalizedEvent.type === "completed") {
+    patch.healthStatus = "completed";
+    patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
+  }
+
+  if (normalizedEvent.type === "failed") {
+    patch.healthStatus = "failed";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
+  }
+
+  if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
+    patch.healthStatus = "cancelled";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
+  }
+
   const nextJob = { ...existing, ...patch };
   writeJobFile(workspaceRoot, jobId, nextJob);
-  replaceJobIndexEntry(workspaceRoot, nextJob);
+  upsertCompactJobIndexEntry(workspaceRoot, nextJob);
 
   return nextJob;
 }
