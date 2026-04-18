@@ -133,6 +133,7 @@ test("renderStatusSnapshot includes health and last progress for active jobs", (
 
 test("renderSingleJobStatus includes observability details without raw event payloads", () => {
   const output = renderSingleJobStatus({
+    workspaceRoot: "/tmp/test-workspace",
     job: {
       id: "gemini-detail",
       kind: "task",
@@ -183,6 +184,7 @@ test("renderSingleJobStatus includes observability details without raw event pay
 
 test("renderSingleJobStatus includes runtime.transport when present", () => {
   const output = renderSingleJobStatus({
+    workspaceRoot: "/tmp/test-workspace",
     job: {
       id: "gemini-transport",
       kind: "task",
@@ -196,4 +198,78 @@ test("renderSingleJobStatus includes runtime.transport when present", () => {
   });
   assert.match(output, /## Runtime/);
   assert.match(output, /- \*\*Transport:\*\* broker/);
+});
+
+test("renderSingleJobStatus includes tail of recent events and counters", () => {
+  const now = Date.parse("2026-04-18T12:00:10.000Z");
+  const job = {
+    id: "job_abc",
+    kind: "task",
+    status: "running",
+    title: "observing",
+    startedAt: "2026-04-18T12:00:00.000Z",
+    events: [
+      { type: "phase", message: "session_created", timestamp: "2026-04-18T12:00:01.000Z" },
+      { type: "tool_call", toolName: "read_file", timestamp: "2026-04-18T12:00:02.000Z" },
+      { type: "model_text_chunk", chars: 140, timestamp: "2026-04-18T12:00:03.000Z" },
+      { type: "model_thought_chunk", chars: 62, timestamp: "2026-04-18T12:00:04.000Z" },
+      { type: "model_text_chunk", chars: 85, timestamp: "2026-04-18T12:00:05.000Z" },
+      { type: "file_change", path: "a.mjs", action: "write", timestamp: "2026-04-18T12:00:06.000Z" },
+      { type: "tool_call", toolName: "write_file", timestamp: "2026-04-18T12:00:07.000Z" },
+      { type: "model_text_chunk", chars: 22, timestamp: "2026-04-18T12:00:08.000Z" }
+    ]
+  };
+
+  const rendered = renderSingleJobStatus(job, { now });
+
+  assert.match(rendered, /model_text_chunk.*22/);
+  assert.match(rendered, /tool_call.*write_file/);
+  assert.match(rendered, /file_change.*write.*a\.mjs/);
+  assert.match(rendered, /chunks=3/);
+  assert.match(rendered, /thoughts=1/);
+  assert.match(rendered, /tools=2/);
+  assert.match(rendered, /files=1/);
+  assert.match(rendered, /last event.*(ms|s) ago/i);
+  assert.doesNotMatch(rendered, /session_created/);
+  assert.doesNotMatch(rendered, /read_file/);
+});
+
+test("renderSingleJobStatus keeps event-tail details for phase changes and diagnostics", () => {
+  const now = Date.parse("2026-04-18T12:00:10.000Z");
+  const rendered = renderSingleJobStatus({
+    id: "job_events",
+    kind: "task",
+    status: "running",
+    title: "event formatting",
+    startedAt: "2026-04-18T12:00:00.000Z",
+    events: [
+      { type: "phase_changed", phase: "running", timestamp: "2026-04-18T12:00:06.000Z" },
+      { type: "diagnostic", message: "rate limit near", timestamp: "2026-04-18T12:00:07.000Z" },
+      { type: "diagnostic", source: "broker", message: "connected", timestamp: "2026-04-18T12:00:08.000Z" },
+      { type: "stderr", message: "warning text", timestamp: "2026-04-18T12:00:09.000Z" },
+      { type: "error", source: "gemini", message: "boom", timestamp: "2026-04-18T12:00:10.000Z" }
+    ]
+  }, { now });
+
+  assert.match(rendered, /\[phase_changed\] running/);
+  assert.match(rendered, /\[diagnostic\] rate limit near/);
+  assert.doesNotMatch(rendered, /unknown:/);
+  assert.match(rendered, /\[diagnostic\] broker: connected/);
+  assert.match(rendered, /\[stderr\] warning text/);
+  assert.match(rendered, /\[error\] gemini: boom/);
+});
+
+test("renderSingleJobStatus falls back to phase-only rendering when events is missing", () => {
+  const job = {
+    id: "job_fallback",
+    kind: "task",
+    status: "running",
+    title: "no events",
+    startedAt: "2026-04-18T12:00:00.000Z",
+    phase: "running"
+  };
+
+  const rendered = renderSingleJobStatus(job);
+  assert.match(rendered, /job_fallback/);
+  assert.doesNotMatch(rendered, /recent:/);
 });

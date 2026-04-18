@@ -14,6 +14,9 @@ import { binaryAvailable, runCommand } from "./process.mjs";
 import { collectReviewContext } from "./git.mjs";
 import { loadPrompt } from "./prompts.mjs";
 import { recordJobEvent } from "./job-observability.mjs";
+import { resolveThinkingConfig } from "./thinking.mjs";
+
+let thinkingWarned = false;
 
 /**
  * Convert an ACP session/update notification into a job-observability event.
@@ -31,6 +34,10 @@ export function buildJobEventFromAcpNotification(notification) {
     // the chunk size so /gemini:status can show liveness ("model is
     // streaming") without leaking the model's prose through the event log.
     return { type: "model_text_chunk", chars: String(text).length };
+  }
+  if (kind === "agent_thought_chunk") {
+    const text = update.content?.text ?? "";
+    return { type: "model_thought_chunk", chars: String(text).length };
   }
   if (kind === "tool_call") {
     return {
@@ -78,6 +85,56 @@ function recordObserverEvent(observer, event) {
   }
 }
 
+function emitStreamEvent(onStream, event) {
+  if (!onStream) return;
+  try {
+    onStream(event);
+  } catch {
+    // Best-effort live output must not interrupt ACP handling.
+  }
+}
+
+function buildThoughtStreamEvent(text, includeText) {
+  const normalized = String(text ?? "");
+  const event = { type: "thought_chunk", chars: normalized.length };
+  if (includeText) {
+    event.text = normalized;
+  }
+  return event;
+}
+
+function buildToolStreamEvent(update) {
+  return {
+    type: "tool_call",
+    toolName: sanitizeDiagnosticMessage(update.toolName ?? update.name ?? "unknown") || "unknown"
+  };
+}
+
+function buildFileStreamEvent(update) {
+  return {
+    type: "file_change",
+    path: sanitizeDiagnosticMessage(update.path ?? ""),
+    action: sanitizeDiagnosticMessage(update.action ?? "modify") || "modify"
+  };
+}
+
+function emitThinkingWarningIfNew(writer = (s) => process.stderr.write(s)) {
+  if (thinkingWarned) {
+    return;
+  }
+  writer(
+    "Warning: --thinking is parsed but not delivered to the running Gemini CLI. " +
+    "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
+    "for a persistent setting. See " +
+    "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
+  );
+  thinkingWarned = true;
+}
+
+function resetThinkingWarning() {
+  thinkingWarned = false;
+}
+
 /**
  * Escape content embedded in XML-style prompt tags so that user-controlled
  * text (diffs, file contents) cannot close the containing tag and break
@@ -104,6 +161,11 @@ function escapeXmlContent(content, tagName) {
  * @typedef {{
  *   sessionId: string | null,
  *   text: string,
+ *   chunkCount: number,
+ *   chunkChars: number,
+ *   thoughtText: string,
+ *   thoughtCount: number,
+ *   thoughtChars: number,
  *   model: string | null,
  *   usage: { promptTokens: number, completionTokens: number, totalTokens: number } | null,
  *   toolCalls: Array<{ name: string, arguments: Record<string, unknown>, result?: string }>,
@@ -202,48 +264,110 @@ export function getSessionRuntimeStatus(env, cwd) {
 
 // ─── ACP Operations ───────────────────────────────────────────────────────────
 
+function createNotificationSinks() {
+  return {
+    textChunks: [],
+    chunkCount: 0,
+    chunkChars: 0,
+    thoughtCount: 0,
+    thoughtChars: 0,
+    toolCalls: [],
+    fileChanges: [],
+    events: []
+  };
+}
+
+function dispatchOneNotification(notification, sinks, onStream, options = {}) {
+  const update = notification?.params?.update;
+  if (!update) return;
+  const streamThoughtText = options.streamThoughtText === true;
+
+  if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
+    const text = String(update.content.text ?? "");
+    sinks.textChunks.push(text);
+    sinks.chunkCount += 1;
+    sinks.chunkChars += text.length;
+    const ev = { type: "message_chunk", text };
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
+    const text = String(update.content.text ?? "");
+    sinks.thoughtCount += 1;
+    sinks.thoughtChars += text.length;
+    const ev = buildThoughtStreamEvent(text, streamThoughtText);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "tool_call") {
+    sinks.toolCalls.push({
+      name: update.toolName ?? update.name ?? "unknown",
+      arguments: update.arguments ?? update.input ?? {},
+      result: update.result ?? undefined
+    });
+    const ev = buildToolStreamEvent(update);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "file_change") {
+    sinks.fileChanges.push({
+      path: update.path ?? "",
+      action: update.action ?? "modify"
+    });
+    const ev = buildFileStreamEvent(update);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  }
+}
+
+/**
+ * Pure dispatch over a sequence of session/update notifications.
+ * Exposed for tests; mirrors the real runAcpPrompt loop body.
+ */
+function dispatchNotifications(notifications, onStream, options = {}) {
+  const sinks = createNotificationSinks();
+
+  for (const notification of notifications) {
+    dispatchOneNotification(notification, sinks, onStream, options);
+  }
+
+  return {
+    text: sinks.textChunks.join(""),
+    chunkCount: sinks.chunkCount,
+    chunkChars: sinks.chunkChars,
+    thoughtText: "",
+    thoughtCount: sinks.thoughtCount,
+    thoughtChars: sinks.thoughtChars,
+    toolCalls: sinks.toolCalls,
+    fileChanges: sinks.fileChanges,
+    events: sinks.events
+  };
+}
+
+export const __testing = {
+  simulateNotificationDispatch(notifications, onStream, options) {
+    return dispatchNotifications(notifications, onStream, options);
+  },
+  emitThinkingWarningIfNew,
+  resetThinkingWarning
+};
+
 /**
  * Run a prompt through Gemini ACP and capture the result.
  *
  * @param {string} cwd
  * @param {string} prompt
- * @param {{ model?: string, thinkingBudget?: number, approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ model?: string, thinkingBudget?: number, thinking?: "off"|"low"|"medium"|"high", approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<TurnResult>}
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
   // Collect streamed text and tool calls from session/update notifications.
-  const textChunks = [];
-  const toolCalls = [];
-  const fileChanges = [];
+  const sinks = createNotificationSinks();
   const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
     ? options.jobObserver
     : null;
 
   const notificationHandler = (notification) => {
-    // NOTE: broker/diagnostic notifications are single-dispatched by
-    // AcpClientBase.handleLine via `onDiagnostic` only in broker-transport
-    // mode, and ignored as trusted in direct mode. No broker-diagnostic
-    // branch is needed here — it would double-count in broker mode and
-    // trust a forged payload in direct mode.
-    const update = notification.params?.update;
-    if (!update) {
-      return;
-    }
-
-    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
-      textChunks.push(update.content.text);
-    } else if (update.sessionUpdate === "tool_call") {
-      toolCalls.push({
-        name: update.toolName ?? update.name ?? "unknown",
-        arguments: update.arguments ?? update.input ?? {},
-        result: update.result ?? undefined
-      });
-    } else if (update.sessionUpdate === "file_change") {
-      fileChanges.push({
-        path: update.path ?? "",
-        action: update.action ?? "modify"
-      });
-    }
+    dispatchOneNotification(notification, sinks, options.onStream, {
+      streamThoughtText: options.streamThoughtText === true
+    });
 
     recordObserverEvent(observer, buildJobEventFromAcpNotification(notification));
 
@@ -276,6 +400,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     if (sessionId) {
       await client.request("session/load", { sessionId, cwd, mcpServers: [] });
       recordObserverEvent(observer, { type: "phase", message: "session_loaded" });
+      emitStreamEvent(options.onStream, { type: "phase", message: "session_loaded" });
     } else {
       const session = await client.request("session/new", {
         cwd,
@@ -283,6 +408,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       });
       sessionId = session?.sessionId ?? null;
       recordObserverEvent(observer, { type: "phase", message: "session_created" });
+      emitStreamEvent(options.onStream, { type: "phase", message: "session_created" });
     }
 
     // Set approval mode (defaults to autoEdit if not specified).
@@ -305,6 +431,20 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       }
     }
 
+    let resolvedThinking = null;
+    if (options.thinking !== undefined) {
+      resolvedThinking = resolveThinkingConfig(options.thinking, options.model ?? null);
+      for (const note of resolvedThinking.notes) {
+        process.stderr.write(`Thinking: ${note}\n`);
+      }
+      recordObserverEvent(observer, { type: "phase", message: `thinking:${options.thinking}` });
+      emitStreamEvent(options.onStream, { type: "phase", message: sanitizeDiagnosticMessage(`thinking:${options.thinking}`) });
+      // Delivery: upstream Gemini CLI (0.38.x) does not accept a per-invocation
+      // thinking override via CLI flag, env var, or session/new param; the
+      // configuration lives in settings.json at the model-alias level.
+      emitThinkingWarningIfNew();
+    }
+
     // Send prompt — ACP v1 expects prompt as ContentBlock[].
     // Text is streamed via session/update notifications; the response only has metadata.
     const result = await client.request("session/prompt", {
@@ -312,26 +452,36 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       prompt: [{ type: "text", text: prompt }]
     });
 
-    const text = textChunks.join("");
+    const text = sinks.textChunks.join("");
     const usage = result?._meta?.quota?.token_count ?? null;
 
     return {
       sessionId,
       text,
+      chunkCount: sinks.chunkCount,
+      chunkChars: sinks.chunkChars,
+      thoughtText: "",
+      thoughtCount: sinks.thoughtCount,
+      thoughtChars: sinks.thoughtChars,
       model: result?._meta?.quota?.model_usage?.[0]?.model ?? options.model ?? null,
       usage,
-      toolCalls,
-      fileChanges,
+      toolCalls: sinks.toolCalls,
+      fileChanges: sinks.fileChanges,
       error: null
     };
   } catch (error) {
     return {
       sessionId: null,
-      text: textChunks.join(""),
+      text: sinks.textChunks.join(""),
+      chunkCount: sinks.chunkCount,
+      chunkChars: sinks.chunkChars,
+      thoughtText: "",
+      thoughtCount: sinks.thoughtCount,
+      thoughtChars: sinks.thoughtChars,
       model: null,
       usage: null,
-      toolCalls,
-      fileChanges,
+      toolCalls: sinks.toolCalls,
+      fileChanges: sinks.fileChanges,
       error
     };
   } finally {
@@ -343,7 +493,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
  * Run a code review via ACP. Collects git context and sends a review prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<{ text: string, sessionId: string | null, scope: string, summary: string, error: unknown }>}
  */
 export async function runAcpReview(cwd, options = {}) {
@@ -366,6 +516,9 @@ export async function runAcpReview(cwd, options = {}) {
 
   const result = await runAcpPrompt(cwd, reviewPrompt, {
     model: options.model,
+    thinking: options.thinking,
+    onStream: options.onStream,
+    streamThoughtText: options.streamThoughtText,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,
@@ -386,7 +539,7 @@ export async function runAcpReview(cwd, options = {}) {
  * Run an adversarial review via ACP with a structured output prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<{ text: string, parsed: any, sessionId: string | null, scope: string, error: unknown }>}
  */
 export async function runAcpAdversarialReview(cwd, options = {}) {
@@ -432,6 +585,9 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
 
   const result = await runAcpPrompt(cwd, fullPrompt, {
     model: options.model,
+    thinking: options.thinking,
+    onStream: options.onStream,
+    streamThoughtText: options.streamThoughtText,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,

@@ -147,11 +147,65 @@ export interface BrokerShutdownResult {
 
 // --- ACP Notification Types ---
 
-export type AcpNotification =
-  | { method: "progress"; params: { text: string; phase?: string } }
-  | { method: "toolCall"; params: ToolCallRecord }
-  | { method: "fileChange"; params: FileChangeRecord }
-  | { method: "error"; params: { message: string; code?: number } };
+export interface AgentChunkContent {
+  type: "text";
+  text: string;
+}
+
+export interface AgentMessageChunkUpdate {
+  sessionUpdate: "agent_message_chunk";
+  content: AgentChunkContent;
+}
+
+export interface AgentThoughtChunkUpdate {
+  sessionUpdate: "agent_thought_chunk";
+  content: AgentChunkContent;
+}
+
+export interface ToolCallUpdate {
+  sessionUpdate: "tool_call";
+  toolName?: string;
+  name?: string;
+  arguments?: Record<string, unknown>;
+  input?: Record<string, unknown>;
+  result?: string;
+}
+
+export interface FileChangeUpdate {
+  sessionUpdate: "file_change";
+  path: string;
+  action: "create" | "modify" | "delete";
+}
+
+export interface OtherSessionUpdate {
+  sessionUpdate: string;
+  [key: string]: unknown;
+}
+
+export type SessionUpdate =
+  | AgentMessageChunkUpdate
+  | AgentThoughtChunkUpdate
+  | ToolCallUpdate
+  | FileChangeUpdate
+  | OtherSessionUpdate;
+
+export interface SessionUpdateNotification {
+  method: "session/update";
+  params: {
+    sessionId: string;
+    update: SessionUpdate;
+  };
+}
+
+export interface BrokerDiagnosticNotification {
+  method: "broker/diagnostic";
+  params: {
+    source?: string;
+    message: string;
+  };
+}
+
+export type AcpNotification = SessionUpdateNotification | BrokerDiagnosticNotification;
 
 // --- Method Map ---
 

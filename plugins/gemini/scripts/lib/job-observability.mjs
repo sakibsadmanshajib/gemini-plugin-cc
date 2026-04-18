@@ -7,6 +7,7 @@ export const MAX_JOB_EVENTS = 50;
 
 const PROGRESS_EVENT_TYPES = new Set([
   "model_text_chunk",
+  "model_thought_chunk",
   "tool_call",
   "file_change",
   "phase",
@@ -154,7 +155,10 @@ export function normalizeAndAppendEvent(job, event) {
     patch.recommendedAction = null;
   }
 
-  if (normalizedEvent.type === "model_text_chunk" && !preserveTerminalHealth) {
+  if (
+    (normalizedEvent.type === "model_text_chunk" || normalizedEvent.type === "model_thought_chunk") &&
+    !preserveTerminalHealth
+  ) {
     patch.lastModelOutputAt = persistedTimestamp;
   }
 

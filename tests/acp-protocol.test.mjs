@@ -52,3 +52,29 @@ test("every session/* method called at runtime is declared in acp-protocol.d.ts"
     );
   }
 });
+
+test("acp-protocol.d.ts models SessionUpdateNotification with thought and message chunks", () => {
+  assert.match(ACP_PROTOCOL_DTS, /SessionUpdateNotification/);
+  assert.match(ACP_PROTOCOL_DTS, /agent_message_chunk/);
+  assert.match(ACP_PROTOCOL_DTS, /agent_thought_chunk/);
+  assert.match(ACP_PROTOCOL_DTS, /session\/update/);
+});
+
+test("acp-protocol.d.ts no longer defines the stale progress/toolCall/fileChange/error AcpNotification union", () => {
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /method:\s*"progress"/);
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /method:\s*"toolCall"/);
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /method:\s*"fileChange"/);
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /method:\s*"error"/);
+});
+
+test("acp-protocol.d.ts shares text chunk content type across message and thought chunks", () => {
+  assert.match(ACP_PROTOCOL_DTS, /interface AgentChunkContent/);
+  assert.match(ACP_PROTOCOL_DTS, /AgentMessageChunkUpdate[\s\S]*content:\s*AgentChunkContent/);
+  assert.match(ACP_PROTOCOL_DTS, /AgentThoughtChunkUpdate[\s\S]*content:\s*AgentChunkContent/);
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /interface AgentMessageChunkContent/);
+  assert.doesNotMatch(ACP_PROTOCOL_DTS, /interface AgentThoughtChunkContent/);
+});
+
+test("FileChangeUpdate action matches FileChangeRecord action literals", () => {
+  assert.match(ACP_PROTOCOL_DTS, /interface FileChangeUpdate[\s\S]*action:\s*"create"\s*\|\s*"modify"\s*\|\s*"delete"/);
+});

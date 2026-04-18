@@ -3,6 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "gemini");
@@ -56,15 +57,16 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /--background\|--wait/);
   assert.match(rescue, /--resume\|--fresh/);
   assert.match(rescue, /--model auto-gemini-3\|auto-gemini-2\.5\|pro\|flash\|flash-lite\|/);
-  assert.match(rescue, /--thinking-budget <number>/);
+  assert.match(rescue, /--thinking <off\|low\|medium\|high>/);
+  assert.match(rescue, /--stream-output/);
   assert.match(rescue, /task-resume-candidate --json/);
   assert.match(rescue, /AskUserQuestion/);
   assert.match(rescue, /Continue current Gemini thread/);
   assert.match(rescue, /Start a new Gemini thread/);
   assert.match(rescue, /default to foreground/i);
   assert.match(rescue, /Do not forward them to `task`/i);
-  assert.match(rescue, /`--model` and `--thinking-budget` are runtime-selection flags/i);
-  assert.match(rescue, /Leave `--thinking-budget` unset unless the user explicitly asks/i);
+  assert.match(rescue, /`--model`, `--thinking`, and `--stream-output` are runtime-selection flags/i);
+  assert.match(rescue, /Leave `--thinking` unset unless the user explicitly asks/i);
   assert.match(rescue, /The default model is `auto-gemini-3`/i);
   assert.match(rescue, /auto-gemini-2\.5/i);
   assert.match(rescue, /If the request includes `--resume`, do not ask whether to continue/i);
@@ -82,7 +84,7 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(agent, /Use exactly one `Bash` call/i);
   assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
   assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
-  assert.match(agent, /Leave `--thinking-budget` unset unless the user explicitly requests a specific thinking budget/i);
+  assert.match(agent, /Leave `--thinking` unset unless the user explicitly requests a specific thinking level/i);
   assert.match(agent, /The default model is `auto-gemini-3`/i);
   assert.match(agent, /auto-gemini-2\.5/i);
   assert.match(agent, /\bpro\b/i);
@@ -212,4 +214,23 @@ test("gemini-result-handling skill forbids fabricating results for incomplete jo
   assert.match(resultHandling, /do not fabricate|do not invent|never fabricate/i);
   assert.match(resultHandling, /incomplete|non-terminal|still running|in progress/i);
   assert.match(resultHandling, /\/gemini:(status|cancel|result)/);
+});
+
+test("companion task rejects an invalid --thinking value with exit 1 and usage", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  const result = run(process.execPath, [COMPANION_SCRIPT, "task", "--thinking", "purple", "--", "noop"], {
+    cwd,
+    env: { ...process.env, PATH: process.env.PATH }
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid --thinking value/i);
+  assert.match(result.stderr, /off.*low.*medium.*high/);
+});
+
+test("companion --help mentions --thinking and --stream-output", () => {
+  const result = run(process.execPath, [COMPANION_SCRIPT, "--help"], {});
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /--thinking <off\|low\|medium\|high>/);
+  assert.match(result.stdout, /--stream-output/);
 });
