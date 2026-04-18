@@ -1,0 +1,255 @@
+import { withJobMutex } from "./atomic-state.mjs";
+import { loadState, readJobFile, saveState, writeJobFile, writeJobFileUnlocked } from "./state.mjs";
+import { MAX_DIAGNOSTIC_LENGTH } from "./acp-diagnostics.mjs";
+
+export { MAX_DIAGNOSTIC_LENGTH };
+export const MAX_JOB_EVENTS = 50;
+
+const PROGRESS_EVENT_TYPES = new Set([
+  "model_text_chunk",
+  "tool_call",
+  "file_change",
+  "phase",
+  "phase_changed",
+  "status",
+  "worker_started"
+]);
+const DIAGNOSTIC_EVENT_TYPES = new Set(["diagnostic", "error", "stderr"]);
+const SAFE_EVENT_FIELDS = new Set([
+  "type",
+  "timestamp",
+  "message",
+  "phase",
+  "toolName",
+  "path",
+  "action",
+  "source",
+  "transport",
+  "chars"
+]);
+const NUMERIC_EVENT_FIELDS = new Set(["chars"]);
+const TERMINAL_HEALTH_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL_EVENT_TYPES = new Set(["completed", "failed", "worker_cancelled", "cancelled"]);
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function sanitizeText(value) {
+  return String(value ?? "")
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)/g, "")
+    .replace(/\u001b[PX^_][\s\S]*?(?:\u001b\\|$)/g, "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .slice(0, MAX_DIAGNOSTIC_LENGTH);
+}
+
+function sanitizeEvent(event, timestamp) {
+  const input = event && typeof event === "object" ? event : {};
+  const normalized = { timestamp: sanitizeText(timestamp) };
+  for (const [key, value] of Object.entries(input)) {
+    if (!SAFE_EVENT_FIELDS.has(key)) {
+      continue;
+    }
+    if (typeof value === "string") {
+      normalized[key] = sanitizeText(value);
+    } else if (NUMERIC_EVENT_FIELDS.has(key) && typeof value === "number" && Number.isFinite(value)) {
+      normalized[key] = value;
+    }
+    // Any other type (object, function, symbol, undefined, non-finite number)
+    // is intentionally dropped.
+  }
+  return normalized;
+}
+
+function recommendedActionFor(kind) {
+  switch (kind) {
+    case "rate_limit":
+      return "Wait for quota recovery or reduce request volume.";
+    case "auth":
+      return "Refresh Gemini authentication before retrying.";
+    case "broker":
+      return "Restart or reconnect the Gemini broker.";
+    case "model":
+      return "Check model availability or retry with a supported model.";
+    case "network":
+      return "Check network connectivity and retry.";
+    default:
+      return "Review the latest diagnostic event.";
+  }
+}
+
+function isDiagnosticEvent(event) {
+  const type = String(event.type ?? "");
+  // Exact membership covers the canonical types (diagnostic, error, stderr).
+  // The `diagnostic_` prefix covers subtypes like `diagnostic_acknowledged`
+  // and `diagnostic_quota`. We intentionally do NOT include an `error_`
+  // prefix: types like `error_cleared` signal recovery, not a diagnostic.
+  return DIAGNOSTIC_EVENT_TYPES.has(type) || type.startsWith("diagnostic_");
+}
+
+function isProgressEvent(event) {
+  return PROGRESS_EVENT_TYPES.has(String(event.type ?? ""));
+}
+
+function compactJobIndexEntry(job) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    title: job.title,
+    status: job.status,
+    sessionId: job.sessionId,
+    workspaceRoot: job.workspaceRoot,
+    logFile: job.logFile,
+    threadId: job.threadId,
+    turnId: job.turnId,
+    summary: job.summary,
+    errorMessage: job.errorMessage,
+    pid: job.pid,
+    phase: job.phase,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+    healthStatus: job.healthStatus,
+    healthMessage: job.healthMessage,
+    recommendedAction: job.recommendedAction,
+    lastHeartbeatAt: job.lastHeartbeatAt,
+    lastProgressAt: job.lastProgressAt,
+    lastModelOutputAt: job.lastModelOutputAt,
+    lastToolCallAt: job.lastToolCallAt,
+    lastDiagnosticAt: job.lastDiagnosticAt
+  };
+}
+
+/**
+ * Pure helper: compute the patch (events array + derived progress/health
+ * fields) that would result from appending `event` to `job`. Does NOT mutate
+ * `job` and does NOT perform any I/O. Callers that already hold the per-job
+ * mutex can merge this patch into the existing record and write atomically.
+ */
+export function normalizeAndAppendEvent(job, event) {
+  const timestamp = typeof event?.timestamp === "string" ? event.timestamp : nowIso();
+  const normalizedEvent = sanitizeEvent(event, timestamp);
+  const persistedTimestamp = normalizedEvent.timestamp;
+  const eventType = String(normalizedEvent.type ?? "");
+  const preserveTerminalHealth =
+    (TERMINAL_HEALTH_STATUSES.has(String(job?.healthStatus ?? "")) ||
+      TERMINAL_HEALTH_STATUSES.has(String(job?.status ?? ""))) &&
+    !TERMINAL_EVENT_TYPES.has(eventType);
+  const events = [
+    ...(Array.isArray(job?.events) ? job.events : []),
+    normalizedEvent
+  ].slice(-MAX_JOB_EVENTS);
+  const patch = {
+    events,
+    lastHeartbeatAt: persistedTimestamp,
+    updatedAt: nowIso()
+  };
+
+  if (isProgressEvent(normalizedEvent) && !preserveTerminalHealth) {
+    patch.lastProgressAt = persistedTimestamp;
+    patch.healthStatus = "active";
+    patch.healthMessage = null;
+    patch.recommendedAction = null;
+  }
+
+  if (normalizedEvent.type === "model_text_chunk" && !preserveTerminalHealth) {
+    patch.lastModelOutputAt = persistedTimestamp;
+  }
+
+  if (normalizedEvent.type === "tool_call" && !preserveTerminalHealth) {
+    patch.lastToolCallAt = persistedTimestamp;
+  }
+
+  if (isDiagnosticEvent(normalizedEvent) && !preserveTerminalHealth) {
+    const healthMessage = sanitizeText(normalizedEvent.message);
+    const classification = classifyDiagnostic(healthMessage);
+    patch.lastDiagnosticAt = persistedTimestamp;
+    patch.healthStatus =
+      classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
+        ? "possibly_stalled"
+        : classification.healthStatus;
+    patch.healthMessage = healthMessage;
+    patch.recommendedAction = recommendedActionFor(classification.kind);
+  }
+
+  if (normalizedEvent.type === "completed") {
+    patch.healthStatus = "completed";
+    patch.healthMessage = sanitizeText(normalizedEvent.message) || "Job completed.";
+    patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
+  }
+
+  if (normalizedEvent.type === "failed") {
+    patch.healthStatus = "failed";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
+  }
+
+  if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
+    patch.healthStatus = "cancelled";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
+  }
+
+  return patch;
+}
+
+export async function upsertCompactJobIndexEntry(workspaceRoot, job) {
+  const state = loadState(workspaceRoot);
+  const compact = compactJobIndexEntry(job);
+  const index = state.jobs.findIndex((entry) => entry.id === job.id);
+  if (index >= 0) {
+    state.jobs[index] = compact;
+  } else {
+    state.jobs.push(compact);
+  }
+  await saveState(workspaceRoot, state);
+}
+
+export function classifyDiagnostic(text) {
+  const value = String(text ?? "");
+  const lower = value.toLowerCase();
+  const mentionsBroker = /\b(acp|broker)\b/.test(lower);
+  if (/(rate limit|quota|429|resource exhausted)/.test(lower)) {
+    return { kind: "rate_limit", healthStatus: "rate_limited" };
+  }
+  if (/(auth|credential|login|unauthorized|401|permission denied)/.test(lower)) {
+    return { kind: "auth", healthStatus: "auth_required" };
+  }
+  if (mentionsBroker && /(broker|socket|endpoint|busy|disconnected|not ready|connection)/.test(lower)) {
+    return { kind: "broker", healthStatus: "broker_unhealthy" };
+  }
+  if (/(model.*unavailable|unavailable.*model|not found.*model)/.test(lower)) {
+    return { kind: "model", healthStatus: "possibly_stalled" };
+  }
+  if (/(econnreset|etimedout|network|dns|api error|connection|socket|endpoint|disconnected|hang up)/.test(lower)) {
+    return { kind: "network", healthStatus: "possibly_stalled" };
+  }
+  return { kind: "unknown", healthStatus: "quiet" };
+}
+
+export const __testing = {
+  isDiagnosticEvent,
+  sanitizeEvent
+};
+
+export async function recordJobEvent(workspaceRoot, jobId, event) {
+  return withJobMutex(workspaceRoot, jobId, async () => {
+    const existing = readJobFile(workspaceRoot, jobId);
+    if (!existing) {
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    const patch = normalizeAndAppendEvent(existing, event);
+    const nextJob = { ...existing, ...patch };
+    // We already hold the per-job mutex; use the unlocked write helper to
+    // avoid the non-reentrant re-acquire that would otherwise deadlock.
+    writeJobFileUnlocked(workspaceRoot, jobId, nextJob);
+    // The workspace mutex used by upsertCompactJobIndexEntry is a different
+    // key, so it cannot deadlock against the per-job mutex we hold here.
+    await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+
+    return nextJob;
+  });
+}

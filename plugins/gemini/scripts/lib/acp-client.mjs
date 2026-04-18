@@ -18,12 +18,18 @@ import readline from "node:readline";
 import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
 import { terminateProcessTree } from "./process.mjs";
+import { attachStderrDiagnosticCollector, BROKER_DIAGNOSTIC_METHOD, sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
 const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
 
 export const BROKER_ENDPOINT_ENV = "GEMINI_COMPANION_ACP_ENDPOINT";
 export const BROKER_BUSY_RPC_CODE = -32001;
+
+// Maximum retained size (in characters) of the in-progress line buffer. Guards
+// against memory growth from a peer that never emits a newline. Full ACP
+// messages are line-delimited and normally well under 1 MiB.
+export const ACP_MAX_LINE_BUFFER = 1 << 20;
 
 /**
  * @typedef {import("./acp-protocol").JsonRpcRequest} JsonRpcRequest
@@ -53,6 +59,7 @@ class AcpClientBase {
 
     /** @type {NotificationHandler | null} */
     this.onNotification = options.onNotification ?? null;
+    this.onDiagnostic = typeof options.onDiagnostic === "function" ? options.onDiagnostic : null;
 
     this.lineBuffer = "";
     this.exitPromise = new Promise((resolve) => {
@@ -94,6 +101,31 @@ class AcpClientBase {
     }
 
     // Notification (no id).
+    if (message.method === BROKER_DIAGNOSTIC_METHOD) {
+      // Trust boundary: only the broker transport may emit
+      // broker/diagnostic as a trusted diagnostic. In direct mode the peer is
+      // the `gemini --acp` child — a forged notification on its stdout MUST
+      // NOT be promoted to a broker diagnostic.
+      if (this.transport === "broker") {
+        if (this.onDiagnostic) {
+          try {
+            this.onDiagnostic({
+              source: message.params?.source ?? "broker",
+              message: message.params?.message ?? ""
+            });
+          } catch {
+            // Best-effort telemetry.
+          }
+        }
+        // Single-dispatch: do NOT also forward to onNotification, otherwise
+        // callers that register both handlers would record the diagnostic
+        // twice.
+        return;
+      }
+      // Direct mode: fall through to the regular onNotification path so the
+      // caller can decide how to handle (or ignore) the untrusted payload.
+    }
+
     if (message.method && this.onNotification) {
       this.onNotification(message);
     }
@@ -106,6 +138,23 @@ class AcpClientBase {
       const line = this.lineBuffer.slice(0, newlineIndex);
       this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
       this.handleLine(line);
+    }
+    // Guard against an unbounded line-less flood from a misbehaving peer.
+    if (this.lineBuffer.length > ACP_MAX_LINE_BUFFER) {
+      const dropped = this.lineBuffer.length - ACP_MAX_LINE_BUFFER;
+      this.lineBuffer = this.lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
+      if (this.onDiagnostic) {
+        try {
+          this.onDiagnostic({
+            source: "acp-transport",
+            message: sanitizeDiagnosticMessage(
+              `[line buffer overflow — dropped ${dropped} bytes]`
+            )
+          });
+        } catch {
+          // Best-effort telemetry — never let diagnostic delivery crash the ACP client.
+        }
+      }
     }
   }
 
@@ -208,8 +257,18 @@ class SpawnedAcpClient extends AcpClientBase {
       this.handleExit(error);
     });
 
-    // Drain stderr to prevent back-pressure.
-    this.proc.stderr?.resume();
+    // Capture bounded stderr lines as diagnostics; always drain to prevent back-pressure.
+    if (this.proc.stderr) {
+      attachStderrDiagnosticCollector(this.proc.stderr, (message) => {
+        if (this.onDiagnostic) {
+          try {
+            this.onDiagnostic({ source: "direct-stderr", message });
+          } catch {
+            // Best-effort.
+          }
+        }
+      });
+    }
 
     await this.handshake();
   }
@@ -304,6 +363,40 @@ class BrokerAcpClient extends AcpClientBase {
   }
 }
 
+// ─── Test-only helpers ───────────────────────────────────────────────────────
+//
+// Exposes pieces of AcpClientBase to unit tests without having to spawn a real
+// child process or bind a broker socket. Not part of the public API — anything
+// prefixed with `__` is test-only.
+
+export const __testing = {
+  /**
+   * Invoke AcpClientBase.handleLine against a fake client object.
+   *
+   * @param {{ transport: string, pending: Map<number, any>, nextId: number,
+   *           lineBuffer: string, onNotification?: Function,
+   *           onDiagnostic?: Function }} client
+   * @param {string} line
+   */
+  handleLineOn(client, line) {
+    return AcpClientBase.prototype.handleLine.call(client, line);
+  },
+
+  /**
+   * Invoke AcpClientBase.handleChunk against a fake client object. Used to
+   * exercise the line-buffer overflow diagnostic without spawning a real
+   * subprocess or broker socket.
+   *
+   * @param {{ transport: string, pending: Map<number, any>, nextId: number,
+   *           lineBuffer: string, onNotification?: Function,
+   *           onDiagnostic?: Function }} client
+   * @param {string} chunk
+   */
+  handleChunkOn(client, chunk) {
+    return AcpClientBase.prototype.handleChunk.call(client, chunk);
+  }
+};
+
 // ─── Factory ──────────────────────────────────────────────────────────────────
 
 export class GeminiAcpClient {
@@ -311,7 +404,7 @@ export class GeminiAcpClient {
    * Connect to a Gemini ACP instance. Tries broker first, falls back to direct.
    *
    * @param {string} cwd
-   * @param {{ disableBroker?: boolean, brokerEndpoint?: string | null, reuseExistingBroker?: boolean, env?: NodeJS.ProcessEnv, onNotification?: NotificationHandler }} [options]
+   * @param {{ disableBroker?: boolean, brokerEndpoint?: string | null, reuseExistingBroker?: boolean, env?: NodeJS.ProcessEnv, onNotification?: NotificationHandler, onDiagnostic?: (payload: { source: string, message: string }) => void }} [options]
    * @returns {Promise<AcpClientBase>}
    */
   static async connect(cwd, options = {}) {
@@ -334,10 +427,19 @@ export class GeminiAcpClient {
         return client;
       } catch (error) {
         // If broker is busy, fall through to direct spawn.
-        if (error?.code === BROKER_BUSY_RPC_CODE) {
-          process.stderr.write("Broker busy, falling back to direct gemini --acp spawn.\n");
-        } else {
-          process.stderr.write(`Broker connection failed (${error?.message ?? error}), falling back to direct spawn.\n`);
+        const fallbackMessage = error?.code === BROKER_BUSY_RPC_CODE
+          ? "Broker busy, falling back to direct gemini --acp spawn."
+          : `Broker connection failed (${error?.message ?? error}), falling back to direct spawn.`;
+        process.stderr.write(`${fallbackMessage}\n`);
+        if (typeof options.onDiagnostic === "function") {
+          try {
+            options.onDiagnostic({
+              source: "broker-fallback",
+              message: sanitizeDiagnosticMessage(fallbackMessage)
+            });
+          } catch {
+            // Best-effort.
+          }
         }
       }
     }

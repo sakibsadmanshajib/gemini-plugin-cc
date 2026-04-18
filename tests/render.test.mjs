@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { renderReviewResult, renderResultOutput } from "../plugins/gemini/scripts/lib/render.mjs";
+import {
+  renderReviewResult,
+  renderResultOutput,
+  renderSingleJobStatus,
+  renderStatusSnapshot
+} from "../plugins/gemini/scripts/lib/render.mjs";
 
 test("renderReviewResult renders an approve verdict with no findings", () => {
   const output = renderReviewResult({
@@ -97,4 +102,98 @@ test("renderResultOutput uses pre-rendered output when no rawOutput is present",
   assert.doesNotMatch(output, /^\{/);
   assert.match(output, /Gemini session ID: sess-def-456/);
   assert.match(output, /Resume in Gemini: gemini --resume sess-def-456/);
+});
+
+test("renderStatusSnapshot includes health and last progress for active jobs", () => {
+  const output = renderStatusSnapshot({
+    workspaceRoot: "/tmp/test-workspace",
+    config: {},
+    runtimeStatus: {},
+    needsReview: false,
+    latestFinished: null,
+    recent: [],
+    running: [
+      {
+        id: "gemini-789",
+        kind: "task",
+        status: "running",
+        phase: "collecting_context",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        healthStatus: "quiet",
+        lastProgressAt: "2026-01-01T00:01:00.000Z",
+        summary: "Working"
+      }
+    ]
+  });
+
+  assert.match(output, /\| Job ID \| Kind \| Status \| Phase \| Health \| Last Progress \| Elapsed \| Summary \|/);
+  assert.match(output, /quiet/);
+  assert.match(output, /2026-01-01T00:01:00.000Z/);
+});
+
+test("renderSingleJobStatus includes observability details without raw event payloads", () => {
+  const output = renderSingleJobStatus({
+    job: {
+      id: "gemini-detail",
+      kind: "task",
+      status: "running",
+      phase: "running",
+      title: "Detailed status",
+      elapsed: "2m",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:01:00.000Z",
+      lastHeartbeatAt: "2026-01-01T00:01:00.000Z",
+      lastProgressAt: "2026-01-01T00:00:45.000Z",
+      lastDiagnosticAt: "2026-01-01T00:00:50.000Z",
+      healthStatus: "quiet",
+      healthMessage: "No model output recently.",
+      recommendedAction: "Check status again or retry if it remains quiet.",
+      pid: 123,
+      events: [
+        {
+          type: "tool_call",
+          timestamp: "2026-01-01T00:00:30.000Z",
+          message: "reading files",
+          toolName: "read_file",
+          payload: { raw: "do not render" }
+        },
+        {
+          type: "diagnostic",
+          timestamp: "2026-01-01T00:00:50.000Z",
+          message: "No model output recently."
+        }
+      ],
+      recentProgress: ["progress line"]
+    }
+  });
+
+  assert.match(output, /## Health/);
+  assert.match(output, /- \*\*Health:\*\* quiet/);
+  assert.match(output, /- \*\*Diagnostic:\*\* No model output recently\./);
+  assert.match(output, /- \*\*Recommended Action:\*\* Check status again or retry if it remains quiet\./);
+  assert.match(output, /## Runtime/);
+  assert.match(output, /- \*\*PID:\*\* 123/);
+  assert.match(output, /- \*\*Started:\*\* 2026-01-01T00:00:00.000Z/);
+  assert.match(output, /## Recent Events/);
+  assert.match(output, /tool_call/);
+  assert.match(output, /read_file/);
+  assert.doesNotMatch(output, /payload/);
+  assert.doesNotMatch(output, /do not render/);
+});
+
+test("renderSingleJobStatus includes runtime.transport when present", () => {
+  const output = renderSingleJobStatus({
+    job: {
+      id: "gemini-transport",
+      kind: "task",
+      status: "running",
+      title: "Transport rendering",
+      elapsed: "1m",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      runtime: { transport: "broker" },
+      events: []
+    }
+  });
+  assert.match(output, /## Runtime/);
+  assert.match(output, /- \*\*Transport:\*\* broker/);
 });

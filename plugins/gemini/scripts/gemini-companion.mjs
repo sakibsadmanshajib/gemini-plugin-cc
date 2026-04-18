@@ -36,7 +36,7 @@ import {
   runAcpPrompt,
   runAcpReview
 } from "./lib/gemini.mjs";
-import { getConfig, loadState, readJobFile, setConfig } from "./lib/state.mjs";
+import { getConfig, loadState, readJobFile, saveState, setConfig } from "./lib/state.mjs";
 import {
   createTrackedJob,
   runTrackedJob,
@@ -50,7 +50,7 @@ import {
   resolveResultJob
 } from "./lib/job-control.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
-import { binaryAvailable } from "./lib/process.mjs";
+import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import {
   outputCommandResult,
   renderCancelReport,
@@ -155,9 +155,9 @@ async function handleSetup(argv) {
 
   // Toggle review gate if requested.
   if (options["enable-review-gate"]) {
-    setConfig(cwd, { stopReviewGate: true });
+    await setConfig(cwd, { stopReviewGate: true });
   } else if (options["disable-review-gate"]) {
-    setConfig(cwd, { stopReviewGate: false });
+    await setConfig(cwd, { stopReviewGate: false });
   }
 
   const { available, version } = getGeminiAvailability();
@@ -312,7 +312,7 @@ async function handleTask(argv) {
   }
 
   // Foreground execution.
-  const job = createTrackedJob({
+  const job = await createTrackedJob({
     workspaceRoot,
     kind: "task",
     title: buildPersistentTaskThreadName(prompt)
@@ -322,7 +322,7 @@ async function handleTask(argv) {
 
   try {
     const execution = await runTrackedJob(job, async () => {
-      updateJobPhase(workspaceRoot, job.id, "running");
+      await updateJobPhase(workspaceRoot, job.id, "running");
 
       const result = await runAcpPrompt(cwd, prompt, {
         model,
@@ -385,27 +385,32 @@ async function handleTaskWorker(argv) {
 
   try {
     await runTrackedJob(storedJob, async () => {
-      updateJobPhase(workspaceRoot, jobId, "running");
+      await updateJobPhase(workspaceRoot, jobId, "running");
+
+      const jobObserver = { workspaceRoot, jobId };
 
       let result;
       if (jobKind === "review") {
         result = await runAcpReview(cwd, {
           scope: request.scope,
           base: request.base,
-          model: request.model
+          model: request.model,
+          jobObserver
         });
       } else if (jobKind === "adversarial-review") {
         result = await runAcpAdversarialReview(cwd, {
           scope: request.scope,
           base: request.base,
           model: request.model,
-          focus: request.focus
+          focus: request.focus,
+          jobObserver
         });
       } else {
         result = await runAcpPrompt(cwd, request.prompt, {
           model: request.model,
           approvalMode: request.approvalMode ?? "default",
-          sessionId: request.sessionId
+          sessionId: request.sessionId,
+          jobObserver
         });
       }
 
@@ -536,12 +541,10 @@ async function handleCancel(argv) {
       completedAt: new Date().toISOString()
     };
   }
-  const { saveState } = await import("./lib/state.mjs");
-  saveState(workspaceRoot, state);
+  await saveState(workspaceRoot, state);
 
   // Kill the process if we have a PID.
   if (job.pid) {
-    const { terminateProcessTree } = await import("./lib/process.mjs");
     try {
       terminateProcessTree(job.pid);
     } catch {
@@ -584,9 +587,9 @@ async function handleTaskResumeCandidate(argv) {
 
 // ─── Background Helpers ───────────────────────────────────────────────────────
 
-function runReviewInBackground(workspaceRoot, options, kind) {
+async function runReviewInBackground(workspaceRoot, options, kind) {
   assertGemini3ModelVersionCompatibility(options.model);
-  const job = createTrackedJob({
+  const job = await createTrackedJob({
     workspaceRoot,
     kind,
     title: `${kind}: ${options.scope ?? "auto"} review`,
@@ -613,8 +616,8 @@ function runReviewInBackground(workspaceRoot, options, kind) {
   );
 }
 
-function runTaskInBackground(workspaceRoot, request) {
-  const job = createTrackedJob({
+async function runTaskInBackground(workspaceRoot, request) {
+  const job = await createTrackedJob({
     workspaceRoot,
     kind: "task",
     title: buildPersistentTaskThreadName(request.prompt),

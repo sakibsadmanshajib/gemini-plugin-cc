@@ -155,6 +155,57 @@ Lists active and recent Gemini jobs for this repository.
 /gemini:status --wait
 ```
 
+The compact active-jobs table includes a `Health` column and a `Last Progress`
+timestamp so you can tell at a glance whether Gemini is still making forward
+progress. When you pass a specific `<job-id>`, the detailed output also shows
+the health message, recommended next action, runtime transport (direct vs.
+broker socket), Gemini session ID when known, and a bounded Recent Events list
+covering session updates, model output chunks, tool calls, file changes, and
+diagnostics.
+
+Health labels:
+
+| Label | Meaning | Recommended action |
+|-------|---------|--------------------|
+| `active` | Recent progress from Gemini. | No action; wait for result. |
+| `quiet` | Worker heartbeat is recent but no new progress. | Re-check status shortly. |
+| `possibly_stalled` | No recent heartbeat or progress. | Re-check status or fetch `/gemini:result`; retry if the job does not recover. |
+| `rate_limited` | Gemini reported quota/rate limiting. | Wait, switch models, or cancel with `/gemini:cancel <job-id>`. |
+| `auth_required` | Gemini reported an auth/login problem. | Re-authenticate via `/gemini:setup`, then retry. |
+| `broker_unhealthy` | The ACP broker reported a connectivity or busy state. | Re-check status shortly; restart the broker if it does not recover. |
+| `worker_missing` | The background worker PID is no longer alive. | Check `/gemini:result`; retry if output is incomplete. |
+| `failed` | Gemini or the worker ended with an error. | Check `/gemini:result` for details before retrying. |
+| `cancelled` | The job was cancelled by the user or runtime. | No further action unless you want to retry. |
+| `completed` | The job finished successfully. | Fetch output with `/gemini:result <job-id>`. |
+
+Example detailed output:
+
+```text
+Health: rate_limited
+Last Progress: 12m ago
+Diagnostic: Gemini reported quota or rate limiting and appears to be waiting before retrying.
+Try: wait, switch models, or cancel with /gemini:cancel <job-id>
+```
+
+**Safety notes.** The Health message and recommended action shown in
+`/gemini:status` are treated as trusted broker-originated diagnostics. To keep
+that trust honest:
+
+- The ACP broker refuses to forward a `broker/diagnostic` notification that
+  originated from the `gemini --acp` child. A compromised child cannot forge
+  the Health/recommended-action text that you see. The ACP client applies the
+  same rule in direct mode, where `broker/diagnostic` from stdout is treated
+  as an untrusted notification rather than a diagnostic.
+- `worker_missing` is reported whenever the stored worker PID no longer
+  belongs to the current user. This catches two failure modes with one check:
+  the worker exited cleanly, or the OS recycled the PID to another user's
+  process (which, under the plugin's single-user spawn model, means the
+  worker is gone).
+- Event and diagnostic payloads are bounded (50 events per job, 500 chars per
+  message) and stripped of ANSI/control characters before they reach the
+  renderer. No prompts, credentials, or raw stderr enter the compact job
+  index.
+
 ### `/gemini:result`
 
 Shows the full stored output for a finished job.

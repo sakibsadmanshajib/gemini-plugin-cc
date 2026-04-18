@@ -8,10 +8,75 @@
 
 import { readJsonFile } from "./fs.mjs";
 import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, GeminiAcpClient } from "./acp-client.mjs";
+import { sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
 import { loadBrokerSession } from "./broker-lifecycle.mjs";
 import { binaryAvailable, runCommand } from "./process.mjs";
 import { collectReviewContext } from "./git.mjs";
 import { loadPrompt } from "./prompts.mjs";
+import { recordJobEvent } from "./job-observability.mjs";
+
+/**
+ * Convert an ACP session/update notification into a job-observability event.
+ * Returns null when the notification is not a session update.
+ */
+export function buildJobEventFromAcpNotification(notification) {
+  const update = notification?.params?.update;
+  if (!update) {
+    return null;
+  }
+  const kind = update.sessionUpdate;
+  if (kind === "agent_message_chunk") {
+    const text = update.content?.text ?? "";
+    // Privacy: do NOT record the raw model text on the event log. Only record
+    // the chunk size so /gemini:status can show liveness ("model is
+    // streaming") without leaking the model's prose through the event log.
+    return { type: "model_text_chunk", chars: String(text).length };
+  }
+  if (kind === "tool_call") {
+    return {
+      type: "tool_call",
+      toolName: sanitizeDiagnosticMessage(update.toolName ?? update.name ?? "unknown")
+    };
+  }
+  if (kind === "file_change") {
+    return {
+      type: "file_change",
+      path: sanitizeDiagnosticMessage(update.path ?? ""),
+      action: sanitizeDiagnosticMessage(update.action ?? "modify")
+    };
+  }
+  return {
+    type: "acp_notification",
+    message: sanitizeDiagnosticMessage(kind ?? "")
+  };
+}
+
+/**
+ * Shape a broker diagnostic payload as a classification-ready job event.
+ */
+export function formatBrokerDiagnostic({ source, message }) {
+  return {
+    type: "diagnostic",
+    source: sanitizeDiagnosticMessage(source ?? "broker"),
+    message: sanitizeDiagnosticMessage(message)
+  };
+}
+
+function recordObserverEvent(observer, event) {
+  if (!observer?.workspaceRoot || !observer?.jobId || !event) {
+    return;
+  }
+  // Best-effort telemetry — never let observability failures (sync or async)
+  // crash the ACP flow. `recordJobEvent` is async; attach a `.catch` and
+  // drop any rejection so this helper remains fire-and-forget.
+  try {
+    Promise.resolve(
+      recordJobEvent(observer.workspaceRoot, observer.jobId, event)
+    ).catch(() => {});
+  } catch {
+    // Swallow synchronous throws (e.g. bad args) for the same reason.
+  }
+}
 
 /**
  * Escape content embedded in XML-style prompt tags so that user-controlled
@@ -150,8 +215,16 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
   const textChunks = [];
   const toolCalls = [];
   const fileChanges = [];
+  const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
+    ? options.jobObserver
+    : null;
 
   const notificationHandler = (notification) => {
+    // NOTE: broker/diagnostic notifications are single-dispatched by
+    // AcpClientBase.handleLine via `onDiagnostic` only in broker-transport
+    // mode, and ignored as trusted in direct mode. No broker-diagnostic
+    // branch is needed here — it would double-count in broker mode and
+    // trust a forged payload in direct mode.
     const update = notification.params?.update;
     if (!update) {
       return;
@@ -172,15 +245,29 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       });
     }
 
+    recordObserverEvent(observer, buildJobEventFromAcpNotification(notification));
+
     // Forward to caller's handler if provided.
     if (options.onNotification) {
       options.onNotification(notification);
     }
   };
 
+  const diagnosticHandler = (payload) => {
+    recordObserverEvent(observer, formatBrokerDiagnostic(payload));
+    if (options.onDiagnostic) {
+      try {
+        options.onDiagnostic(payload);
+      } catch {
+        // Best-effort.
+      }
+    }
+  };
+
   const client = await GeminiAcpClient.connect(cwd, {
     env: options.env,
-    onNotification: notificationHandler
+    onNotification: notificationHandler,
+    onDiagnostic: diagnosticHandler
   });
 
   try {
@@ -188,12 +275,14 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     let sessionId = options.sessionId ?? null;
     if (sessionId) {
       await client.request("session/load", { sessionId, cwd, mcpServers: [] });
+      recordObserverEvent(observer, { type: "phase", message: "session_loaded" });
     } else {
       const session = await client.request("session/new", {
         cwd,
         mcpServers: []
       });
       sessionId = session?.sessionId ?? null;
+      recordObserverEvent(observer, { type: "phase", message: "session_created" });
     }
 
     // Set approval mode (defaults to autoEdit if not specified).
@@ -279,7 +368,9 @@ export async function runAcpReview(cwd, options = {}) {
     model: options.model,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
-    onNotification: options.onNotification
+    onNotification: options.onNotification,
+    jobObserver: options.jobObserver,
+    onDiagnostic: options.onDiagnostic
   });
 
   return {
@@ -343,7 +434,9 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
     model: options.model,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
-    onNotification: options.onNotification
+    onNotification: options.onNotification,
+    jobObserver: options.jobObserver,
+    onDiagnostic: options.onDiagnostic
   });
 
   const parsed = parseStructuredOutput(result.text);

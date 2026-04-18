@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { withJobMutex, withWorkspaceMutex, writeJsonAtomic } from "./atomic-state.mjs";
 import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
@@ -117,58 +118,98 @@ function removeFileIfExists(filePath) {
   }
 }
 
-export function saveState(cwd, state) {
-  const previousJobs = loadState(cwd).jobs;
-  ensureStateDir(cwd);
-  const nextJobs = pruneJobs(state.jobs ?? []);
-  const nextState = {
+/**
+ * Reconcile a caller-supplied state snapshot with the current on-disk state.
+ *
+ * Rules:
+ * - Jobs from the current on-disk state are preserved (so a stale caller
+ *   snapshot cannot silently drop another writer's in-flight job).
+ * - Jobs in the incoming snapshot overwrite fields for matching ids.
+ * - The resulting job list is then capped to MAX_JOBS by most-recent
+ *   `updatedAt`, matching the previous pruning behavior.
+ */
+function reconcileState(current, incoming) {
+  const byId = new Map();
+  for (const job of current.jobs ?? []) {
+    if (job && job.id) byId.set(job.id, job);
+  }
+  for (const job of incoming?.jobs ?? []) {
+    if (!job || !job.id) continue;
+    const prev = byId.get(job.id);
+    byId.set(job.id, prev ? { ...prev, ...job } : job);
+  }
+  const cappedJobs = pruneJobs(Array.from(byId.values()));
+
+  return {
     version: STATE_VERSION,
     config: {
       ...defaultState().config,
-      ...(state.config ?? {})
+      ...(current.config ?? {}),
+      ...(incoming?.config ?? {})
     },
-    jobs: nextJobs
+    jobs: cappedJobs
   };
+}
 
-  // Remove job files for pruned jobs.
-  const nextJobIds = new Set(nextJobs.map((j) => j.id));
-  for (const prevJob of previousJobs) {
-    if (!nextJobIds.has(prevJob.id)) {
+function saveStateUnlocked(cwd, state) {
+  ensureStateDir(cwd);
+  // Re-load current on-disk state inside the mutex so we reconcile against
+  // the freshest snapshot and never unlink another writer's files.
+  const current = loadState(cwd);
+  const nextState = reconcileState(current, state);
+
+  writeJsonAtomic(resolveStateFile(cwd), nextState);
+
+  // Prune job artifacts only for jobs that were dropped by reconciliation
+  // (i.e. the MAX_JOBS cap). Jobs absent from the caller's snapshot but
+  // still present in `current` are retained by `reconcileState`, so they
+  // will survive here.
+  const retainedIds = new Set(nextState.jobs.map((j) => j.id));
+  for (const prevJob of current.jobs ?? []) {
+    if (!retainedIds.has(prevJob.id)) {
       removeFileIfExists(resolveJobFile(cwd, prevJob.id));
       removeFileIfExists(resolveJobLogFile(cwd, prevJob.id));
     }
   }
+}
 
-  fs.writeFileSync(resolveStateFile(cwd), JSON.stringify(nextState, null, 2), { encoding: "utf8", mode: 0o600 });
+export async function saveState(cwd, state) {
+  return withWorkspaceMutex(cwd, async () => {
+    saveStateUnlocked(cwd, state);
+  });
 }
 
 export function getConfig(cwd) {
   return loadState(cwd).config;
 }
 
-export function setConfig(cwd, patch) {
-  const state = loadState(cwd);
-  state.config = { ...state.config, ...patch };
-  saveState(cwd, state);
+export async function setConfig(cwd, patch) {
+  return withWorkspaceMutex(cwd, async () => {
+    const state = loadState(cwd);
+    state.config = { ...state.config, ...patch };
+    saveStateUnlocked(cwd, state);
+  });
 }
 
 export function listJobs(cwd) {
   return loadState(cwd).jobs;
 }
 
-export function upsertJob(cwd, job) {
-  const state = loadState(cwd);
-  const index = state.jobs.findIndex((j) => j.id === job.id);
-  const now = new Date().toISOString();
-  const updated = { ...job, updatedAt: now };
+export async function upsertJob(cwd, job) {
+  return withWorkspaceMutex(cwd, async () => {
+    const state = loadState(cwd);
+    const index = state.jobs.findIndex((j) => j.id === job.id);
+    const now = new Date().toISOString();
+    const updated = { ...job, updatedAt: now };
 
-  if (index >= 0) {
-    state.jobs[index] = { ...state.jobs[index], ...updated };
-  } else {
-    state.jobs.push({ ...updated, createdAt: now });
-  }
+    if (index >= 0) {
+      state.jobs[index] = { ...state.jobs[index], ...updated };
+    } else {
+      state.jobs.push({ ...updated, createdAt: now });
+    }
 
-  saveState(cwd, state);
+    saveStateUnlocked(cwd, state);
+  });
 }
 
 export function readJobFile(cwd, jobId) {
@@ -180,10 +221,21 @@ export function readJobFile(cwd, jobId) {
   }
 }
 
-export function writeJobFile(cwd, jobId, data) {
+/**
+ * Internal atomic write. Callers are responsible for holding the per-job
+ * mutex; exposed so higher-level helpers that already hold the mutex (e.g.
+ * `recordJobEvent`) can persist without re-acquiring.
+ */
+export function writeJobFileUnlocked(cwd, jobId, data) {
   ensureStateDir(cwd);
   const filePath = resolveJobFile(cwd, jobId);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), { encoding: "utf8", mode: 0o600 });
+  writeJsonAtomic(filePath, data);
+}
+
+export async function writeJobFile(cwd, jobId, data) {
+  return withJobMutex(cwd, jobId, async () => {
+    writeJobFileUnlocked(cwd, jobId, data);
+  });
 }
 
 export function appendJobLog(cwd, jobId, line) {

@@ -15,15 +15,59 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import { parseArgs } from "./lib/args.mjs";
-import { BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import {
+  attachStderrDiagnosticCollector,
+  BROKER_DIAGNOSTIC_METHOD,
+  buildBrokerDiagnosticNotification,
+  sanitizeDiagnosticMessage
+} from "./lib/acp-diagnostics.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 
 const SHUTDOWN_GRACE_MS = 500;
+const MAX_DIAGNOSTIC_RING = 25;
+
+/**
+ * Ring of pre-built, sanitized broker/diagnostic JSON-RPC notifications. We
+ * build the notification (including source sanitization and message bounding)
+ * at ingress time so the ring never holds raw-length messages. Replay just
+ * writes the stored notification to the next client that takes the lock.
+ */
+const diagnosticRing = [];
+
+function rememberDiagnostic(notification) {
+  diagnosticRing.push(notification);
+  if (diagnosticRing.length > MAX_DIAGNOSTIC_RING) {
+    diagnosticRing.shift();
+  }
+}
+
+function forwardDiagnosticToActiveClient(source, message) {
+  const notification = buildBrokerDiagnosticNotification({ source, message });
+  if (activeClient && !activeClient.destroyed) {
+    send(activeClient, notification);
+  } else {
+    // Buffer for replay to the next client that takes the lock so pre-connect
+    // diagnostics (auth errors, broker child startup warnings) are not lost.
+    rememberDiagnostic(notification);
+  }
+}
+
+function drainDiagnosticRingTo(socket) {
+  if (diagnosticRing.length === 0 || !socket || socket.destroyed) {
+    return;
+  }
+  for (const notification of diagnosticRing) {
+    send(socket, notification);
+  }
+  diagnosticRing.length = 0;
+}
 
 // ─── Gemini ACP Child Process ─────────────────────────────────────────────────
 
@@ -47,15 +91,23 @@ function spawnAcpProcess(cwd) {
   const rl = readline.createInterface({ input: child.stdout });
   rl.on("line", (line) => handleAcpLine(line));
 
-  child.stderr?.resume(); // Drain stderr.
+  if (child.stderr) {
+    attachStderrDiagnosticCollector(child.stderr, (message) => {
+      process.stderr.write(`[gemini --acp stderr] ${message}\n`);
+      forwardDiagnosticToActiveClient("broker-child-stderr", message);
+    });
+  }
 
   child.on("exit", (code) => {
-    process.stderr.write(`gemini --acp exited with code ${code}\n`);
+    const exitMessage = `gemini --acp exited with code ${code}`;
+    process.stderr.write(`${exitMessage}\n`);
+    forwardDiagnosticToActiveClient("broker-child-exit", exitMessage);
     acpProcess = null;
     acpReady = false;
 
     // Reject all pending requests.
     for (const [id, pending] of pendingRequests) {
+      if (!pending.clientSocket) continue;
       send(pending.clientSocket, {
         jsonrpc: "2.0",
         id: pending.clientId,
@@ -66,7 +118,9 @@ function spawnAcpProcess(cwd) {
   });
 
   child.on("error", (error) => {
-    process.stderr.write(`gemini --acp error: ${error.message}\n`);
+    const errorMessage = `gemini --acp error: ${error.message}`;
+    process.stderr.write(`${errorMessage}\n`);
+    forwardDiagnosticToActiveClient("broker-child-error", errorMessage);
     acpProcess = null;
     acpReady = false;
   });
@@ -147,6 +201,17 @@ function handleAcpLine(line) {
 
   // Handle notification — forward to active client if any.
   if (message.method && activeClient && !activeClient.destroyed) {
+    // Trust boundary: the broker is the sole legitimate emitter of
+    // broker/diagnostic. A notification with this method on the child's
+    // stdout is a forgery attempt (e.g. a compromised gemini --acp child
+    // trying to phish the user via /gemini:status healthMessage). Drop it
+    // instead of forwarding unchanged.
+    if (message.method === BROKER_DIAGNOSTIC_METHOD) {
+      process.stderr.write(
+        "[acp-broker] security: dropped child-originated broker/diagnostic notification.\n"
+      );
+      return;
+    }
     send(activeClient, message);
   }
 }
@@ -165,6 +230,15 @@ function handleClientConnection(socket) {
       const line = lineBuffer.slice(0, newlineIndex);
       lineBuffer = lineBuffer.slice(newlineIndex + 1);
       handleClientMessage(socket, line);
+    }
+    // Guard against a misbehaving client that streams data without newlines.
+    // Mirrors AcpClientBase.handleChunk: truncate to the last
+    // ACP_MAX_LINE_BUFFER bytes and emit a broker/diagnostic so operators can
+    // see the drop.
+    if (lineBuffer.length > ACP_MAX_LINE_BUFFER) {
+      const dropped = lineBuffer.length - ACP_MAX_LINE_BUFFER;
+      lineBuffer = lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
+      sendClientLineBufferOverflowDiagnostic(socket, dropped);
     }
   });
 
@@ -248,7 +322,11 @@ function handleClientMessage(socket, line) {
   }
 
   // Forward request to ACP process.
+  const newlyActive = activeClient !== socket;
   activeClient = socket;
+  if (newlyActive) {
+    drainDiagnosticRingTo(socket);
+  }
   const brokerId = nextRpcId++;
   pendingRequests.set(brokerId, { clientSocket: socket, clientId: message.id });
 
@@ -273,6 +351,18 @@ function send(socket, message) {
   socket.write(`${JSON.stringify(message)}\n`);
 }
 
+function sendClientLineBufferOverflowDiagnostic(socket, dropped) {
+  send(
+    socket,
+    buildBrokerDiagnosticNotification({
+      source: "acp-transport",
+      message: sanitizeDiagnosticMessage(
+        `[client line buffer overflow: dropped ${dropped} bytes]`
+      )
+    })
+  );
+}
+
 function writePidFile(pidFile) {
   if (!pidFile) {
     return;
@@ -282,6 +372,23 @@ function writePidFile(pidFile) {
 }
 
 let server = null;
+
+export const __testing = {
+  handleClientConnection,
+  handleAcpLine,
+  setActiveClient(socket) {
+    activeClient = socket;
+  },
+  resetBrokerState() {
+    diagnosticRing.length = 0;
+    pendingRequests.clear();
+    activeClient = null;
+    acpProcess = null;
+    acpReady = false;
+    nextRpcId = 1;
+    server = null;
+  }
+};
 
 function shutdown() {
   process.stderr.write("ACP broker shutting down.\n");
@@ -354,10 +461,12 @@ async function main() {
   process.on("SIGINT", shutdown);
 }
 
-try {
-  await main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    await main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  }
 }
