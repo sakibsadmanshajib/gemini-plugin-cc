@@ -9,6 +9,8 @@
  * allows passthrough mode (user opted in explicitly).
  */
 
+import { sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
+
 export const STREAM_MODES = ["markers", "passthrough"];
 
 const MODE_SET = new Set(STREAM_MODES);
@@ -62,6 +64,10 @@ function formatElapsed(ms) {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+function markerField(value, fallback = "") {
+  return sanitizeDiagnosticMessage(value) || fallback;
+}
+
 /**
  * @param {{ mode: string, json: boolean, writer: (s: string) => any }} opts
  * @returns {(event: StreamEvent) => void}
@@ -92,7 +98,7 @@ export function createStreamHandler({ mode, json, writer }) {
     // markers mode
     switch (event.type) {
       case "phase": {
-        const raw = event.message ?? "";
+        const raw = markerField(event.message);
         const isSession = raw.startsWith("session_");
         const label = isSession ? "session" : "phase";
         const msg = isSession ? raw.replace(/^session_/, "") : raw;
@@ -100,7 +106,7 @@ export function createStreamHandler({ mode, json, writer }) {
         return;
       }
       case "tool_call":
-        safeWrite(writer, `[tool] ${event.toolName ?? "unknown"}\n`);
+        safeWrite(writer, `[tool] ${markerField(event.toolName, "unknown")}\n`);
         return;
       case "message_chunk":
         safeWrite(writer, ".");
@@ -109,7 +115,7 @@ export function createStreamHandler({ mode, json, writer }) {
         safeWrite(writer, "[thinking]\n");
         return;
       case "file_change":
-        safeWrite(writer, `[file] ${event.action ?? "modify"} ${event.path ?? ""}\n`);
+        safeWrite(writer, `[file] ${markerField(event.action, "modify")} ${markerField(event.path)}\n`);
         return;
       case "done": {
         const s = event.stats ?? {};

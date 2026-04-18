@@ -230,7 +230,8 @@ async function handleReview(argv) {
     base: options.base,
     model: resolveModel(options.model),
     thinking,
-    onStream: streamHandler
+    onStream: streamHandler,
+    streamThoughtText: Boolean(options["stream-output"])
   });
 
   if (result.error) {
@@ -288,7 +289,8 @@ async function handleReviewCommand(argv, { reviewName }) {
     focus,
     schemaPath: REVIEW_SCHEMA,
     thinking,
-    onStream: streamHandler
+    onStream: streamHandler,
+    streamThoughtText: Boolean(options["stream-output"])
   });
 
   if (result.error) {
@@ -385,7 +387,8 @@ async function handleTask(argv) {
         approvalMode,
         sessionId,
         thinking,
-        onStream: streamHandler
+        onStream: streamHandler,
+        streamThoughtText: Boolean(options["stream-output"])
       });
 
       streamHandler({
@@ -394,7 +397,7 @@ async function handleTask(argv) {
           tools: result.toolCalls?.length ?? 0,
           files: result.fileChanges?.length ?? 0,
           chunks: 0,
-          thoughts: result.thoughtText ? 1 : 0,
+          thoughts: result.thoughtCount ?? 0,
           elapsedMs: Date.now() - startTime
         }
       });

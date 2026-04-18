@@ -83,6 +83,39 @@ function recordObserverEvent(observer, event) {
   }
 }
 
+function emitStreamEvent(onStream, event) {
+  if (!onStream) return;
+  try {
+    onStream(event);
+  } catch {
+    // Best-effort live output must not interrupt ACP handling.
+  }
+}
+
+function buildThoughtStreamEvent(text, includeText) {
+  const normalized = String(text ?? "");
+  const event = { type: "thought_chunk", chars: normalized.length };
+  if (includeText) {
+    event.text = normalized;
+  }
+  return event;
+}
+
+function buildToolStreamEvent(update) {
+  return {
+    type: "tool_call",
+    toolName: sanitizeDiagnosticMessage(update.toolName ?? update.name ?? "unknown") || "unknown"
+  };
+}
+
+function buildFileStreamEvent(update) {
+  return {
+    type: "file_change",
+    path: sanitizeDiagnosticMessage(update.path ?? ""),
+    action: sanitizeDiagnosticMessage(update.action ?? "modify") || "modify"
+  };
+}
+
 /**
  * Escape content embedded in XML-style prompt tags so that user-controlled
  * text (diffs, file contents) cannot close the containing tag and break
@@ -110,6 +143,8 @@ function escapeXmlContent(content, tagName) {
  *   sessionId: string | null,
  *   text: string,
  *   thoughtText: string,
+ *   thoughtCount: number,
+ *   thoughtChars: number,
  *   model: string | null,
  *   usage: { promptTokens: number, completionTokens: number, totalTokens: number } | null,
  *   toolCalls: Array<{ name: string, arguments: Record<string, unknown>, result?: string }>,
@@ -212,12 +247,14 @@ export function getSessionRuntimeStatus(env, cwd) {
  * Pure dispatch over a sequence of session/update notifications.
  * Exposed for tests; mirrors the real runAcpPrompt loop body.
  */
-function dispatchNotifications(notifications, onStream) {
+function dispatchNotifications(notifications, onStream, options = {}) {
   const textChunks = [];
-  const thoughtChunks = [];
+  let thoughtCount = 0;
+  let thoughtChars = 0;
   const toolCalls = [];
   const fileChanges = [];
   const events = [];
+  const streamThoughtText = options.streamThoughtText === true;
 
   for (const notification of notifications) {
     const update = notification?.params?.update;
@@ -227,35 +264,39 @@ function dispatchNotifications(notifications, onStream) {
       textChunks.push(update.content.text);
       const ev = { type: "message_chunk", text: update.content.text };
       events.push(ev);
-      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+      emitStreamEvent(onStream, ev);
     } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
-      thoughtChunks.push(update.content.text);
-      const ev = { type: "thought_chunk", text: update.content.text };
+      const text = String(update.content.text ?? "");
+      thoughtCount += 1;
+      thoughtChars += text.length;
+      const ev = buildThoughtStreamEvent(text, streamThoughtText);
       events.push(ev);
-      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+      emitStreamEvent(onStream, ev);
     } else if (update.sessionUpdate === "tool_call") {
       toolCalls.push({
         name: update.toolName ?? update.name ?? "unknown",
         arguments: update.arguments ?? update.input ?? {},
         result: update.result ?? undefined
       });
-      const ev = { type: "tool_call", toolName: update.toolName ?? update.name ?? "unknown" };
+      const ev = buildToolStreamEvent(update);
       events.push(ev);
-      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+      emitStreamEvent(onStream, ev);
     } else if (update.sessionUpdate === "file_change") {
       fileChanges.push({
         path: update.path ?? "",
         action: update.action ?? "modify"
       });
-      const ev = { type: "file_change", path: update.path ?? "", action: update.action ?? "modify" };
+      const ev = buildFileStreamEvent(update);
       events.push(ev);
-      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+      emitStreamEvent(onStream, ev);
     }
   }
 
   return {
     text: textChunks.join(""),
-    thoughtText: thoughtChunks.join(""),
+    thoughtText: "",
+    thoughtCount,
+    thoughtChars,
     toolCalls,
     fileChanges,
     events
@@ -263,8 +304,8 @@ function dispatchNotifications(notifications, onStream) {
 }
 
 export const __testing = {
-  simulateNotificationDispatch(notifications, onStream) {
-    return dispatchNotifications(notifications, onStream);
+  simulateNotificationDispatch(notifications, onStream, options) {
+    return dispatchNotifications(notifications, onStream, options);
   }
 };
 
@@ -273,13 +314,14 @@ export const __testing = {
  *
  * @param {string} cwd
  * @param {string} prompt
- * @param {{ model?: string, thinkingBudget?: number, thinking?: "off"|"low"|"medium"|"high", approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
+ * @param {{ model?: string, thinkingBudget?: number, thinking?: "off"|"low"|"medium"|"high", approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<TurnResult>}
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
   // Collect streamed text and tool calls from session/update notifications.
   const textChunks = [];
-  const thoughtChunks = [];
+  let thoughtCount = 0;
+  let thoughtChars = 0;
   const toolCalls = [];
   const fileChanges = [];
   const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
@@ -292,23 +334,25 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
 
     if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
       textChunks.push(update.content.text);
-      if (options.onStream) { try { options.onStream({ type: "message_chunk", text: update.content.text }); } catch {} }
+      emitStreamEvent(options.onStream, { type: "message_chunk", text: update.content.text });
     } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
-      thoughtChunks.push(update.content.text);
-      if (options.onStream) { try { options.onStream({ type: "thought_chunk", text: update.content.text }); } catch {} }
+      const text = String(update.content.text ?? "");
+      thoughtCount += 1;
+      thoughtChars += text.length;
+      emitStreamEvent(options.onStream, buildThoughtStreamEvent(text, options.streamThoughtText === true));
     } else if (update.sessionUpdate === "tool_call") {
       toolCalls.push({
         name: update.toolName ?? update.name ?? "unknown",
         arguments: update.arguments ?? update.input ?? {},
         result: update.result ?? undefined
       });
-      if (options.onStream) { try { options.onStream({ type: "tool_call", toolName: update.toolName ?? update.name ?? "unknown" }); } catch {} }
+      emitStreamEvent(options.onStream, buildToolStreamEvent(update));
     } else if (update.sessionUpdate === "file_change") {
       fileChanges.push({
         path: update.path ?? "",
         action: update.action ?? "modify"
       });
-      if (options.onStream) { try { options.onStream({ type: "file_change", path: update.path ?? "", action: update.action ?? "modify" }); } catch {} }
+      emitStreamEvent(options.onStream, buildFileStreamEvent(update));
     }
 
     recordObserverEvent(observer, buildJobEventFromAcpNotification(notification));
@@ -342,7 +386,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     if (sessionId) {
       await client.request("session/load", { sessionId, cwd, mcpServers: [] });
       recordObserverEvent(observer, { type: "phase", message: "session_loaded" });
-      if (options.onStream) { try { options.onStream({ type: "phase", message: "session_loaded" }); } catch {} }
+      emitStreamEvent(options.onStream, { type: "phase", message: "session_loaded" });
     } else {
       const session = await client.request("session/new", {
         cwd,
@@ -350,7 +394,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       });
       sessionId = session?.sessionId ?? null;
       recordObserverEvent(observer, { type: "phase", message: "session_created" });
-      if (options.onStream) { try { options.onStream({ type: "phase", message: "session_created" }); } catch {} }
+      emitStreamEvent(options.onStream, { type: "phase", message: "session_created" });
     }
 
     // Set approval mode (defaults to autoEdit if not specified).
@@ -380,9 +424,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
         process.stderr.write(`Thinking: ${note}\n`);
       }
       recordObserverEvent(observer, { type: "phase", message: `thinking:${options.thinking}` });
-      if (options.onStream) {
-        try { options.onStream({ type: "phase", message: `thinking:${options.thinking}` }); } catch {}
-      }
+      emitStreamEvent(options.onStream, { type: "phase", message: sanitizeDiagnosticMessage(`thinking:${options.thinking}`) });
       // Delivery: upstream Gemini CLI (0.38.x) does not accept a per-invocation
       // thinking override via CLI flag, env var, or session/new param; the
       // configuration lives in settings.json at the model-alias level. Warn
@@ -412,7 +454,9 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     return {
       sessionId,
       text,
-      thoughtText: thoughtChunks.join(""),
+      thoughtText: "",
+      thoughtCount,
+      thoughtChars,
       model: result?._meta?.quota?.model_usage?.[0]?.model ?? options.model ?? null,
       usage,
       toolCalls,
@@ -423,7 +467,9 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     return {
       sessionId: null,
       text: textChunks.join(""),
-      thoughtText: thoughtChunks.join(""),
+      thoughtText: "",
+      thoughtCount,
+      thoughtChars,
       model: null,
       usage: null,
       toolCalls,
@@ -439,7 +485,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
  * Run a code review via ACP. Collects git context and sends a review prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<{ text: string, sessionId: string | null, scope: string, summary: string, error: unknown }>}
  */
 export async function runAcpReview(cwd, options = {}) {
@@ -464,6 +510,7 @@ export async function runAcpReview(cwd, options = {}) {
     model: options.model,
     thinking: options.thinking,
     onStream: options.onStream,
+    streamThoughtText: options.streamThoughtText,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,
@@ -484,7 +531,7 @@ export async function runAcpReview(cwd, options = {}) {
  * Run an adversarial review via ACP with a structured output prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
  * @returns {Promise<{ text: string, parsed: any, sessionId: string | null, scope: string, error: unknown }>}
  */
 export async function runAcpAdversarialReview(cwd, options = {}) {
@@ -532,6 +579,7 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
     model: options.model,
     thinking: options.thinking,
     onStream: options.onStream,
+    streamThoughtText: options.streamThoughtText,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,

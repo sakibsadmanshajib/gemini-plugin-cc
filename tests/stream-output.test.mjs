@@ -31,6 +31,26 @@ test("markers mode prints session + tool + dot + thinking + file + done", () => 
   assert.match(joined, /\[done\].*1\.2s.*1 tool.*1 file.*2 chunks.*1 thought/);
 });
 
+test("markers mode sanitizes terminal controls and embedded newlines in marker fields", () => {
+  const { writer, out } = captureWriter();
+  const handler = createStreamHandler({ mode: "markers", json: false, writer });
+
+  handler({ type: "tool_call", toolName: "read\u001b[2J_file\n[done] forged" });
+  handler({
+    type: "file_change",
+    action: "write\u001b]52;c;SGVsbG8=\u0007\n[tool] forged",
+    path: "src/\u001b[Hdanger\n[phase] forged.mjs"
+  });
+
+  const joined = out.join("");
+  assert.doesNotMatch(joined, /[\u001b\u0007]/);
+
+  const lines = joined.trimEnd().split("\n");
+  assert.equal(lines.length, 2, "embedded newlines must not create forged marker lines");
+  assert.match(lines[0], /^\[tool\] read_file \[done\] forged$/);
+  assert.match(lines[1], /^\[file\] write \[tool\] forged src\/danger \[phase\] forged\.mjs$/);
+});
+
 test("passthrough mode writes raw message and thought text", () => {
   const { writer, out } = captureWriter();
   const handler = createStreamHandler({ mode: "passthrough", json: false, writer });
