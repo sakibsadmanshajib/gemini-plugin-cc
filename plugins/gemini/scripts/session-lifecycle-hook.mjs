@@ -47,7 +47,7 @@ function appendEnvVar(name, value) {
   fs.appendFileSync(process.env.CLAUDE_ENV_FILE, `export ${name}=${shellEscape(value)}\n`, "utf8");
 }
 
-function cleanupSessionJobs(cwd, sessionId) {
+async function cleanupSessionJobs(cwd, sessionId) {
   if (!cwd || !sessionId) {
     return;
   }
@@ -76,7 +76,7 @@ function cleanupSessionJobs(cwd, sessionId) {
     }
   }
 
-  saveState(workspaceRoot, {
+  await saveState(workspaceRoot, {
     ...state,
     jobs: state.jobs.filter((job) => job.sessionId !== sessionId)
   });
@@ -128,7 +128,7 @@ async function handleSessionEnd(input) {
   }
 
   // Clean up session jobs.
-  cleanupSessionJobs(cwd, sessionId);
+  await cleanupSessionJobs(cwd, sessionId);
 }
 
 async function main() {

@@ -1,4 +1,5 @@
-import { loadState, readJobFile, saveState, writeJobFile } from "./state.mjs";
+import { withJobMutex } from "./atomic-state.mjs";
+import { loadState, readJobFile, saveState, writeJobFile, writeJobFileUnlocked } from "./state.mjs";
 
 export const MAX_JOB_EVENTS = 50;
 export const MAX_DIAGNOSTIC_LENGTH = 500;
@@ -102,7 +103,7 @@ function compactJobIndexEntry(job) {
   };
 }
 
-export function upsertCompactJobIndexEntry(workspaceRoot, job) {
+export async function upsertCompactJobIndexEntry(workspaceRoot, job) {
   const state = loadState(workspaceRoot);
   const compact = compactJobIndexEntry(job);
   const index = state.jobs.findIndex((entry) => entry.id === job.id);
@@ -111,7 +112,7 @@ export function upsertCompactJobIndexEntry(workspaceRoot, job) {
   } else {
     state.jobs.push(compact);
   }
-  saveState(workspaceRoot, state);
+  await saveState(workspaceRoot, state);
 }
 
 export function classifyDiagnostic(text) {
@@ -135,67 +136,73 @@ export function classifyDiagnostic(text) {
   return { kind: "unknown", healthStatus: "quiet" };
 }
 
-export function recordJobEvent(workspaceRoot, jobId, event) {
-  const existing = readJobFile(workspaceRoot, jobId);
-  if (!existing) {
-    throw new Error(`Job not found: ${jobId}`);
-  }
+export async function recordJobEvent(workspaceRoot, jobId, event) {
+  return withJobMutex(workspaceRoot, jobId, async () => {
+    const existing = readJobFile(workspaceRoot, jobId);
+    if (!existing) {
+      throw new Error(`Job not found: ${jobId}`);
+    }
 
-  const timestamp = event?.timestamp ?? nowIso();
-  const normalizedEvent = sanitizeEvent(event, timestamp);
-  const persistedTimestamp = normalizedEvent.timestamp;
-  const events = [...(Array.isArray(existing.events) ? existing.events : []), normalizedEvent].slice(-MAX_JOB_EVENTS);
-  const patch = {
-    events,
-    lastHeartbeatAt: persistedTimestamp,
-    updatedAt: nowIso()
-  };
+    const timestamp = event?.timestamp ?? nowIso();
+    const normalizedEvent = sanitizeEvent(event, timestamp);
+    const persistedTimestamp = normalizedEvent.timestamp;
+    const events = [...(Array.isArray(existing.events) ? existing.events : []), normalizedEvent].slice(-MAX_JOB_EVENTS);
+    const patch = {
+      events,
+      lastHeartbeatAt: persistedTimestamp,
+      updatedAt: nowIso()
+    };
 
-  if (isProgressEvent(normalizedEvent)) {
-    patch.lastProgressAt = persistedTimestamp;
-    patch.healthStatus = "active";
-  }
+    if (isProgressEvent(normalizedEvent)) {
+      patch.lastProgressAt = persistedTimestamp;
+      patch.healthStatus = "active";
+    }
 
-  if (normalizedEvent.type === "model_text_chunk") {
-    patch.lastModelOutputAt = persistedTimestamp;
-  }
+    if (normalizedEvent.type === "model_text_chunk") {
+      patch.lastModelOutputAt = persistedTimestamp;
+    }
 
-  if (normalizedEvent.type === "tool_call") {
-    patch.lastToolCallAt = persistedTimestamp;
-  }
+    if (normalizedEvent.type === "tool_call") {
+      patch.lastToolCallAt = persistedTimestamp;
+    }
 
-  if (isDiagnosticEvent(normalizedEvent)) {
-    const healthMessage = sanitizeText(normalizedEvent.message);
-    const classification = classifyDiagnostic(healthMessage);
-    patch.lastDiagnosticAt = persistedTimestamp;
-    patch.healthStatus =
-      classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
-        ? "possibly_stalled"
-        : classification.healthStatus;
-    patch.healthMessage = healthMessage;
-    patch.recommendedAction = recommendedActionFor(classification.kind);
-  }
+    if (isDiagnosticEvent(normalizedEvent)) {
+      const healthMessage = sanitizeText(normalizedEvent.message);
+      const classification = classifyDiagnostic(healthMessage);
+      patch.lastDiagnosticAt = persistedTimestamp;
+      patch.healthStatus =
+        classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
+          ? "possibly_stalled"
+          : classification.healthStatus;
+      patch.healthMessage = healthMessage;
+      patch.recommendedAction = recommendedActionFor(classification.kind);
+    }
 
-  if (normalizedEvent.type === "completed") {
-    patch.healthStatus = "completed";
-    patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
-  }
+    if (normalizedEvent.type === "completed") {
+      patch.healthStatus = "completed";
+      patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
+    }
 
-  if (normalizedEvent.type === "failed") {
-    patch.healthStatus = "failed";
-    patch.healthMessage = sanitizeText(normalizedEvent.message);
-    patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
-  }
+    if (normalizedEvent.type === "failed") {
+      patch.healthStatus = "failed";
+      patch.healthMessage = sanitizeText(normalizedEvent.message);
+      patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
+    }
 
-  if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
-    patch.healthStatus = "cancelled";
-    patch.healthMessage = sanitizeText(normalizedEvent.message);
-    patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
-  }
+    if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
+      patch.healthStatus = "cancelled";
+      patch.healthMessage = sanitizeText(normalizedEvent.message);
+      patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
+    }
 
-  const nextJob = { ...existing, ...patch };
-  writeJobFile(workspaceRoot, jobId, nextJob);
-  upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+    const nextJob = { ...existing, ...patch };
+    // We already hold the per-job mutex; use the unlocked write helper to
+    // avoid the non-reentrant re-acquire that would otherwise deadlock.
+    writeJobFileUnlocked(workspaceRoot, jobId, nextJob);
+    // The workspace mutex used by upsertCompactJobIndexEntry is a different
+    // key, so it cannot deadlock against the per-job mutex we hold here.
+    await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
 
-  return nextJob;
+    return nextJob;
+  });
 }

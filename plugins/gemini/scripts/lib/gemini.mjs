@@ -63,10 +63,15 @@ function recordObserverEvent(observer, event) {
   if (!observer?.workspaceRoot || !observer?.jobId || !event) {
     return;
   }
+  // Best-effort telemetry — never let observability failures (sync or async)
+  // crash the ACP flow. `recordJobEvent` is async; attach a `.catch` and
+  // drop any rejection so this helper remains fire-and-forget.
   try {
-    recordJobEvent(observer.workspaceRoot, observer.jobId, event);
+    Promise.resolve(
+      recordJobEvent(observer.workspaceRoot, observer.jobId, event)
+    ).catch(() => {});
   } catch {
-    // Best-effort telemetry — never let observability failures crash the ACP flow.
+    // Swallow synchronous throws (e.g. bad args) for the same reason.
   }
 }
 

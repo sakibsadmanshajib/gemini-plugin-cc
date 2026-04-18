@@ -155,9 +155,9 @@ async function handleSetup(argv) {
 
   // Toggle review gate if requested.
   if (options["enable-review-gate"]) {
-    setConfig(cwd, { stopReviewGate: true });
+    await setConfig(cwd, { stopReviewGate: true });
   } else if (options["disable-review-gate"]) {
-    setConfig(cwd, { stopReviewGate: false });
+    await setConfig(cwd, { stopReviewGate: false });
   }
 
   const { available, version } = getGeminiAvailability();
@@ -312,7 +312,7 @@ async function handleTask(argv) {
   }
 
   // Foreground execution.
-  const job = createTrackedJob({
+  const job = await createTrackedJob({
     workspaceRoot,
     kind: "task",
     title: buildPersistentTaskThreadName(prompt)
@@ -322,7 +322,7 @@ async function handleTask(argv) {
 
   try {
     const execution = await runTrackedJob(job, async () => {
-      updateJobPhase(workspaceRoot, job.id, "running");
+      await updateJobPhase(workspaceRoot, job.id, "running");
 
       const result = await runAcpPrompt(cwd, prompt, {
         model,
@@ -385,7 +385,7 @@ async function handleTaskWorker(argv) {
 
   try {
     await runTrackedJob(storedJob, async () => {
-      updateJobPhase(workspaceRoot, jobId, "running");
+      await updateJobPhase(workspaceRoot, jobId, "running");
 
       const jobObserver = { workspaceRoot, jobId };
 
@@ -542,7 +542,7 @@ async function handleCancel(argv) {
     };
   }
   const { saveState } = await import("./lib/state.mjs");
-  saveState(workspaceRoot, state);
+  await saveState(workspaceRoot, state);
 
   // Kill the process if we have a PID.
   if (job.pid) {
@@ -589,9 +589,9 @@ async function handleTaskResumeCandidate(argv) {
 
 // ─── Background Helpers ───────────────────────────────────────────────────────
 
-function runReviewInBackground(workspaceRoot, options, kind) {
+async function runReviewInBackground(workspaceRoot, options, kind) {
   assertGemini3ModelVersionCompatibility(options.model);
-  const job = createTrackedJob({
+  const job = await createTrackedJob({
     workspaceRoot,
     kind,
     title: `${kind}: ${options.scope ?? "auto"} review`,
@@ -618,8 +618,8 @@ function runReviewInBackground(workspaceRoot, options, kind) {
   );
 }
 
-function runTaskInBackground(workspaceRoot, request) {
-  const job = createTrackedJob({
+async function runTaskInBackground(workspaceRoot, request) {
+  const job = await createTrackedJob({
     workspaceRoot,
     kind: "task",
     title: buildPersistentTaskThreadName(request.prompt),

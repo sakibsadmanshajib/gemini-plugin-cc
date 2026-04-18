@@ -36,9 +36,9 @@ function readStoredJobOrNull(cwd, jobId) {
   }
 }
 
-function safeRecordJobEvent(workspaceRoot, jobId, event) {
+async function safeRecordJobEvent(workspaceRoot, jobId, event) {
   try {
-    return recordJobEvent(workspaceRoot, jobId, event);
+    return await recordJobEvent(workspaceRoot, jobId, event);
   } catch {
     return null;
   }
@@ -50,7 +50,7 @@ function safeRecordJobEvent(workspaceRoot, jobId, event) {
  * @param {{ workspaceRoot: string, kind: string, title: string, request?: any }} params
  * @returns {object}
  */
-export function createTrackedJob({ workspaceRoot, kind, title, request }) {
+export async function createTrackedJob({ workspaceRoot, kind, title, request }) {
   const id = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessionId = process.env[SESSION_ID_ENV] ?? null;
   const logFile = resolveJobLogFile(workspaceRoot, id);
@@ -70,8 +70,8 @@ export function createTrackedJob({ workspaceRoot, kind, title, request }) {
     updatedAt: nowIso()
   };
 
-  writeJobFile(workspaceRoot, id, job);
-  upsertCompactJobIndexEntry(workspaceRoot, job);
+  await writeJobFile(workspaceRoot, id, job);
+  await upsertCompactJobIndexEntry(workspaceRoot, job);
 
   return job;
 }
@@ -95,9 +95,9 @@ export async function runTrackedJob(job, runner, options = {}) {
     healthStatus: "active",
     updatedAt: startedAt
   };
-  writeJobFile(job.workspaceRoot, job.id, runningRecord);
-  upsertCompactJobIndexEntry(job.workspaceRoot, runningRecord);
-  safeRecordJobEvent(job.workspaceRoot, job.id, {
+  await writeJobFile(job.workspaceRoot, job.id, runningRecord);
+  await upsertCompactJobIndexEntry(job.workspaceRoot, runningRecord);
+  await safeRecordJobEvent(job.workspaceRoot, job.id, {
     type: "worker_started",
     message: "Worker started.",
     timestamp: startedAt
@@ -108,7 +108,7 @@ export async function runTrackedJob(job, runner, options = {}) {
     const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
     const completedAt = nowIso();
     const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
-    writeJobFile(job.workspaceRoot, job.id, {
+    await writeJobFile(job.workspaceRoot, job.id, {
       ...existing,
       status: completionStatus,
       threadId: execution.threadId ?? null,
@@ -121,7 +121,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       result: execution.payload,
       rendered: execution.rendered
     });
-    upsertCompactJobIndexEntry(job.workspaceRoot, {
+    await upsertCompactJobIndexEntry(job.workspaceRoot, {
       ...existing,
       id: job.id,
       kind: existing.kind ?? job.kind,
@@ -139,7 +139,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       updatedAt: completedAt,
       healthStatus: completionStatus
     });
-    safeRecordJobEvent(job.workspaceRoot, job.id, {
+    await safeRecordJobEvent(job.workspaceRoot, job.id, {
       type: completionStatus,
       message: completionStatus === "completed" ? "Job completed." : "Job failed.",
       timestamp: completedAt
@@ -150,7 +150,7 @@ export async function runTrackedJob(job, runner, options = {}) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
     const failedAt = nowIso();
-    writeJobFile(job.workspaceRoot, job.id, {
+    await writeJobFile(job.workspaceRoot, job.id, {
       ...existing,
       status: "failed",
       phase: "failed",
@@ -160,7 +160,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       healthStatus: "failed",
       errorMessage
     });
-    upsertCompactJobIndexEntry(job.workspaceRoot, {
+    await upsertCompactJobIndexEntry(job.workspaceRoot, {
       ...existing,
       id: job.id,
       status: "failed",
@@ -171,7 +171,7 @@ export async function runTrackedJob(job, runner, options = {}) {
       healthStatus: "failed",
       summary: `Failed: ${errorMessage.slice(0, 120)}`
     });
-    safeRecordJobEvent(job.workspaceRoot, job.id, {
+    await safeRecordJobEvent(job.workspaceRoot, job.id, {
       type: "failed",
       message: errorMessage,
       timestamp: failedAt
@@ -188,14 +188,14 @@ export async function runTrackedJob(job, runner, options = {}) {
  * @param {string} jobId
  * @param {string} phase
  */
-export function updateJobPhase(workspaceRoot, jobId, phase) {
+export async function updateJobPhase(workspaceRoot, jobId, phase) {
   const existing = readStoredJobOrNull(workspaceRoot, jobId);
   if (existing && existing.status === "running") {
     const updatedAt = nowIso();
     const nextJob = { ...existing, phase, updatedAt };
-    writeJobFile(workspaceRoot, jobId, nextJob);
-    upsertCompactJobIndexEntry(workspaceRoot, nextJob);
-    safeRecordJobEvent(workspaceRoot, jobId, {
+    await writeJobFile(workspaceRoot, jobId, nextJob);
+    await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+    await safeRecordJobEvent(workspaceRoot, jobId, {
       type: "phase_changed",
       phase,
       message: `Phase changed to ${phase}.`,
@@ -204,7 +204,7 @@ export function updateJobPhase(workspaceRoot, jobId, phase) {
   }
 }
 
-export function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) {
+export async function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) {
   const existing = readStoredJobOrNull(workspaceRoot, jobId);
   if (!existing) {
     return null;
@@ -224,12 +224,13 @@ export function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) {
     healthMessage: message,
     recommendedAction: "Check /gemini:status or /gemini:result, then retry if the result is incomplete."
   };
-  writeJobFile(workspaceRoot, jobId, nextJob);
-  upsertCompactJobIndexEntry(workspaceRoot, nextJob);
-  return safeRecordJobEvent(workspaceRoot, jobId, {
+  await writeJobFile(workspaceRoot, jobId, nextJob);
+  await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
+  const recorded = await safeRecordJobEvent(workspaceRoot, jobId, {
     type: "worker_cancelled",
     message,
     source: patch.source,
     timestamp: completedAt
-  }) ?? nextJob;
+  });
+  return recorded ?? nextJob;
 }

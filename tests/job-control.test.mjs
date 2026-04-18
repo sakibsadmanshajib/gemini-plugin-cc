@@ -17,7 +17,7 @@ function iso(ms) {
   return new Date(ms).toISOString();
 }
 
-function setRunningJob(workspace, job, patch = {}) {
+async function setRunningJob(workspace, job, patch = {}) {
   const stored = {
     ...readJobFile(workspace, job.id),
     status: "running",
@@ -26,20 +26,20 @@ function setRunningJob(workspace, job, patch = {}) {
     pid: 12345,
     ...patch
   };
-  writeJobFile(workspace, job.id, stored);
-  recordJobEvent(workspace, job.id, {
+  await writeJobFile(workspace, job.id, stored);
+  await recordJobEvent(workspace, job.id, {
     type: "status",
     message: "running",
     timestamp: stored.lastProgressAt ?? "2026-01-01T00:00:01.000Z"
   });
-  writeJobFile(workspace, job.id, { ...readJobFile(workspace, job.id), ...patch });
+  await writeJobFile(workspace, job.id, { ...readJobFile(workspace, job.id), ...patch });
 }
 
-test("buildStatusSnapshot enriches active jobs with health, timestamps, events, and runtime", () => {
+test("buildStatusSnapshot enriches active jobs with health, timestamps, events, and runtime", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "active health" });
-  setRunningJob(workspace, job, {
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "active health" });
+  await setRunningJob(workspace, job, {
     healthStatus: "active",
     healthMessage: "processing",
     recommendedAction: "Wait for the next update.",
@@ -62,15 +62,15 @@ test("buildStatusSnapshot enriches active jobs with health, timestamps, events, 
   assert.equal(snapshot.running[0].elapsed, "6s");
 });
 
-test("buildSingleJobSnapshot includes recent events and bounded progress log tail", () => {
+test("buildSingleJobSnapshot includes recent events and bounded progress log tail", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "detail" });
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "detail" });
   const logFile = resolveJobLogFile(workspace, job.id);
   fs.writeFileSync(logFile, "one\ntwo\nthree\n", "utf8");
 
   for (let index = 0; index < 6; index++) {
-    recordJobEvent(workspace, job.id, {
+    await recordJobEvent(workspace, job.id, {
       type: "status",
       message: `event ${index}`,
       timestamp: `2026-01-01T00:00:0${index}.000Z`
@@ -87,11 +87,11 @@ test("buildSingleJobSnapshot includes recent events and bounded progress log tai
   assert.deepEqual(snapshot.job.events.map((event) => event.message), ["event 3", "event 4", "event 5"]);
 });
 
-test("buildStatusSnapshot classifies running jobs with missing workers", () => {
+test("buildStatusSnapshot classifies running jobs with missing workers", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "missing worker" });
-  setRunningJob(workspace, job, {
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "missing worker" });
+  await setRunningJob(workspace, job, {
     pid: 98765,
     lastProgressAt: "2026-01-01T00:00:05.000Z",
     lastHeartbeatAt: "2026-01-01T00:00:05.000Z"
@@ -106,12 +106,12 @@ test("buildStatusSnapshot classifies running jobs with missing workers", () => {
   assert.match(snapshot.running[0].recommendedAction, /result|status|retry/i);
 });
 
-test("buildStatusSnapshot keeps recent progress active", () => {
+test("buildStatusSnapshot keeps recent progress active", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "recent progress" });
-  setRunningJob(workspace, job, {
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "recent progress" });
+  await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - QUIET_AFTER_MS + 1000),
     lastHeartbeatAt: iso(now - QUIET_AFTER_MS + 1000)
   });
@@ -124,12 +124,12 @@ test("buildStatusSnapshot keeps recent progress active", () => {
   assert.equal(snapshot.running[0].healthStatus, "active");
 });
 
-test("buildStatusSnapshot classifies missing recent progress with heartbeat as quiet", () => {
+test("buildStatusSnapshot classifies missing recent progress with heartbeat as quiet", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "quiet" });
-  setRunningJob(workspace, job, {
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "quiet" });
+  await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - QUIET_AFTER_MS - 1000),
     lastHeartbeatAt: iso(now - POSSIBLY_STALLED_AFTER_MS + 1000)
   });
@@ -142,12 +142,12 @@ test("buildStatusSnapshot classifies missing recent progress with heartbeat as q
   assert.equal(snapshot.running[0].healthStatus, "quiet");
 });
 
-test("buildStatusSnapshot classifies stale heartbeat and progress as possibly stalled", () => {
+test("buildStatusSnapshot classifies stale heartbeat and progress as possibly stalled", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "stalled" });
-  setRunningJob(workspace, job, {
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "stalled" });
+  await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - POSSIBLY_STALLED_AFTER_MS - 1000),
     lastHeartbeatAt: iso(now - POSSIBLY_STALLED_AFTER_MS - 1000)
   });
