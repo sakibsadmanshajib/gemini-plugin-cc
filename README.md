@@ -175,6 +175,8 @@ Health labels:
 | `broker_unhealthy` | The ACP broker reported a connectivity or busy state. | Re-check status shortly; restart the broker if it does not recover. |
 | `worker_missing` | The background worker PID is no longer alive. | Check `/gemini:result`; retry if output is incomplete. |
 | `failed` | Gemini or the worker ended with an error. | Check `/gemini:result` for details before retrying. |
+| `cancelled` | The job was cancelled by the user or runtime. | No further action unless you want to retry. |
+| `completed` | The job finished successfully. | Fetch output with `/gemini:result <job-id>`. |
 
 Example detailed output:
 

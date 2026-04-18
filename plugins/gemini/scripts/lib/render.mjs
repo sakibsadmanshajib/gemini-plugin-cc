@@ -142,6 +142,9 @@ export function renderSingleJobStatus(snapshot) {
   lines.push("## Runtime");
   lines.push("");
   lines.push(`- **Elapsed:** ${job.elapsed ?? "-"}`);
+  if (job.runtime?.transport) {
+    lines.push(`- **Transport:** ${job.runtime.transport}`);
+  }
   lines.push(`- **PID:** ${job.pid ?? "-"}`);
   lines.push(`- **Created:** ${job.createdAt ?? "-"}`);
   lines.push(`- **Started:** ${job.startedAt ?? "-"}`);

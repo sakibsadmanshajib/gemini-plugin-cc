@@ -181,6 +181,8 @@ test("README documents /gemini:status job health details and recommended actions
   assert.match(readme, /broker_unhealthy/);
   assert.match(readme, /worker_missing/);
   assert.match(readme, /failed/);
+  assert.match(readme, /completed/);
+  assert.match(readme, /cancelled/);
 });
 
 test("gemini-cli-runtime skill documents every job health label and recommended action", () => {
@@ -194,7 +196,9 @@ test("gemini-cli-runtime skill documents every job health label and recommended 
     "auth_required",
     "broker_unhealthy",
     "worker_missing",
-    "failed"
+    "failed",
+    "completed",
+    "cancelled"
   ];
   for (const label of labels) {
     assert.match(runtimeSkill, new RegExp(label), `expected health label ${label} documented in runtime skill`);

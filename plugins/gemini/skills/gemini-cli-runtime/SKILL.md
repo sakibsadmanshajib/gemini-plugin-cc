@@ -85,6 +85,8 @@ Interpret each label as follows when deciding what to do next:
 | `broker_unhealthy` | The ACP broker reported busy/disconnected. | Re-check status shortly; a restart may be needed if it persists. |
 | `worker_missing` | Worker PID is no longer alive. | Fetch `/gemini:result`; retry if the output is incomplete. |
 | `failed` | Worker or Gemini ended with an error. | Fetch `/gemini:result` for the diagnostic and retry only after understanding it. |
+| `completed` | Gemini finished successfully. | Fetch `/gemini:result` and present output; do not retry. |
+| `cancelled` | Job was cancelled by user or system. | Fetch `/gemini:result` for final diagnostics; consider retrying if needed. |
 
 Never claim a job is dead or useless based on `quiet` or `possibly_stalled`
 alone. Those labels mean "check again", not "give up".

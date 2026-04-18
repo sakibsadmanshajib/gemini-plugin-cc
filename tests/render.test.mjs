@@ -180,3 +180,20 @@ test("renderSingleJobStatus includes observability details without raw event pay
   assert.doesNotMatch(output, /payload/);
   assert.doesNotMatch(output, /do not render/);
 });
+
+test("renderSingleJobStatus includes runtime.transport when present", () => {
+  const output = renderSingleJobStatus({
+    job: {
+      id: "gemini-transport",
+      kind: "task",
+      status: "running",
+      title: "Transport rendering",
+      elapsed: "1m",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      runtime: { transport: "broker" },
+      events: []
+    }
+  });
+  assert.match(output, /## Runtime/);
+  assert.match(output, /- \*\*Transport:\*\* broker/);
+});
