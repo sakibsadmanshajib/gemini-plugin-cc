@@ -481,3 +481,38 @@ test("concurrent recordJobEvent calls on the same job retain all events", async 
     assert.ok(observed.has(`chunk-${i}`), `event chunk-${i} missing`);
   }
 });
+
+test("buildJobEventFromAcpNotification distinguishes agent_thought_chunk from agent_message_chunk", async () => {
+  const messageEvent = buildJobEventFromAcpNotification({
+    method: "session/update",
+    params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } } }
+  });
+  const thoughtEvent = buildJobEventFromAcpNotification({
+    method: "session/update",
+    params: { sessionId: "s1", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "reasoning" } } }
+  });
+  assert.equal(messageEvent.type, "model_text_chunk");
+  assert.equal(messageEvent.chars, 5);
+  assert.equal(thoughtEvent.type, "model_thought_chunk");
+  assert.equal(thoughtEvent.chars, 9);
+  assert.equal(messageEvent.text, undefined);
+  assert.equal(thoughtEvent.text, undefined);
+});
+
+test("recordJobEvent persists model_thought_chunk with only char count", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "thought persist" });
+
+  await recordJobEvent(workspace, job.id, {
+    type: "model_thought_chunk",
+    chars: 42,
+    timestamp: new Date("2026-04-18T12:00:00Z").toISOString()
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  const last = stored.events.at(-1);
+  assert.equal(last.type, "model_thought_chunk");
+  assert.equal(last.chars, 42);
+  assert.equal(last.text, undefined);
+});

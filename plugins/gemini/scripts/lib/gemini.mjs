@@ -32,6 +32,10 @@ export function buildJobEventFromAcpNotification(notification) {
     // streaming") without leaking the model's prose through the event log.
     return { type: "model_text_chunk", chars: String(text).length };
   }
+  if (kind === "agent_thought_chunk") {
+    const text = update.content?.text ?? "";
+    return { type: "model_thought_chunk", chars: String(text).length };
+  }
   if (kind === "tool_call") {
     return {
       type: "tool_call",
