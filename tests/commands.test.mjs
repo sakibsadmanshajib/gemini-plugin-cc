@@ -3,6 +3,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "gemini");
@@ -213,4 +214,23 @@ test("gemini-result-handling skill forbids fabricating results for incomplete jo
   assert.match(resultHandling, /do not fabricate|do not invent|never fabricate/i);
   assert.match(resultHandling, /incomplete|non-terminal|still running|in progress/i);
   assert.match(resultHandling, /\/gemini:(status|cancel|result)/);
+});
+
+test("companion task rejects an invalid --thinking value with exit 1 and usage", () => {
+  const cwd = makeTempDir();
+  initGitRepo(cwd);
+  const result = run(process.execPath, [COMPANION_SCRIPT, "task", "--thinking", "purple", "--", "noop"], {
+    cwd,
+    env: { ...process.env, PATH: process.env.PATH }
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid --thinking value/i);
+  assert.match(result.stderr, /off.*low.*medium.*high|off, low, medium, high/);
+});
+
+test("companion --help mentions --thinking and --stream-output", () => {
+  const result = run(process.execPath, [COMPANION_SCRIPT, "--help"], {});
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /--thinking <off\|low\|medium\|high>/);
+  assert.match(result.stdout, /--stream-output/);
 });
