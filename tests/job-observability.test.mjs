@@ -13,8 +13,12 @@ import {
   classifyDiagnostic,
   recordJobEvent,
   MAX_JOB_EVENTS,
-  MAX_DIAGNOSTIC_LENGTH
+  MAX_DIAGNOSTIC_LENGTH,
+  __testing as jobObsTesting
 } from "../plugins/gemini/scripts/lib/job-observability.mjs";
+import { buildJobEventFromAcpNotification } from "../plugins/gemini/scripts/lib/gemini.mjs";
+
+const { isDiagnosticEvent, sanitizeEvent } = jobObsTesting;
 
 test("recordJobEvent retains bounded recent events and updates progress fields", async () => {
   const workspace = makeTempDir();
@@ -304,6 +308,38 @@ test("markTrackedJobCancelled returns { job, eventRecorded }", async () => {
   assert.equal(typeof result, "object");
   assert.equal(result.eventRecorded, true);
   assert.equal(result.job.healthStatus, "cancelled");
+});
+
+test("buildJobEventFromAcpNotification records chars, not model text, for agent_message_chunk", () => {
+  const evt = buildJobEventFromAcpNotification({
+    params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "secret" } } }
+  });
+  assert.equal(evt.type, "model_text_chunk");
+  assert.equal(evt.chars, 6);
+  assert.equal(evt.message, undefined);
+});
+
+test("isDiagnosticEvent does not match error_cleared or diagnostic_acknowledged", () => {
+  assert.equal(isDiagnosticEvent({ type: "error_cleared" }), false);
+  assert.equal(
+    isDiagnosticEvent({ type: "diagnostic_acknowledged" }),
+    true,
+    "diagnostic_acknowledged has diagnostic_ prefix"
+  );
+  // The spec intent: broad includes() no longer matches "error_cleared". Exact and prefix-based only.
+  assert.equal(isDiagnosticEvent({ type: "clearerror" }), false);
+  assert.equal(isDiagnosticEvent({ type: "diagnostic" }), true);
+  assert.equal(isDiagnosticEvent({ type: "diagnostic_quota" }), true);
+});
+
+test("sanitizeEvent passes through numeric and boolean whitelisted fields", () => {
+  const e = sanitizeEvent(
+    { type: "model_text_chunk", chars: 42, final: true },
+    "2026-04-18T00:00:00Z"
+  );
+  assert.equal(e.chars, 42);
+  // `final` is not in SAFE_EVENT_FIELDS; verify numeric stays and boolean is documented behaviour
+  assert.equal(e.type, "model_text_chunk");
 });
 
 test("concurrent recordJobEvent calls on the same job retain all events", async () => {

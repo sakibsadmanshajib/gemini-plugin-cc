@@ -1,8 +1,9 @@
 import { withJobMutex } from "./atomic-state.mjs";
 import { loadState, readJobFile, saveState, writeJobFile, writeJobFileUnlocked } from "./state.mjs";
+import { MAX_DIAGNOSTIC_LENGTH } from "./acp-diagnostics.mjs";
 
+export { MAX_DIAGNOSTIC_LENGTH };
 export const MAX_JOB_EVENTS = 50;
-export const MAX_DIAGNOSTIC_LENGTH = 500;
 
 const PROGRESS_EVENT_TYPES = new Set([
   "model_text_chunk",
@@ -23,7 +24,8 @@ const SAFE_EVENT_FIELDS = new Set([
   "path",
   "action",
   "source",
-  "transport"
+  "transport",
+  "chars"
 ]);
 
 function nowIso() {
@@ -41,9 +43,18 @@ function sanitizeEvent(event, timestamp) {
   const input = event && typeof event === "object" ? event : {};
   const normalized = { timestamp: sanitizeText(timestamp) };
   for (const [key, value] of Object.entries(input)) {
-    if (SAFE_EVENT_FIELDS.has(key) && typeof value === "string") {
-      normalized[key] = sanitizeText(value);
+    if (!SAFE_EVENT_FIELDS.has(key)) {
+      continue;
     }
+    if (typeof value === "string") {
+      normalized[key] = sanitizeText(value);
+    } else if (typeof value === "number" && Number.isFinite(value)) {
+      normalized[key] = value;
+    } else if (typeof value === "boolean") {
+      normalized[key] = value;
+    }
+    // Any other type (object, function, symbol, undefined, non-finite number)
+    // is intentionally dropped.
   }
   return normalized;
 }
@@ -67,7 +78,11 @@ function recommendedActionFor(kind) {
 
 function isDiagnosticEvent(event) {
   const type = String(event.type ?? "");
-  return DIAGNOSTIC_EVENT_TYPES.has(type) || type.includes("diagnostic") || type.includes("error");
+  // Exact membership covers the canonical types (diagnostic, error, stderr).
+  // The `diagnostic_` prefix covers subtypes like `diagnostic_acknowledged`
+  // and `diagnostic_quota`. We intentionally do NOT include an `error_`
+  // prefix: types like `error_cleared` signal recovery, not a diagnostic.
+  return DIAGNOSTIC_EVENT_TYPES.has(type) || type.startsWith("diagnostic_");
 }
 
 function isProgressEvent(event) {
@@ -201,6 +216,11 @@ export function classifyDiagnostic(text) {
   }
   return { kind: "unknown", healthStatus: "quiet" };
 }
+
+export const __testing = {
+  isDiagnosticEvent,
+  sanitizeEvent
+};
 
 export async function recordJobEvent(workspaceRoot, jobId, event) {
   return withJobMutex(workspaceRoot, jobId, async () => {

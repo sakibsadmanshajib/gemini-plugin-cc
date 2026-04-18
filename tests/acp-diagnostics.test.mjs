@@ -8,10 +8,11 @@ import {
 
 import {
   buildBrokerDiagnosticNotification,
+  createStderrDiagnosticCollector,
   sanitizeDiagnosticMessage
 } from "../plugins/gemini/scripts/lib/acp-diagnostics.mjs";
 
-test("buildJobEventFromAcpNotification maps agent_message_chunk to model_text_chunk", () => {
+test("buildJobEventFromAcpNotification maps agent_message_chunk to model_text_chunk with chars only", () => {
   const event = buildJobEventFromAcpNotification({
     params: {
       update: {
@@ -22,7 +23,9 @@ test("buildJobEventFromAcpNotification maps agent_message_chunk to model_text_ch
   });
 
   assert.equal(event.type, "model_text_chunk");
-  assert.equal(event.message, "hello world");
+  // Privacy: we record the chunk size, NOT the raw model text.
+  assert.equal(event.chars, "hello world".length);
+  assert.equal(event.message, undefined);
 });
 
 test("buildJobEventFromAcpNotification maps tool_call to tool_call with toolName", () => {
@@ -102,6 +105,28 @@ test("buildBrokerDiagnosticNotification bounds the diagnostic message", () => {
   });
 
   assert.ok(notification.params.message.length <= 500);
+});
+
+test("buildBrokerDiagnosticNotification sanitizes and bounds source", () => {
+  const n = buildBrokerDiagnosticNotification({
+    source: "\u001b[31mmal\u0000icious" + "x".repeat(1000),
+    message: "ok"
+  });
+  assert.ok(!n.params.source.includes("\u001b"));
+  assert.ok(!n.params.source.includes("\u0000"));
+  assert.ok(n.params.source.length <= 500);
+});
+
+test("buildBrokerDiagnosticNotification falls back to 'broker' when source is empty", () => {
+  const n = buildBrokerDiagnosticNotification({ source: "", message: "ok" });
+  assert.equal(n.params.source, "broker");
+});
+
+test("stderr collector emits [truncated diagnostic] on line-less flood and resets", () => {
+  const messages = [];
+  const collector = createStderrDiagnosticCollector((m) => messages.push(m));
+  collector.feed("x".repeat(10_000));
+  assert.ok(messages.some((m) => m.includes("[truncated diagnostic]")));
 });
 
 test("formatBrokerDiagnostic produces a classification-ready diagnostic event", () => {

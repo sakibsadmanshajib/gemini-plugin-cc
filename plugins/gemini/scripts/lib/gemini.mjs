@@ -27,7 +27,10 @@ export function buildJobEventFromAcpNotification(notification) {
   const kind = update.sessionUpdate;
   if (kind === "agent_message_chunk") {
     const text = update.content?.text ?? "";
-    return { type: "model_text_chunk", message: sanitizeDiagnosticMessage(text) };
+    // Privacy: do NOT record the raw model text on the event log. Only record
+    // the chunk size so /gemini:status can show liveness ("model is
+    // streaming") without leaking the model's prose through the event log.
+    return { type: "model_text_chunk", chars: String(text).length };
   }
   if (kind === "tool_call") {
     return {

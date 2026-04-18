@@ -17,10 +17,11 @@ import path from "node:path";
 import process from "node:process";
 
 import { parseArgs } from "./lib/args.mjs";
-import { BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
 import {
   buildBrokerDiagnosticNotification,
-  createStderrDiagnosticCollector
+  createStderrDiagnosticCollector,
+  sanitizeDiagnosticMessage
 } from "./lib/acp-diagnostics.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
@@ -30,22 +31,29 @@ import readline from "node:readline";
 const SHUTDOWN_GRACE_MS = 500;
 const MAX_DIAGNOSTIC_RING = 25;
 
+/**
+ * Ring of pre-built, sanitized broker/diagnostic JSON-RPC notifications. We
+ * build the notification (including source sanitization and message bounding)
+ * at ingress time so the ring never holds raw-length messages. Replay just
+ * writes the stored notification to the next client that takes the lock.
+ */
 const diagnosticRing = [];
 
-function rememberDiagnostic(entry) {
-  diagnosticRing.push(entry);
+function rememberDiagnostic(notification) {
+  diagnosticRing.push(notification);
   if (diagnosticRing.length > MAX_DIAGNOSTIC_RING) {
     diagnosticRing.shift();
   }
 }
 
 function forwardDiagnosticToActiveClient(source, message) {
+  const notification = buildBrokerDiagnosticNotification({ source, message });
   if (activeClient && !activeClient.destroyed) {
-    send(activeClient, buildBrokerDiagnosticNotification({ source, message }));
+    send(activeClient, notification);
   } else {
     // Buffer for replay to the next client that takes the lock so pre-connect
     // diagnostics (auth errors, broker child startup warnings) are not lost.
-    rememberDiagnostic({ source, message });
+    rememberDiagnostic(notification);
   }
 }
 
@@ -53,8 +61,8 @@ function drainDiagnosticRingTo(socket) {
   if (diagnosticRing.length === 0 || !socket || socket.destroyed) {
     return;
   }
-  for (const entry of diagnosticRing) {
-    send(socket, buildBrokerDiagnosticNotification(entry));
+  for (const notification of diagnosticRing) {
+    send(socket, notification);
   }
   diagnosticRing.length = 0;
 }
@@ -212,6 +220,20 @@ function handleClientConnection(socket) {
       const line = lineBuffer.slice(0, newlineIndex);
       lineBuffer = lineBuffer.slice(newlineIndex + 1);
       handleClientMessage(socket, line);
+    }
+    // Guard against a misbehaving client that streams data without newlines.
+    // Mirrors AcpClientBase.handleChunk: truncate to the last
+    // ACP_MAX_LINE_BUFFER bytes and emit a broker/diagnostic so operators can
+    // see the drop.
+    if (lineBuffer.length > ACP_MAX_LINE_BUFFER) {
+      const dropped = lineBuffer.length - ACP_MAX_LINE_BUFFER;
+      lineBuffer = lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
+      forwardDiagnosticToActiveClient(
+        "acp-transport",
+        sanitizeDiagnosticMessage(
+          `[client line buffer overflow — dropped ${dropped} bytes]`
+        )
+      );
     }
   });
 

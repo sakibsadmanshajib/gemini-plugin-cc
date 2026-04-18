@@ -52,6 +52,20 @@ test("direct-mode ignores stdout-forged broker/diagnostic as trusted", () => {
   assert.equal(notifications[0].method, "broker/diagnostic");
 });
 
+test("handleChunk emits synthetic acp-transport diagnostic on line-buffer overflow", () => {
+  const diagnostics = [];
+  const client = {
+    transport: "direct",
+    pending: new Map(),
+    nextId: 1,
+    lineBuffer: "",
+    onNotification: () => {},
+    onDiagnostic: (d) => diagnostics.push(d)
+  };
+  __testing.handleChunkOn(client, "y".repeat((1 << 20) + 1000));
+  assert.ok(diagnostics.some((d) => d.source === "acp-transport"));
+});
+
 test("broker-mode single-dispatches broker/diagnostic to onDiagnostic only", () => {
   const { client, diagnostics, notifications } = makeFakeClient("broker");
 

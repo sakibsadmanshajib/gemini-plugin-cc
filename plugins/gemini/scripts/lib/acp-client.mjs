@@ -141,7 +141,20 @@ class AcpClientBase {
     }
     // Guard against an unbounded line-less flood from a misbehaving peer.
     if (this.lineBuffer.length > ACP_MAX_LINE_BUFFER) {
+      const dropped = this.lineBuffer.length - ACP_MAX_LINE_BUFFER;
       this.lineBuffer = this.lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
+      if (this.onDiagnostic) {
+        try {
+          this.onDiagnostic({
+            source: "acp-transport",
+            message: sanitizeDiagnosticMessage(
+              `[line buffer overflow — dropped ${dropped} bytes]`
+            )
+          });
+        } catch {
+          // Best-effort telemetry — never let diagnostic delivery crash the ACP client.
+        }
+      }
     }
   }
 
@@ -370,6 +383,20 @@ export const __testing = {
    */
   handleLineOn(client, line) {
     return AcpClientBase.prototype.handleLine.call(client, line);
+  },
+
+  /**
+   * Invoke AcpClientBase.handleChunk against a fake client object. Used to
+   * exercise the line-buffer overflow diagnostic without spawning a real
+   * subprocess or broker socket.
+   *
+   * @param {{ transport: string, pending: Map<number, any>, nextId: number,
+   *           lineBuffer: string, onNotification?: Function,
+   *           onDiagnostic?: Function }} client
+   * @param {string} chunk
+   */
+  handleChunkOn(client, chunk) {
+    return AcpClientBase.prototype.handleChunk.call(client, chunk);
   }
 };
 

@@ -18,11 +18,12 @@ export function sanitizeDiagnosticMessage(value) {
 }
 
 export function buildBrokerDiagnosticNotification({ source, message }) {
+  const sanitizedSource = sanitizeDiagnosticMessage(source ?? "broker") || "broker";
   return {
     jsonrpc: "2.0",
     method: BROKER_DIAGNOSTIC_METHOD,
     params: {
-      source: String(source ?? "broker"),
+      source: sanitizedSource,
       message: sanitizeDiagnosticMessage(message)
     }
   };
@@ -47,7 +48,15 @@ export function createStderrDiagnosticCollector(emit) {
         }
       }
       if (pending.length > MAX_DIAGNOSTIC_LENGTH * 4) {
-        pending = pending.slice(-MAX_DIAGNOSTIC_LENGTH * 4);
+        // Line-less flood: emit a single synthetic marker and reset pending to
+        // avoid leaking mid-line garbage (e.g. binary noise, tail-keep of a
+        // truncated log stream).
+        try {
+          emit("[truncated diagnostic]");
+        } catch {
+          // Best-effort.
+        }
+        pending = "";
       }
     },
     flush() {
