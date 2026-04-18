@@ -5,7 +5,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const ROOT_DIR = path.resolve(__dirname, "..");
 const LIB_DIR = path.resolve(__dirname, "..", "plugins", "gemini", "scripts", "lib");
+const DTS_PATH = path.join(ROOT_DIR, "plugins", "gemini", "scripts", "lib", "acp-protocol.d.ts");
 
 const GEMINI_MJS = fs.readFileSync(path.join(LIB_DIR, "gemini.mjs"), "utf8");
 const ACP_PROTOCOL_DTS = fs.readFileSync(path.join(LIB_DIR, "acp-protocol.d.ts"), "utf8");
@@ -51,4 +53,20 @@ test("every session/* method called at runtime is declared in acp-protocol.d.ts"
       `acp-protocol.d.ts is missing a declaration for ${method}`
     );
   }
+});
+
+test("acp-protocol.d.ts models SessionUpdateNotification with thought and message chunks", () => {
+  const source = fs.readFileSync(DTS_PATH, "utf8");
+  assert.match(source, /SessionUpdateNotification/);
+  assert.match(source, /agent_message_chunk/);
+  assert.match(source, /agent_thought_chunk/);
+  assert.match(source, /session\/update/);
+});
+
+test("acp-protocol.d.ts no longer defines the stale progress/toolCall/fileChange/error AcpNotification union", () => {
+  const source = fs.readFileSync(DTS_PATH, "utf8");
+  assert.doesNotMatch(source, /method:\s*"progress"/);
+  assert.doesNotMatch(source, /method:\s*"toolCall"/);
+  assert.doesNotMatch(source, /method:\s*"fileChange"/);
+  assert.doesNotMatch(source, /method:\s*"error"/);
 });
