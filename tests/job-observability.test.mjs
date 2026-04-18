@@ -507,6 +507,7 @@ test("recordJobEvent persists model_thought_chunk with only char count", async (
   await recordJobEvent(workspace, job.id, {
     type: "model_thought_chunk",
     chars: 42,
+    text: "sensitive thought trace",
     timestamp: new Date("2026-04-18T12:00:00Z").toISOString()
   });
 
@@ -515,4 +516,5 @@ test("recordJobEvent persists model_thought_chunk with only char count", async (
   assert.equal(last.type, "model_thought_chunk");
   assert.equal(last.chars, 42);
   assert.equal(last.text, undefined);
+  assert.equal(JSON.stringify(stored).includes("sensitive thought trace"), false);
 });

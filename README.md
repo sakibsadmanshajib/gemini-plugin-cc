@@ -246,16 +246,16 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 
 ### Thinking levels
 
-Each task or review accepts `--thinking <off|low|medium|high>` — a t-shirt sized control over how hard Gemini reasons before answering:
+Each task or review accepts `--thinking <off|low|medium|high>` — a t-shirt-sized request for the reasoning level:
 
 | Level | Behavior |
 |-------|----------|
-| `off` | Minimal reasoning. Fastest; clamped to `low` on models that don't support zero thinking. |
+| `off` | Minimal reasoning request. Fastest; clamped to `low` on models that don't support zero thinking. |
 | `low` | Light reasoning — quick tasks, short context. |
 | `medium` *(default)* | Dynamic reasoning — balanced default, matches the model's own heuristics. |
 | `high` | Deep reasoning — use when the task needs careful analysis. |
 
-The level maps to the right underlying Gemini parameter for the selected model (Gemini 3 `thinkingLevel`, Gemini 2.5 `thinkingBudget`). Unknown models emit a one-line note to stderr and pass through unchanged. If the local Gemini CLI does not expose a per-invocation thinking override, the flag is still parsed and validated but emits a one-shot stderr warning so you understand why it has no observable effect — configure `thinkingConfig` at the model-alias level in your Gemini `settings.json` for a persistent setting.
+The level maps to the right underlying Gemini parameter for the selected model (Gemini 3 `thinkingLevel`, Gemini 2.5 `thinkingBudget`). Unknown models emit a one-line note to stderr and pass through unchanged. The local Gemini CLI does not expose a per-invocation thinking override yet, so the flag is parsed and validated but emits a one-shot stderr warning and falls back to the CLI's default reasoning. Configure `thinkingConfig` at the model-alias level in your Gemini `settings.json` for a persistent setting that takes effect today.
 
 ### Live progress in the terminal
 
@@ -263,7 +263,7 @@ Foreground runs emit progress to **stderr** so stdout stays a single final write
 
 By default, progress uses compact markers:
 
-```
+```text
 [session] created
 [tool] read_file
 .....                        (one '.' per model chunk)
@@ -275,7 +275,7 @@ By default, progress uses compact markers:
 
 Pass `--stream-output` to upgrade to raw passthrough — every message chunk and every thought chunk is written to stderr as it arrives:
 
-```
+```text
 [session] created
 [tool] read_file
 Here's what I found in the file...
@@ -287,7 +287,7 @@ thought: Let me think about the approach.
 
 For `--background` runs, `/gemini:status` renders the tail of recent events per active job:
 
-```
+```text
 Running jobs (1):
   job_abc123  task  running  2s ago
     last event: model_text_chunk 85 chars - 200ms ago

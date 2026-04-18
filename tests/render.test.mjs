@@ -133,6 +133,7 @@ test("renderStatusSnapshot includes health and last progress for active jobs", (
 
 test("renderSingleJobStatus includes observability details without raw event payloads", () => {
   const output = renderSingleJobStatus({
+    workspaceRoot: "/tmp/test-workspace",
     job: {
       id: "gemini-detail",
       kind: "task",
@@ -183,6 +184,7 @@ test("renderSingleJobStatus includes observability details without raw event pay
 
 test("renderSingleJobStatus includes runtime.transport when present", () => {
   const output = renderSingleJobStatus({
+    workspaceRoot: "/tmp/test-workspace",
     job: {
       id: "gemini-transport",
       kind: "task",
@@ -229,6 +231,32 @@ test("renderSingleJobStatus includes tail of recent events and counters", () => 
   assert.match(rendered, /files=1/);
   assert.match(rendered, /last event.*(ms|s) ago/i);
   assert.doesNotMatch(rendered, /session_created/);
+  assert.doesNotMatch(rendered, /read_file/);
+});
+
+test("renderSingleJobStatus keeps event-tail details for phase changes and diagnostics", () => {
+  const now = Date.parse("2026-04-18T12:00:10.000Z");
+  const rendered = renderSingleJobStatus({
+    id: "job_events",
+    kind: "task",
+    status: "running",
+    title: "event formatting",
+    startedAt: "2026-04-18T12:00:00.000Z",
+    events: [
+      { type: "phase_changed", phase: "running", timestamp: "2026-04-18T12:00:06.000Z" },
+      { type: "diagnostic", message: "rate limit near", timestamp: "2026-04-18T12:00:07.000Z" },
+      { type: "diagnostic", source: "broker", message: "connected", timestamp: "2026-04-18T12:00:08.000Z" },
+      { type: "stderr", message: "warning text", timestamp: "2026-04-18T12:00:09.000Z" },
+      { type: "error", source: "gemini", message: "boom", timestamp: "2026-04-18T12:00:10.000Z" }
+    ]
+  }, { now });
+
+  assert.match(rendered, /\[phase_changed\] running/);
+  assert.match(rendered, /\[diagnostic\] rate limit near/);
+  assert.doesNotMatch(rendered, /unknown:/);
+  assert.match(rendered, /\[diagnostic\] broker: connected/);
+  assert.match(rendered, /\[stderr\] warning text/);
+  assert.match(rendered, /\[error\] gemini: boom/);
 });
 
 test("renderSingleJobStatus falls back to phase-only rendering when events is missing", () => {

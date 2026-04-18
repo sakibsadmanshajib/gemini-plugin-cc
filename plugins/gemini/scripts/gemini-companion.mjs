@@ -146,6 +146,26 @@ function resolveModel(value) {
   return MODEL_ALIASES.get(key) ?? key;
 }
 
+function resolveThinkingOption(options) {
+  if (options.thinking === undefined) {
+    return undefined;
+  }
+  if (!THINKING_LEVELS.includes(options.thinking)) {
+    process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
+    printUsage();
+    process.exit(1);
+  }
+  return options.thinking;
+}
+
+function createStderrStreamHandler(options) {
+  return createStreamHandler({
+    mode: options["stream-output"] ? "passthrough" : "markers",
+    json: Boolean(options.json),
+    writer: (s) => process.stderr.write(s)
+  });
+}
+
 // ─── Setup ────────────────────────────────────────────────────────────────────
 
 async function handleSetup(argv) {
@@ -201,21 +221,8 @@ async function handleReview(argv) {
     booleanOptions: ["json", "wait", "background", "stream-output"]
   });
 
-  let thinking;
-  if (options.thinking !== undefined) {
-    if (!THINKING_LEVELS.includes(options.thinking)) {
-      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
-      printUsage();
-      process.exit(1);
-    }
-    thinking = options.thinking;
-  }
-
-  const streamHandler = createStreamHandler({
-    mode: options["stream-output"] ? "passthrough" : "markers",
-    json: Boolean(options.json),
-    writer: (s) => process.stderr.write(s)
-  });
+  const thinking = resolveThinkingOption(options);
+  const streamHandler = createStderrStreamHandler(options);
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
@@ -257,21 +264,8 @@ async function handleReviewCommand(argv, { reviewName }) {
     booleanOptions: ["json", "wait", "background", "stream-output"]
   });
 
-  let thinking;
-  if (options.thinking !== undefined) {
-    if (!THINKING_LEVELS.includes(options.thinking)) {
-      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
-      printUsage();
-      process.exit(1);
-    }
-    thinking = options.thinking;
-  }
-
-  const streamHandler = createStreamHandler({
-    mode: options["stream-output"] ? "passthrough" : "markers",
-    json: Boolean(options.json),
-    writer: (s) => process.stderr.write(s)
-  });
+  const thinking = resolveThinkingOption(options);
+  const streamHandler = createStderrStreamHandler(options);
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
@@ -318,21 +312,8 @@ async function handleTask(argv) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const taskText = positionals.join(" ").trim();
 
-  let thinking;
-  if (options.thinking !== undefined) {
-    if (!THINKING_LEVELS.includes(options.thinking)) {
-      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
-      printUsage();
-      process.exit(1);
-    }
-    thinking = options.thinking;
-  }
-
-  const streamHandler = createStreamHandler({
-    mode: options["stream-output"] ? "passthrough" : "markers",
-    json: Boolean(options.json),
-    writer: (s) => process.stderr.write(s)
-  });
+  const thinking = resolveThinkingOption(options);
+  const streamHandler = createStderrStreamHandler(options);
 
   if (!taskText && !options["resume-last"]) {
     process.stderr.write("Error: No task text provided.\n");
@@ -391,20 +372,20 @@ async function handleTask(argv) {
         streamThoughtText: Boolean(options["stream-output"])
       });
 
+      if (result.error) {
+        throw result.error;
+      }
+
       streamHandler({
         type: "done",
         stats: {
           tools: result.toolCalls?.length ?? 0,
           files: result.fileChanges?.length ?? 0,
-          chunks: 0,
+          chunks: result.chunkCount ?? 0,
           thoughts: result.thoughtCount ?? 0,
           elapsedMs: Date.now() - startTime
         }
       });
-
-      if (result.error) {
-        throw result.error;
-      }
 
       const rendered = result.text;
       const summary = rendered.slice(0, 120).replace(/\n/g, " ").trim();

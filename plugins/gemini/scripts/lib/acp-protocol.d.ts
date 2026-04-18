@@ -147,24 +147,19 @@ export interface BrokerShutdownResult {
 
 // --- ACP Notification Types ---
 
-export interface AgentMessageChunkContent {
-  type: "text";
-  text: string;
-}
-
-export interface AgentThoughtChunkContent {
+export interface AgentChunkContent {
   type: "text";
   text: string;
 }
 
 export interface AgentMessageChunkUpdate {
   sessionUpdate: "agent_message_chunk";
-  content: AgentMessageChunkContent;
+  content: AgentChunkContent;
 }
 
 export interface AgentThoughtChunkUpdate {
   sessionUpdate: "agent_thought_chunk";
-  content: AgentThoughtChunkContent;
+  content: AgentChunkContent;
 }
 
 export interface ToolCallUpdate {
@@ -179,7 +174,7 @@ export interface ToolCallUpdate {
 export interface FileChangeUpdate {
   sessionUpdate: "file_change";
   path: string;
-  action: string;
+  action: "create" | "modify" | "delete";
 }
 
 export interface OtherSessionUpdate {

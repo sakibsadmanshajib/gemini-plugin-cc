@@ -225,7 +225,7 @@ test("companion task rejects an invalid --thinking value with exit 1 and usage",
   });
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid --thinking value/i);
-  assert.match(result.stderr, /off.*low.*medium.*high|off, low, medium, high/);
+  assert.match(result.stderr, /off.*low.*medium.*high/);
 });
 
 test("companion --help mentions --thinking and --stream-output", () => {

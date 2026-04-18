@@ -38,9 +38,11 @@ test("resolveThinkingConfig recognizes Gemini 3 point releases like gemini-3.1-p
   });
 });
 
-test("resolveThinkingConfig medium on Gemini 3 leaves config empty (model dynamic default)", () => {
+test("resolveThinkingConfig medium on Gemini 3 leaves config empty and reports model dynamic default", () => {
   const result = resolveThinkingConfig("medium", "gemini-3-pro");
-  assert.deepEqual(result, { thinkingLevel: undefined, thinkingBudget: undefined, notes: [] });
+  assert.equal(result.thinkingLevel, undefined);
+  assert.equal(result.thinkingBudget, undefined);
+  assert.match(result.notes[0], /gemini-3.*medium.*dynamic/i);
 });
 
 test("resolveThinkingConfig off on Gemini 3 clamps to low with a note", () => {
@@ -91,6 +93,8 @@ test("resolveThinkingConfig off on Gemini 2.5 pro clamps to low with a note (pro
   assert.equal(result.thinkingBudget, 2048);
   assert.equal(result.thinkingLevel, undefined);
   assert.match(result.notes[0], /clamped.*off.*low/i);
+  assert.match(result.notes[0], /2048/);
+  assert.match(result.notes[0], /minimum.*128/i);
 });
 
 test("resolveThinkingConfig on unknown model leaves config empty and adds a note", () => {

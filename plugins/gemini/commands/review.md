@@ -10,7 +10,7 @@ Run:
 !`node "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-companion.mjs" review "$ARGUMENTS"`
 
 Flags:
-- `--thinking <off|low|medium|high>` controls how hard Gemini reasons before answering (default: medium). Pass `high` for deeper analysis, `low` for quick passes.
+- `--thinking <off|low|medium|high>` selects a requested reasoning level (default: medium). The local Gemini CLI does not expose a per-invocation thinking override yet; the companion parses and validates the flag, emits a one-shot warning, and falls back to the CLI's default reasoning. Configure `thinkingConfig` in Gemini `settings.json` for a persistent setting that takes effect today.
 - `--stream-output` streams raw model and thought chunks to stderr during the review. Without it, progress is shown as compact markers.
 
 Output rules:

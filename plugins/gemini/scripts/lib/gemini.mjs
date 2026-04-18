@@ -16,6 +16,8 @@ import { loadPrompt } from "./prompts.mjs";
 import { recordJobEvent } from "./job-observability.mjs";
 import { resolveThinkingConfig } from "./thinking.mjs";
 
+let thinkingWarned = false;
+
 /**
  * Convert an ACP session/update notification into a job-observability event.
  * Returns null when the notification is not a session update.
@@ -116,6 +118,23 @@ function buildFileStreamEvent(update) {
   };
 }
 
+function emitThinkingWarningIfNew(writer = (s) => process.stderr.write(s)) {
+  if (thinkingWarned) {
+    return;
+  }
+  writer(
+    "Warning: --thinking is parsed but not delivered to the running Gemini CLI. " +
+    "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
+    "for a persistent setting. See " +
+    "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
+  );
+  thinkingWarned = true;
+}
+
+function resetThinkingWarning() {
+  thinkingWarned = false;
+}
+
 /**
  * Escape content embedded in XML-style prompt tags so that user-controlled
  * text (diffs, file contents) cannot close the containing tag and break
@@ -142,6 +161,8 @@ function escapeXmlContent(content, tagName) {
  * @typedef {{
  *   sessionId: string | null,
  *   text: string,
+ *   chunkCount: number,
+ *   chunkChars: number,
  *   thoughtText: string,
  *   thoughtCount: number,
  *   thoughtChars: number,
@@ -243,70 +264,89 @@ export function getSessionRuntimeStatus(env, cwd) {
 
 // ─── ACP Operations ───────────────────────────────────────────────────────────
 
+function createNotificationSinks() {
+  return {
+    textChunks: [],
+    chunkCount: 0,
+    chunkChars: 0,
+    thoughtCount: 0,
+    thoughtChars: 0,
+    toolCalls: [],
+    fileChanges: [],
+    events: []
+  };
+}
+
+function dispatchOneNotification(notification, sinks, onStream, options = {}) {
+  const update = notification?.params?.update;
+  if (!update) return;
+  const streamThoughtText = options.streamThoughtText === true;
+
+  if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
+    const text = String(update.content.text ?? "");
+    sinks.textChunks.push(text);
+    sinks.chunkCount += 1;
+    sinks.chunkChars += text.length;
+    const ev = { type: "message_chunk", text };
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
+    const text = String(update.content.text ?? "");
+    sinks.thoughtCount += 1;
+    sinks.thoughtChars += text.length;
+    const ev = buildThoughtStreamEvent(text, streamThoughtText);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "tool_call") {
+    sinks.toolCalls.push({
+      name: update.toolName ?? update.name ?? "unknown",
+      arguments: update.arguments ?? update.input ?? {},
+      result: update.result ?? undefined
+    });
+    const ev = buildToolStreamEvent(update);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  } else if (update.sessionUpdate === "file_change") {
+    sinks.fileChanges.push({
+      path: update.path ?? "",
+      action: update.action ?? "modify"
+    });
+    const ev = buildFileStreamEvent(update);
+    sinks.events?.push(ev);
+    emitStreamEvent(onStream, ev);
+  }
+}
+
 /**
  * Pure dispatch over a sequence of session/update notifications.
  * Exposed for tests; mirrors the real runAcpPrompt loop body.
  */
 function dispatchNotifications(notifications, onStream, options = {}) {
-  const textChunks = [];
-  let thoughtCount = 0;
-  let thoughtChars = 0;
-  const toolCalls = [];
-  const fileChanges = [];
-  const events = [];
-  const streamThoughtText = options.streamThoughtText === true;
+  const sinks = createNotificationSinks();
 
   for (const notification of notifications) {
-    const update = notification?.params?.update;
-    if (!update) continue;
-
-    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
-      textChunks.push(update.content.text);
-      const ev = { type: "message_chunk", text: update.content.text };
-      events.push(ev);
-      emitStreamEvent(onStream, ev);
-    } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
-      const text = String(update.content.text ?? "");
-      thoughtCount += 1;
-      thoughtChars += text.length;
-      const ev = buildThoughtStreamEvent(text, streamThoughtText);
-      events.push(ev);
-      emitStreamEvent(onStream, ev);
-    } else if (update.sessionUpdate === "tool_call") {
-      toolCalls.push({
-        name: update.toolName ?? update.name ?? "unknown",
-        arguments: update.arguments ?? update.input ?? {},
-        result: update.result ?? undefined
-      });
-      const ev = buildToolStreamEvent(update);
-      events.push(ev);
-      emitStreamEvent(onStream, ev);
-    } else if (update.sessionUpdate === "file_change") {
-      fileChanges.push({
-        path: update.path ?? "",
-        action: update.action ?? "modify"
-      });
-      const ev = buildFileStreamEvent(update);
-      events.push(ev);
-      emitStreamEvent(onStream, ev);
-    }
+    dispatchOneNotification(notification, sinks, onStream, options);
   }
 
   return {
-    text: textChunks.join(""),
+    text: sinks.textChunks.join(""),
+    chunkCount: sinks.chunkCount,
+    chunkChars: sinks.chunkChars,
     thoughtText: "",
-    thoughtCount,
-    thoughtChars,
-    toolCalls,
-    fileChanges,
-    events
+    thoughtCount: sinks.thoughtCount,
+    thoughtChars: sinks.thoughtChars,
+    toolCalls: sinks.toolCalls,
+    fileChanges: sinks.fileChanges,
+    events: sinks.events
   };
 }
 
 export const __testing = {
   simulateNotificationDispatch(notifications, onStream, options) {
     return dispatchNotifications(notifications, onStream, options);
-  }
+  },
+  emitThinkingWarningIfNew,
+  resetThinkingWarning
 };
 
 /**
@@ -319,41 +359,15 @@ export const __testing = {
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
   // Collect streamed text and tool calls from session/update notifications.
-  const textChunks = [];
-  let thoughtCount = 0;
-  let thoughtChars = 0;
-  const toolCalls = [];
-  const fileChanges = [];
+  const sinks = createNotificationSinks();
   const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
     ? options.jobObserver
     : null;
 
   const notificationHandler = (notification) => {
-    const update = notification.params?.update;
-    if (!update) return;
-
-    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
-      textChunks.push(update.content.text);
-      emitStreamEvent(options.onStream, { type: "message_chunk", text: update.content.text });
-    } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
-      const text = String(update.content.text ?? "");
-      thoughtCount += 1;
-      thoughtChars += text.length;
-      emitStreamEvent(options.onStream, buildThoughtStreamEvent(text, options.streamThoughtText === true));
-    } else if (update.sessionUpdate === "tool_call") {
-      toolCalls.push({
-        name: update.toolName ?? update.name ?? "unknown",
-        arguments: update.arguments ?? update.input ?? {},
-        result: update.result ?? undefined
-      });
-      emitStreamEvent(options.onStream, buildToolStreamEvent(update));
-    } else if (update.sessionUpdate === "file_change") {
-      fileChanges.push({
-        path: update.path ?? "",
-        action: update.action ?? "modify"
-      });
-      emitStreamEvent(options.onStream, buildFileStreamEvent(update));
-    }
+    dispatchOneNotification(notification, sinks, options.onStream, {
+      streamThoughtText: options.streamThoughtText === true
+    });
 
     recordObserverEvent(observer, buildJobEventFromAcpNotification(notification));
 
@@ -427,18 +441,8 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       emitStreamEvent(options.onStream, { type: "phase", message: sanitizeDiagnosticMessage(`thinking:${options.thinking}`) });
       // Delivery: upstream Gemini CLI (0.38.x) does not accept a per-invocation
       // thinking override via CLI flag, env var, or session/new param; the
-      // configuration lives in settings.json at the model-alias level. Warn
-      // once per process so users understand why the flag has no observable
-      // effect, and point them at the persistent-settings path.
-      if (!globalThis.__gemini_thinking_warned) {
-        process.stderr.write(
-          "Warning: --thinking is parsed but not delivered to the running Gemini CLI. " +
-          "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
-          "for a persistent setting. See " +
-          "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
-        );
-        globalThis.__gemini_thinking_warned = true;
-      }
+      // configuration lives in settings.json at the model-alias level.
+      emitThinkingWarningIfNew();
     }
 
     // Send prompt — ACP v1 expects prompt as ContentBlock[].
@@ -448,32 +452,36 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       prompt: [{ type: "text", text: prompt }]
     });
 
-    const text = textChunks.join("");
+    const text = sinks.textChunks.join("");
     const usage = result?._meta?.quota?.token_count ?? null;
 
     return {
       sessionId,
       text,
+      chunkCount: sinks.chunkCount,
+      chunkChars: sinks.chunkChars,
       thoughtText: "",
-      thoughtCount,
-      thoughtChars,
+      thoughtCount: sinks.thoughtCount,
+      thoughtChars: sinks.thoughtChars,
       model: result?._meta?.quota?.model_usage?.[0]?.model ?? options.model ?? null,
       usage,
-      toolCalls,
-      fileChanges,
+      toolCalls: sinks.toolCalls,
+      fileChanges: sinks.fileChanges,
       error: null
     };
   } catch (error) {
     return {
       sessionId: null,
-      text: textChunks.join(""),
+      text: sinks.textChunks.join(""),
+      chunkCount: sinks.chunkCount,
+      chunkChars: sinks.chunkChars,
       thoughtText: "",
-      thoughtCount,
-      thoughtChars,
+      thoughtCount: sinks.thoughtCount,
+      thoughtChars: sinks.thoughtChars,
       model: null,
       usage: null,
-      toolCalls,
-      fileChanges,
+      toolCalls: sinks.toolCalls,
+      fileChanges: sinks.fileChanges,
       error
     };
   } finally {

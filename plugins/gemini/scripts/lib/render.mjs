@@ -122,8 +122,14 @@ function formatEventLineBrief(event) {
       return `[file_change] ${event.action ?? "modify"} ${event.path ?? ""}`;
     case "phase":
       return `[phase] ${event.message ?? ""}`;
+    case "phase_changed":
+      return `[phase_changed] ${event.phase ?? event.message ?? ""}`;
     case "diagnostic":
-      return `[diagnostic] ${event.source ?? "unknown"}: ${event.message ?? ""}`;
+    case "error":
+    case "stderr":
+      return event.source
+        ? `[${event.type}] ${event.source}: ${event.message ?? ""}`
+        : `[${event.type}] ${event.message ?? ""}`;
     default:
       return `[${event.type ?? "event"}]`;
   }
@@ -156,7 +162,12 @@ function rollupCounters(events) {
  * @returns {string}
  */
 export function renderSingleJobStatus(snapshotOrJob, options = {}) {
-  const job = snapshotOrJob && snapshotOrJob.job != null ? snapshotOrJob.job : snapshotOrJob;
+  const isSnapshotWrapper =
+    snapshotOrJob &&
+    typeof snapshotOrJob === "object" &&
+    Object.prototype.hasOwnProperty.call(snapshotOrJob, "workspaceRoot") &&
+    Object.prototype.hasOwnProperty.call(snapshotOrJob, "job");
+  const job = isSnapshotWrapper ? snapshotOrJob.job : snapshotOrJob;
   const lines = [];
   lines.push(`# Gemini Job: ${job.id}`);
   lines.push("");

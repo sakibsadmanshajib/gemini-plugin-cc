@@ -17,7 +17,7 @@ Execution mode:
 - If neither flag is present, default to foreground.
 - `--background` and `--wait` are execution flags for Claude Code. Do not forward them to `task`, and do not treat them as part of the natural-language task text.
 - `--model`, `--thinking`, and `--stream-output` are runtime-selection flags. Preserve them for the forwarded `task` call, but do not treat them as part of the natural-language task text.
-- `--thinking` accepts `off`, `low`, `medium` (default), or `high`. Omit when the user has not asked for a specific thinking level; pass the user's chosen level otherwise. If the user asks you to "think harder" on a complex task, pass `--thinking high`.
+- `--thinking` accepts `off`, `low`, `medium` (default), or `high`. Omit when the user has not asked for a specific thinking level; pass the user's chosen level otherwise. The local Gemini CLI does not expose a per-invocation thinking override yet, so the companion emits a one-shot warning and falls back to the CLI's default reasoning unless `thinkingConfig` is set persistently in Gemini `settings.json`.
 - Add `--stream-output` only when the user explicitly asks to see the model's raw output stream. Default (no flag) uses compact stderr markers.
 - If the request includes `--resume`, do not ask whether to continue. The user already chose.
 - If the request includes `--fresh`, do not ask whether to continue. The user already chose.
@@ -41,7 +41,7 @@ Invocation:
 
 - Use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-companion.mjs" task ...` and return that command's stdout as-is.
 - Default to a write-capable Gemini run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
-- Leave `--thinking` unset unless the user explicitly asks for a specific thinking level. The runtime defaults to medium.
+- Leave `--thinking` unset unless the user explicitly asks for a specific thinking level. The runtime defaults to medium, and the current CLI only applies thinking changes from persistent `settings.json` config.
 - The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly names a different model — the runtime applies the default automatically.
 - If the user specifies a model name, pass it as `--model <name>`. Accepted values:
   - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`

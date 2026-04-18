@@ -56,14 +56,16 @@ export function resolveThinkingConfig(level, modelId) {
       return { thinkingLevel: "low", thinkingBudget: undefined, notes };
     }
     if (level === "low") return { thinkingLevel: "low", thinkingBudget: undefined, notes };
+    if (level === "medium") {
+      notes.push("gemini-3 medium uses model default dynamic thinking");
+      return { thinkingLevel: undefined, thinkingBudget: undefined, notes };
+    }
     if (level === "high") return { thinkingLevel: "high", thinkingBudget: undefined, notes };
-    // medium: no explicit level; Gemini 3 uses its own dynamic default.
-    return { thinkingLevel: undefined, thinkingBudget: undefined, notes };
   }
 
   if (family === "gemini-2.5-pro") {
     if (level === "off") {
-      notes.push("clamped off→low: Gemini 2.5 Pro minimum thinkingBudget is 128");
+      notes.push("clamped off→low: Gemini 2.5 Pro does not support disabling thinking; using thinkingBudget 2048 (API minimum is 128)");
       return { thinkingLevel: undefined, thinkingBudget: 2048, notes };
     }
     if (level === "low") return { thinkingLevel: undefined, thinkingBudget: 2048, notes };
@@ -78,5 +80,5 @@ export function resolveThinkingConfig(level, modelId) {
     if (level === "high") return { thinkingLevel: undefined, thinkingBudget: 24576, notes };
   }
 
-  return { thinkingLevel: undefined, thinkingBudget: undefined, notes };
+  throw new Error(`unreachable: unhandled thinking level/family combination (${level}, ${family})`);
 }

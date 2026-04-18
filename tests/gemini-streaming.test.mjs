@@ -10,13 +10,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const GEMINI_SOURCE = fs.readFileSync(path.join(ROOT, "plugins/gemini/scripts/lib/gemini.mjs"), "utf8");
 
 test("simulateNotificationDispatch keeps thought text out of returned data by default", () => {
-  const { text, thoughtText, events } = gemini.simulateNotificationDispatch([
+  const { text, thoughtText, chunkCount, events } = gemini.simulateNotificationDispatch([
     { method: "session/update", params: { sessionId: "s", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Hello" } } } },
     { method: "session/update", params: { sessionId: "s", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "thinking" } } } },
     { method: "session/update", params: { sessionId: "s", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: ", world" } } } }
   ]);
   assert.equal(text, "Hello, world");
   assert.equal(thoughtText, "");
+  assert.equal(chunkCount, 2);
   const kinds = events.map((e) => e.type);
   assert.deepEqual(kinds, ["message_chunk", "thought_chunk", "message_chunk"]);
   assert.equal(events[1].text, undefined);
@@ -62,12 +63,32 @@ test("simulateNotificationDispatch fires tool_call and file_change as stream eve
   assert.equal(events[1].action, "write");
 });
 
+function functionSource(name) {
+  const start = GEMINI_SOURCE.indexOf(`export async function ${name}`);
+  assert.notEqual(start, -1, `missing ${name}`);
+  const paramsEnd = GEMINI_SOURCE.indexOf(") {", start);
+  assert.notEqual(paramsEnd, -1, `missing ${name} body`);
+  const open = paramsEnd + 2;
+  let depth = 0;
+  for (let i = open; i < GEMINI_SOURCE.length; i++) {
+    const ch = GEMINI_SOURCE[i];
+    if (ch === "{") depth += 1;
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return GEMINI_SOURCE.slice(start, i + 1);
+    }
+  }
+  assert.fail(`could not extract ${name}`);
+}
+
 test("runAcpReview forwards thinking and onStream to runAcpPrompt", () => {
-  assert.match(GEMINI_SOURCE, /runAcpReview[\s\S]{0,1500}thinking:\s*options\.thinking/);
-  assert.match(GEMINI_SOURCE, /runAcpReview[\s\S]{0,1500}onStream:\s*options\.onStream/);
+  const body = functionSource("runAcpReview");
+  assert.match(body, /thinking:\s*options\.thinking/);
+  assert.match(body, /onStream:\s*options\.onStream/);
 });
 
 test("runAcpAdversarialReview forwards thinking and onStream to runAcpPrompt", () => {
-  assert.match(GEMINI_SOURCE, /runAcpAdversarialReview[\s\S]{0,2500}thinking:\s*options\.thinking/);
-  assert.match(GEMINI_SOURCE, /runAcpAdversarialReview[\s\S]{0,2500}onStream:\s*options\.onStream/);
+  const body = functionSource("runAcpAdversarialReview");
+  assert.match(body, /thinking:\s*options\.thinking/);
+  assert.match(body, /onStream:\s*options\.onStream/);
 });
