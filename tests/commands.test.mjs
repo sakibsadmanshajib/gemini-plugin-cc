@@ -159,3 +159,53 @@ test("companion command handlers use raw command argument parsing", () => {
   assert.match(source, /import \{ parseCommandInput \} from "\.\/lib\/args\.mjs"/);
   assert.doesNotMatch(source, /\bparseArgs\(/);
 });
+
+test("status command preserves health and last-progress fields when rendering", () => {
+  const status = read("commands/status.md");
+
+  assert.match(status, /Health/);
+  assert.match(status, /Last Progress/);
+  assert.match(status, /recommended action|recommendedAction/i);
+});
+
+test("README documents /gemini:status job health details and recommended actions", () => {
+  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+
+  assert.match(readme, /Health/);
+  assert.match(readme, /Last Progress/);
+  assert.match(readme, /active/);
+  assert.match(readme, /quiet/);
+  assert.match(readme, /possibly_stalled/);
+  assert.match(readme, /rate_limited/);
+  assert.match(readme, /auth_required/);
+  assert.match(readme, /broker_unhealthy/);
+  assert.match(readme, /worker_missing/);
+  assert.match(readme, /failed/);
+});
+
+test("gemini-cli-runtime skill documents every job health label and recommended action", () => {
+  const runtimeSkill = read("skills/gemini-cli-runtime/SKILL.md");
+
+  const labels = [
+    "active",
+    "quiet",
+    "possibly_stalled",
+    "rate_limited",
+    "auth_required",
+    "broker_unhealthy",
+    "worker_missing",
+    "failed"
+  ];
+  for (const label of labels) {
+    assert.match(runtimeSkill, new RegExp(label), `expected health label ${label} documented in runtime skill`);
+  }
+  assert.match(runtimeSkill, /health/i);
+});
+
+test("gemini-result-handling skill forbids fabricating results for incomplete jobs", () => {
+  const resultHandling = read("skills/gemini-result-handling/SKILL.md");
+
+  assert.match(resultHandling, /do not fabricate|do not invent|never fabricate/i);
+  assert.match(resultHandling, /incomplete|non-terminal|still running|in progress/i);
+  assert.match(resultHandling, /\/gemini:(status|cancel|result)/);
+});

@@ -69,3 +69,22 @@ Unlisted model IDs are forwarded as-is to Gemini CLI.
 - `stdout`: Rendered markdown (default) or JSON (`--json`).
 - `stderr`: Progress updates during execution.
 - Exit code 0 = success, non-zero = failure.
+
+## Job Health Labels
+
+`/gemini:status` reports a conservative `Health` label for each active job.
+Interpret each label as follows when deciding what to do next:
+
+| Label | Interpretation | Recommend to the user |
+|-------|----------------|-----------------------|
+| `active` | Gemini emitted progress recently. | Wait for completion; do not cancel. |
+| `quiet` | Heartbeat is recent but no new progress. | Re-check `/gemini:status` shortly. |
+| `possibly_stalled` | No recent heartbeat or progress. | Re-check `/gemini:status`, fetch `/gemini:result`, or retry if the job does not recover. |
+| `rate_limited` | Explicit quota or 429-class diagnostic. | Wait, switch models (`--model flash` / `--model auto-gemini-2.5`), or cancel with `/gemini:cancel`. |
+| `auth_required` | Explicit auth/credential diagnostic. | Point the user to `/gemini:setup` to re-authenticate before retrying. |
+| `broker_unhealthy` | The ACP broker reported busy/disconnected. | Re-check status shortly; a restart may be needed if it persists. |
+| `worker_missing` | Worker PID is no longer alive. | Fetch `/gemini:result`; retry if the output is incomplete. |
+| `failed` | Worker or Gemini ended with an error. | Fetch `/gemini:result` for the diagnostic and retry only after understanding it. |
+
+Never claim a job is dead or useless based on `quiet` or `possibly_stalled`
+alone. Those labels mean "check again", not "give up".
