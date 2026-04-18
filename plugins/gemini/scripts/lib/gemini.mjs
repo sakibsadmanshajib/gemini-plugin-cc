@@ -14,6 +14,7 @@ import { binaryAvailable, runCommand } from "./process.mjs";
 import { collectReviewContext } from "./git.mjs";
 import { loadPrompt } from "./prompts.mjs";
 import { recordJobEvent } from "./job-observability.mjs";
+import { resolveThinkingConfig } from "./thinking.mjs";
 
 /**
  * Convert an ACP session/update notification into a job-observability event.
@@ -108,6 +109,7 @@ function escapeXmlContent(content, tagName) {
  * @typedef {{
  *   sessionId: string | null,
  *   text: string,
+ *   thoughtText: string,
  *   model: string | null,
  *   usage: { promptTokens: number, completionTokens: number, totalTokens: number } | null,
  *   toolCalls: Array<{ name: string, arguments: Record<string, unknown>, result?: string }>,
@@ -207,16 +209,77 @@ export function getSessionRuntimeStatus(env, cwd) {
 // ─── ACP Operations ───────────────────────────────────────────────────────────
 
 /**
+ * Pure dispatch over a sequence of session/update notifications.
+ * Exposed for tests; mirrors the real runAcpPrompt loop body.
+ */
+function dispatchNotifications(notifications, onStream) {
+  const textChunks = [];
+  const thoughtChunks = [];
+  const toolCalls = [];
+  const fileChanges = [];
+  const events = [];
+
+  for (const notification of notifications) {
+    const update = notification?.params?.update;
+    if (!update) continue;
+
+    if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
+      textChunks.push(update.content.text);
+      const ev = { type: "message_chunk", text: update.content.text };
+      events.push(ev);
+      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+    } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
+      thoughtChunks.push(update.content.text);
+      const ev = { type: "thought_chunk", text: update.content.text };
+      events.push(ev);
+      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+    } else if (update.sessionUpdate === "tool_call") {
+      toolCalls.push({
+        name: update.toolName ?? update.name ?? "unknown",
+        arguments: update.arguments ?? update.input ?? {},
+        result: update.result ?? undefined
+      });
+      const ev = { type: "tool_call", toolName: update.toolName ?? update.name ?? "unknown" };
+      events.push(ev);
+      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+    } else if (update.sessionUpdate === "file_change") {
+      fileChanges.push({
+        path: update.path ?? "",
+        action: update.action ?? "modify"
+      });
+      const ev = { type: "file_change", path: update.path ?? "", action: update.action ?? "modify" };
+      events.push(ev);
+      if (onStream) { try { onStream(ev); } catch { /* best-effort */ } }
+    }
+  }
+
+  return {
+    text: textChunks.join(""),
+    thoughtText: thoughtChunks.join(""),
+    toolCalls,
+    fileChanges,
+    events
+  };
+}
+
+export const __testing = {
+  simulateNotificationDispatch(notifications, onStream) {
+    return dispatchNotifications(notifications, onStream);
+  }
+};
+
+/**
  * Run a prompt through Gemini ACP and capture the result.
  *
  * @param {string} cwd
  * @param {string} prompt
- * @param {{ model?: string, thinkingBudget?: number, approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ model?: string, thinkingBudget?: number, thinking?: "off"|"low"|"medium"|"high", approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
  * @returns {Promise<TurnResult>}
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
   // Collect streamed text and tool calls from session/update notifications.
   const textChunks = [];
+  const thoughtChunks = [];
   const toolCalls = [];
   const fileChanges = [];
   const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
@@ -224,29 +287,28 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     : null;
 
   const notificationHandler = (notification) => {
-    // NOTE: broker/diagnostic notifications are single-dispatched by
-    // AcpClientBase.handleLine via `onDiagnostic` only in broker-transport
-    // mode, and ignored as trusted in direct mode. No broker-diagnostic
-    // branch is needed here — it would double-count in broker mode and
-    // trust a forged payload in direct mode.
     const update = notification.params?.update;
-    if (!update) {
-      return;
-    }
+    if (!update) return;
 
     if (update.sessionUpdate === "agent_message_chunk" && update.content?.type === "text") {
       textChunks.push(update.content.text);
+      if (options.onStream) { try { options.onStream({ type: "message_chunk", text: update.content.text }); } catch {} }
+    } else if (update.sessionUpdate === "agent_thought_chunk" && update.content?.type === "text") {
+      thoughtChunks.push(update.content.text);
+      if (options.onStream) { try { options.onStream({ type: "thought_chunk", text: update.content.text }); } catch {} }
     } else if (update.sessionUpdate === "tool_call") {
       toolCalls.push({
         name: update.toolName ?? update.name ?? "unknown",
         arguments: update.arguments ?? update.input ?? {},
         result: update.result ?? undefined
       });
+      if (options.onStream) { try { options.onStream({ type: "tool_call", toolName: update.toolName ?? update.name ?? "unknown" }); } catch {} }
     } else if (update.sessionUpdate === "file_change") {
       fileChanges.push({
         path: update.path ?? "",
         action: update.action ?? "modify"
       });
+      if (options.onStream) { try { options.onStream({ type: "file_change", path: update.path ?? "", action: update.action ?? "modify" }); } catch {} }
     }
 
     recordObserverEvent(observer, buildJobEventFromAcpNotification(notification));
@@ -280,6 +342,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     if (sessionId) {
       await client.request("session/load", { sessionId, cwd, mcpServers: [] });
       recordObserverEvent(observer, { type: "phase", message: "session_loaded" });
+      if (options.onStream) { try { options.onStream({ type: "phase", message: "session_loaded" }); } catch {} }
     } else {
       const session = await client.request("session/new", {
         cwd,
@@ -287,6 +350,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       });
       sessionId = session?.sessionId ?? null;
       recordObserverEvent(observer, { type: "phase", message: "session_created" });
+      if (options.onStream) { try { options.onStream({ type: "phase", message: "session_created" }); } catch {} }
     }
 
     // Set approval mode (defaults to autoEdit if not specified).
@@ -309,6 +373,18 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       }
     }
 
+    let resolvedThinking = null;
+    if (options.thinking !== undefined) {
+      resolvedThinking = resolveThinkingConfig(options.thinking, options.model ?? null);
+      for (const note of resolvedThinking.notes) {
+        process.stderr.write(`Thinking: ${note}\n`);
+      }
+      recordObserverEvent(observer, { type: "phase", message: `thinking:${options.thinking}` });
+      if (options.onStream) {
+        try { options.onStream({ type: "phase", message: `thinking:${options.thinking}` }); } catch {}
+      }
+    }
+
     // Send prompt — ACP v1 expects prompt as ContentBlock[].
     // Text is streamed via session/update notifications; the response only has metadata.
     const result = await client.request("session/prompt", {
@@ -322,6 +398,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     return {
       sessionId,
       text,
+      thoughtText: thoughtChunks.join(""),
       model: result?._meta?.quota?.model_usage?.[0]?.model ?? options.model ?? null,
       usage,
       toolCalls,
@@ -332,6 +409,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     return {
       sessionId: null,
       text: textChunks.join(""),
+      thoughtText: thoughtChunks.join(""),
       model: null,
       usage: null,
       toolCalls,
@@ -347,7 +425,7 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
  * Run a code review via ACP. Collects git context and sends a review prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
  * @returns {Promise<{ text: string, sessionId: string | null, scope: string, summary: string, error: unknown }>}
  */
 export async function runAcpReview(cwd, options = {}) {
@@ -370,6 +448,8 @@ export async function runAcpReview(cwd, options = {}) {
 
   const result = await runAcpPrompt(cwd, reviewPrompt, {
     model: options.model,
+    thinking: options.thinking,
+    onStream: options.onStream,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,
@@ -390,7 +470,7 @@ export async function runAcpReview(cwd, options = {}) {
  * Run an adversarial review via ACP with a structured output prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void }} [options]
+ * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void }} [options]
  * @returns {Promise<{ text: string, parsed: any, sessionId: string | null, scope: string, error: unknown }>}
  */
 export async function runAcpAdversarialReview(cwd, options = {}) {
@@ -436,6 +516,8 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
 
   const result = await runAcpPrompt(cwd, fullPrompt, {
     model: options.model,
+    thinking: options.thinking,
+    onStream: options.onStream,
     approvalMode: "plan", // Read-only for reviews.
     env: options.env,
     onNotification: options.onNotification,
