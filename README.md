@@ -242,6 +242,68 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 
 > **Warning:** The review gate can create a long-running Claude/Gemini loop and may drain usage limits quickly. Only enable it when you plan to actively monitor the session.
 
+## Live Progress & Thinking Levels
+
+### Thinking levels
+
+Each task or review accepts `--thinking <off|low|medium|high>` — a t-shirt sized control over how hard Gemini reasons before answering:
+
+| Level | Behavior |
+|-------|----------|
+| `off` | Minimal reasoning. Fastest; clamped to `low` on models that don't support zero thinking. |
+| `low` | Light reasoning — quick tasks, short context. |
+| `medium` *(default)* | Dynamic reasoning — balanced default, matches the model's own heuristics. |
+| `high` | Deep reasoning — use when the task needs careful analysis. |
+
+The level maps to the right underlying Gemini parameter for the selected model (Gemini 3 `thinkingLevel`, Gemini 2.5 `thinkingBudget`). Unknown models emit a one-line note to stderr and pass through unchanged. If the local Gemini CLI does not expose a per-invocation thinking override, the flag is still parsed and validated but emits a one-shot stderr warning so you understand why it has no observable effect — configure `thinkingConfig` at the model-alias level in your Gemini `settings.json` for a persistent setting.
+
+### Live progress in the terminal
+
+Foreground runs emit progress to **stderr** so stdout stays a single final write (safe for `--json`, pipe-friendly for wrappers).
+
+By default, progress uses compact markers:
+
+```
+[session] created
+[tool] read_file
+.....                        (one '.' per model chunk)
+[thinking]                   (one per thought chunk; raw thought text never shown)
+[tool] write_file
+[file] write plugins/x.mjs
+[done] 1.2s | 2 tools | 1 file | 14 chunks | 1 thought
+```
+
+Pass `--stream-output` to upgrade to raw passthrough — every message chunk and every thought chunk is written to stderr as it arrives:
+
+```
+[session] created
+[tool] read_file
+Here's what I found in the file...
+thought: Let me think about the approach.
+[tool] write_file
+```
+
+### Background jobs: `/gemini:status` event tail
+
+For `--background` runs, `/gemini:status` renders the tail of recent events per active job:
+
+```
+Running jobs (1):
+  job_abc123  task  running  2s ago
+    last event: model_text_chunk 85 chars - 200ms ago
+    recent:
+      [phase] session_created          2.1s ago
+      [tool_call] read_file            1.8s ago
+      [model_text_chunk] 140 chars     1.2s ago
+      [model_thought_chunk] 62 chars   900ms ago
+      [model_text_chunk] 85 chars      200ms ago
+    totals: chunks=3  thoughts=1  tools=1  files=0
+```
+
+### Privacy
+
+Raw model prose and raw thought text are **never persisted** to job files or to the status view. Only sanitized metadata (character counts, tool names, file paths) lands in the event log. Raw chunks appear live in stderr only, and only when you opt in with `--stream-output`.
+
 ## Typical Flows
 
 ### Review Before Shipping
