@@ -1,10 +1,21 @@
-import { readJobFile, upsertJob, writeJobFile } from "./state.mjs";
+import { loadState, readJobFile, saveState, writeJobFile } from "./state.mjs";
 
 export const MAX_JOB_EVENTS = 50;
 export const MAX_DIAGNOSTIC_LENGTH = 500;
 
 const PROGRESS_EVENT_TYPES = new Set(["model_text_chunk", "tool_call", "file_change", "phase", "status"]);
 const DIAGNOSTIC_EVENT_TYPES = new Set(["diagnostic", "error", "stderr"]);
+const SAFE_EVENT_FIELDS = new Set([
+  "type",
+  "timestamp",
+  "message",
+  "phase",
+  "toolName",
+  "path",
+  "action",
+  "source",
+  "transport"
+]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -12,24 +23,20 @@ function nowIso() {
 
 function sanitizeText(value) {
   return String(value ?? "")
-    .replace(/\u001b\[[0-9;]*m/g, "")
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, "")
     .slice(0, MAX_DIAGNOSTIC_LENGTH);
 }
 
 function sanitizeEvent(event, timestamp) {
   const input = event && typeof event === "object" ? event : {};
-  const normalized = { ...input, timestamp };
-  for (const [key, value] of Object.entries(normalized)) {
-    if (typeof value === "string") {
+  const normalized = { timestamp: sanitizeText(timestamp) };
+  for (const [key, value] of Object.entries(input)) {
+    if (SAFE_EVENT_FIELDS.has(key) && typeof value === "string") {
       normalized[key] = sanitizeText(value);
     }
   }
   return normalized;
-}
-
-function eventMessage(event) {
-  return event.message ?? event.error ?? event.text ?? event.output ?? "";
 }
 
 function recommendedActionFor(kind) {
@@ -58,10 +65,50 @@ function isProgressEvent(event) {
   return PROGRESS_EVENT_TYPES.has(String(event.type ?? ""));
 }
 
+function compactJobIndexEntry(job) {
+  return {
+    id: job.id,
+    kind: job.kind,
+    title: job.title,
+    status: job.status,
+    sessionId: job.sessionId,
+    workspaceRoot: job.workspaceRoot,
+    logFile: job.logFile,
+    threadId: job.threadId,
+    turnId: job.turnId,
+    pid: job.pid,
+    phase: job.phase,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+    healthStatus: job.healthStatus,
+    healthMessage: job.healthMessage,
+    recommendedAction: job.recommendedAction,
+    lastHeartbeatAt: job.lastHeartbeatAt,
+    lastProgressAt: job.lastProgressAt,
+    lastModelOutputAt: job.lastModelOutputAt,
+    lastToolCallAt: job.lastToolCallAt,
+    lastDiagnosticAt: job.lastDiagnosticAt
+  };
+}
+
+function replaceJobIndexEntry(workspaceRoot, job) {
+  const state = loadState(workspaceRoot);
+  const compact = compactJobIndexEntry(job);
+  const index = state.jobs.findIndex((entry) => entry.id === job.id);
+  if (index >= 0) {
+    state.jobs[index] = compact;
+  } else {
+    state.jobs.push(compact);
+  }
+  saveState(workspaceRoot, state);
+}
+
 export function classifyDiagnostic(text) {
   const value = String(text ?? "");
   const lower = value.toLowerCase();
-  if (/(rate limit|quota|429|resource exhausted|retrying|backoff)/.test(lower)) {
+  if (/(rate limit|quota|429|resource exhausted)/.test(lower)) {
     return { kind: "rate_limit", healthStatus: "rate_limited" };
   }
   if (/(auth|credential|login|unauthorized|401|permission denied)/.test(lower)) {
@@ -87,50 +134,42 @@ export function recordJobEvent(workspaceRoot, jobId, event) {
 
   const timestamp = event?.timestamp ?? nowIso();
   const normalizedEvent = sanitizeEvent(event, timestamp);
+  const persistedTimestamp = normalizedEvent.timestamp;
   const events = [...(Array.isArray(existing.events) ? existing.events : []), normalizedEvent].slice(-MAX_JOB_EVENTS);
   const patch = {
     events,
-    lastHeartbeatAt: timestamp,
+    lastHeartbeatAt: persistedTimestamp,
     updatedAt: nowIso()
   };
 
   if (isProgressEvent(normalizedEvent)) {
-    patch.lastProgressAt = timestamp;
+    patch.lastProgressAt = persistedTimestamp;
     patch.healthStatus = "active";
   }
 
   if (normalizedEvent.type === "model_text_chunk") {
-    patch.lastModelOutputAt = timestamp;
+    patch.lastModelOutputAt = persistedTimestamp;
   }
 
   if (normalizedEvent.type === "tool_call") {
-    patch.lastToolCallAt = timestamp;
+    patch.lastToolCallAt = persistedTimestamp;
   }
 
   if (isDiagnosticEvent(normalizedEvent)) {
-    const healthMessage = sanitizeText(eventMessage(normalizedEvent));
+    const healthMessage = sanitizeText(normalizedEvent.message);
     const classification = classifyDiagnostic(healthMessage);
-    patch.lastDiagnosticAt = timestamp;
-    patch.healthStatus = classification.healthStatus;
+    patch.lastDiagnosticAt = persistedTimestamp;
+    patch.healthStatus =
+      classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
+        ? "possibly_stalled"
+        : classification.healthStatus;
     patch.healthMessage = healthMessage;
     patch.recommendedAction = recommendedActionFor(classification.kind);
   }
 
   const nextJob = { ...existing, ...patch };
   writeJobFile(workspaceRoot, jobId, nextJob);
-  upsertJob(workspaceRoot, {
-    id: jobId,
-    status: nextJob.status,
-    phase: nextJob.phase,
-    healthStatus: nextJob.healthStatus,
-    healthMessage: nextJob.healthMessage,
-    recommendedAction: nextJob.recommendedAction,
-    lastHeartbeatAt: nextJob.lastHeartbeatAt,
-    lastProgressAt: nextJob.lastProgressAt,
-    lastModelOutputAt: nextJob.lastModelOutputAt,
-    lastToolCallAt: nextJob.lastToolCallAt,
-    lastDiagnosticAt: nextJob.lastDiagnosticAt
-  });
+  replaceJobIndexEntry(workspaceRoot, nextJob);
 
   return nextJob;
 }
