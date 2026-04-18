@@ -159,3 +159,54 @@ test("buildStatusSnapshot classifies stale heartbeat and progress as possibly st
 
   assert.equal(snapshot.running[0].healthStatus, "possibly_stalled");
 });
+
+test("buildStatusSnapshot preserves persisted rate_limited health even with recent progress", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const now = Date.parse("2026-01-01T00:00:00.000Z");
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "sticky" });
+  await setRunningJob(workspace, job, {
+    healthStatus: "rate_limited",
+    healthMessage: "quota exceeded",
+    recommendedAction: "wait or switch models",
+    lastProgressAt: iso(now - 1000),
+    lastHeartbeatAt: iso(now - 1000)
+  });
+
+  const snapshot = buildStatusSnapshot(workspace, {
+    now: iso(now),
+    isProcessAlive: () => true
+  });
+
+  assert.equal(snapshot.running[0].healthStatus, "rate_limited");
+  assert.equal(snapshot.running[0].healthMessage, "quota exceeded");
+  assert.equal(snapshot.running[0].recommendedAction, "wait or switch models");
+});
+
+test("buildStatusSnapshot preserves persisted auth_required and broker_unhealthy", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const now = Date.parse("2026-01-01T00:00:00.000Z");
+
+  const authJob = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "auth" });
+  await setRunningJob(workspace, authJob, {
+    healthStatus: "auth_required",
+    lastProgressAt: iso(now - 500),
+    lastHeartbeatAt: iso(now - 500)
+  });
+  const brokerJob = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "broker" });
+  await setRunningJob(workspace, brokerJob, {
+    healthStatus: "broker_unhealthy",
+    lastProgressAt: iso(now - 500),
+    lastHeartbeatAt: iso(now - 500)
+  });
+
+  const snapshot = buildStatusSnapshot(workspace, {
+    now: iso(now),
+    isProcessAlive: () => true
+  });
+
+  const byId = new Map(snapshot.running.map((j) => [j.id, j]));
+  assert.equal(byId.get(authJob.id).healthStatus, "auth_required");
+  assert.equal(byId.get(brokerJob.id).healthStatus, "broker_unhealthy");
+});

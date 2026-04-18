@@ -71,6 +71,16 @@ function parseTime(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
+// Persisted diagnostic statuses that must survive time-based reclassification
+// until an explicit recovery event clears them. See spec "Sticky Diagnostic (C1)".
+const DIAGNOSTIC_HEALTH_STATUSES = new Set([
+  "rate_limited",
+  "auth_required",
+  "broker_unhealthy",
+  "failed",
+  "worker_missing"
+]);
+
 function classifyRuntimeHealth(job, options = {}) {
   if (job.status !== "running" && job.status !== "queued") {
     return {};
@@ -83,6 +93,14 @@ function classifyRuntimeHealth(job, options = {}) {
       healthStatus: "worker_missing",
       healthMessage: "Worker process is no longer running.",
       recommendedAction: "Check /gemini:result or /gemini:status, then retry if the result is incomplete."
+    };
+  }
+
+  if (DIAGNOSTIC_HEALTH_STATUSES.has(job.healthStatus)) {
+    return {
+      healthStatus: job.healthStatus,
+      healthMessage: job.healthMessage ?? null,
+      recommendedAction: job.recommendedAction ?? null
     };
   }
 
