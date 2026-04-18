@@ -1,6 +1,6 @@
 ---
 description: Delegate a task to Gemini for debugging, implementation, or deeper investigation
-argument-hint: "[--background|--wait] [--resume|--fresh] [--model auto-gemini-3|auto-gemini-2.5|pro|flash|flash-lite|<concrete-model-id>] [--thinking-budget <number>] [--approval-mode <mode>] [what Gemini should investigate, solve, or continue]"
+argument-hint: "[--background|--wait] [--resume|--fresh] [--model auto-gemini-3|auto-gemini-2.5|pro|flash|flash-lite|<concrete-model-id>] [--thinking <off|low|medium|high>] [--stream-output] [--approval-mode <mode>] [what Gemini should investigate, solve, or continue]"
 context: fork
 allowed-tools: Bash(node:*), AskUserQuestion
 ---
@@ -16,7 +16,9 @@ Execution mode:
 - If the request includes `--wait`, run in the foreground.
 - If neither flag is present, default to foreground.
 - `--background` and `--wait` are execution flags for Claude Code. Do not forward them to `task`, and do not treat them as part of the natural-language task text.
-- `--model` and `--thinking-budget` are runtime-selection flags. Preserve them for the forwarded `task` call, but do not treat them as part of the natural-language task text.
+- `--model`, `--thinking`, and `--stream-output` are runtime-selection flags. Preserve them for the forwarded `task` call, but do not treat them as part of the natural-language task text.
+- `--thinking` accepts `off`, `low`, `medium` (default), or `high`. Omit when the user has not asked for a specific thinking level; pass the user's chosen level otherwise. If the user asks you to "think harder" on a complex task, pass `--thinking high`.
+- Add `--stream-output` only when the user explicitly asks to see the model's raw output stream. Default (no flag) uses compact stderr markers.
 - If the request includes `--resume`, do not ask whether to continue. The user already chose.
 - If the request includes `--fresh`, do not ask whether to continue. The user already chose.
 - Otherwise, before starting Gemini, check for a resumable rescue thread from this Claude session by running:
@@ -39,7 +41,7 @@ Invocation:
 
 - Use exactly one `Bash` call to invoke `node "${CLAUDE_PLUGIN_ROOT}/scripts/gemini-companion.mjs" task ...` and return that command's stdout as-is.
 - Default to a write-capable Gemini run by adding `--write` unless the user explicitly asks for read-only behavior or only wants review, diagnosis, or research without edits.
-- Leave `--thinking-budget` unset unless the user explicitly asks for a specific thinking budget.
+- Leave `--thinking` unset unless the user explicitly asks for a specific thinking level. The runtime defaults to medium.
 - The default model is `auto-gemini-3`. Leave `--model` unset unless the user explicitly names a different model — the runtime applies the default automatically.
 - If the user specifies a model name, pass it as `--model <name>`. Accepted values:
   - Shorthand aliases: `pro` (→ `gemini-3.1-pro-preview`), `flash` (→ `gemini-3-flash-preview`), `flash-lite` (→ `gemini-3.1-flash-lite-preview`), `auto-gemini-3`, `auto-gemini-2.5`
