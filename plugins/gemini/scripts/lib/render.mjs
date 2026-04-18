@@ -109,14 +109,54 @@ export function renderStatusSnapshot(snapshot) {
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
+const TAIL_N = 5;
+
+function formatEventLineBrief(event) {
+  switch (event.type) {
+    case "model_text_chunk":
+    case "model_thought_chunk":
+      return `[${event.type}] ${event.chars ?? 0} chars`;
+    case "tool_call":
+      return `[tool_call] ${event.toolName ?? "unknown"}`;
+    case "file_change":
+      return `[file_change] ${event.action ?? "modify"} ${event.path ?? ""}`;
+    case "phase":
+      return `[phase] ${event.message ?? ""}`;
+    case "diagnostic":
+      return `[diagnostic] ${event.source ?? "unknown"}: ${event.message ?? ""}`;
+    default:
+      return `[${event.type ?? "event"}]`;
+  }
+}
+
+function formatAgo(nowMs, timestamp) {
+  const tsMs = Date.parse(timestamp ?? "");
+  if (Number.isNaN(tsMs)) return "";
+  const delta = Math.max(0, nowMs - tsMs);
+  if (delta < 1000) return `${delta}ms ago`;
+  return `${(delta / 1000).toFixed(1)}s ago`;
+}
+
+function rollupCounters(events) {
+  const c = { chunks: 0, thoughts: 0, tools: 0, files: 0 };
+  for (const e of events) {
+    if (e.type === "model_text_chunk") c.chunks += 1;
+    else if (e.type === "model_thought_chunk") c.thoughts += 1;
+    else if (e.type === "tool_call") c.tools += 1;
+    else if (e.type === "file_change") c.files += 1;
+  }
+  return c;
+}
+
 /**
  * Render a single job's detailed status.
  *
- * @param {{ job: any }} snapshot
+ * @param {{ job: any } | any} snapshotOrJob - Either a { job } wrapper (legacy) or a bare job object.
+ * @param {{ now?: number }} [options]
  * @returns {string}
  */
-export function renderSingleJobStatus(snapshot) {
-  const job = snapshot.job;
+export function renderSingleJobStatus(snapshotOrJob, options = {}) {
+  const job = snapshotOrJob && snapshotOrJob.job != null ? snapshotOrJob.job : snapshotOrJob;
   const lines = [];
   lines.push(`# Gemini Job: ${job.id}`);
   lines.push("");
@@ -172,13 +212,22 @@ export function renderSingleJobStatus(snapshot) {
     }
   }
 
-  if (job.events && job.events.length > 0) {
+  if (Array.isArray(job.events) && job.events.length > 0) {
+    const nowMs = options?.now ?? Date.now();
+    const allEvents = job.events;
+    const tail = allEvents.slice(-TAIL_N);
+    const last = allEvents[allEvents.length - 1];
+    const counters = rollupCounters(allEvents);
+
     lines.push("");
     lines.push("## Recent Events");
     lines.push("");
-    for (const event of job.events) {
-      lines.push(`- ${formatEventLine(event)}`);
+    lines.push(`  last event: ${formatEventLineBrief(last)} - ${formatAgo(nowMs, last.timestamp)}`);
+    lines.push("  recent:");
+    for (const event of tail) {
+      lines.push(`    ${formatEventLineBrief(event)}  ${formatAgo(nowMs, event.timestamp)}`);
     }
+    lines.push(`  totals: chunks=${counters.chunks}  thoughts=${counters.thoughts}  tools=${counters.tools}  files=${counters.files}`);
   }
 
   return `${lines.join("\n").trimEnd()}\n`;
