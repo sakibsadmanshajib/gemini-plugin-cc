@@ -187,6 +187,25 @@ Diagnostic: Gemini reported quota or rate limiting and appears to be waiting bef
 Try: wait, switch models, or cancel with /gemini:cancel <job-id>
 ```
 
+**Safety notes.** The Health message and recommended action shown in
+`/gemini:status` are treated as trusted broker-originated diagnostics. To keep
+that trust honest:
+
+- The ACP broker refuses to forward a `broker/diagnostic` notification that
+  originated from the `gemini --acp` child. A compromised child cannot forge
+  the Health/recommended-action text that you see. The ACP client applies the
+  same rule in direct mode, where `broker/diagnostic` from stdout is treated
+  as an untrusted notification rather than a diagnostic.
+- `worker_missing` is reported whenever the stored worker PID no longer
+  belongs to the current user. This catches two failure modes with one check:
+  the worker exited cleanly, or the OS recycled the PID to another user's
+  process (which, under the plugin's single-user spawn model, means the
+  worker is gone).
+- Event and diagnostic payloads are bounded (50 events per job, 500 chars per
+  message) and stripped of ANSI/control characters before they reach the
+  renderer. No prompts, credentials, or raw stderr enter the compact job
+  index.
+
 ### `/gemini:result`
 
 Shows the full stored output for a finished job.
