@@ -102,20 +102,28 @@ class AcpClientBase {
 
     // Notification (no id).
     if (message.method === BROKER_DIAGNOSTIC_METHOD) {
-      if (this.onDiagnostic) {
-        try {
-          this.onDiagnostic({
-            source: message.params?.source ?? "broker",
-            message: message.params?.message ?? ""
-          });
-        } catch {
-          // Best-effort telemetry.
+      // Trust boundary: only the broker transport may emit
+      // broker/diagnostic as a trusted diagnostic. In direct mode the peer is
+      // the `gemini --acp` child — a forged notification on its stdout MUST
+      // NOT be promoted to a broker diagnostic.
+      if (this.transport === "broker") {
+        if (this.onDiagnostic) {
+          try {
+            this.onDiagnostic({
+              source: message.params?.source ?? "broker",
+              message: message.params?.message ?? ""
+            });
+          } catch {
+            // Best-effort telemetry.
+          }
         }
+        // Single-dispatch: do NOT also forward to onNotification, otherwise
+        // callers that register both handlers would record the diagnostic
+        // twice.
+        return;
       }
-      if (this.onNotification) {
-        this.onNotification(message);
-      }
-      return;
+      // Direct mode: fall through to the regular onNotification path so the
+      // caller can decide how to handle (or ignore) the untrusted payload.
     }
 
     if (message.method && this.onNotification) {
@@ -344,6 +352,26 @@ class BrokerAcpClient extends AcpClientBase {
     socket.write(line);
   }
 }
+
+// ─── Test-only helpers ───────────────────────────────────────────────────────
+//
+// Exposes pieces of AcpClientBase to unit tests without having to spawn a real
+// child process or bind a broker socket. Not part of the public API — anything
+// prefixed with `__` is test-only.
+
+export const __testing = {
+  /**
+   * Invoke AcpClientBase.handleLine against a fake client object.
+   *
+   * @param {{ transport: string, pending: Map<number, any>, nextId: number,
+   *           lineBuffer: string, onNotification?: Function,
+   *           onDiagnostic?: Function }} client
+   * @param {string} line
+   */
+  handleLineOn(client, line) {
+    return AcpClientBase.prototype.handleLine.call(client, line);
+  }
+};
 
 // ─── Factory ──────────────────────────────────────────────────────────────────
 

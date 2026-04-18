@@ -8,7 +8,7 @@
 
 import { readJsonFile } from "./fs.mjs";
 import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, GeminiAcpClient } from "./acp-client.mjs";
-import { sanitizeDiagnosticMessage, BROKER_DIAGNOSTIC_METHOD } from "./acp-diagnostics.mjs";
+import { sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
 import { loadBrokerSession } from "./broker-lifecycle.mjs";
 import { binaryAvailable, runCommand } from "./process.mjs";
 import { collectReviewContext } from "./git.mjs";
@@ -217,21 +217,11 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     : null;
 
   const notificationHandler = (notification) => {
-    // Broker diagnostic notifications never belong in model output.
-    if (notification?.method === BROKER_DIAGNOSTIC_METHOD) {
-      const source = notification.params?.source ?? "broker";
-      const message = notification.params?.message ?? "";
-      recordObserverEvent(observer, formatBrokerDiagnostic({ source, message }));
-      if (options.onDiagnostic) {
-        try {
-          options.onDiagnostic({ source, message });
-        } catch {
-          // Best-effort.
-        }
-      }
-      return;
-    }
-
+    // NOTE: broker/diagnostic notifications are single-dispatched by
+    // AcpClientBase.handleLine via `onDiagnostic` only in broker-transport
+    // mode, and ignored as trusted in direct mode. No broker-diagnostic
+    // branch is needed here — it would double-count in broker mode and
+    // trust a forged payload in direct mode.
     const update = notification.params?.update;
     if (!update) {
       return;
