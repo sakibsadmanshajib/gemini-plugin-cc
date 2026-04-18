@@ -387,25 +387,30 @@ async function handleTaskWorker(argv) {
     await runTrackedJob(storedJob, async () => {
       updateJobPhase(workspaceRoot, jobId, "running");
 
+      const jobObserver = { workspaceRoot, jobId };
+
       let result;
       if (jobKind === "review") {
         result = await runAcpReview(cwd, {
           scope: request.scope,
           base: request.base,
-          model: request.model
+          model: request.model,
+          jobObserver
         });
       } else if (jobKind === "adversarial-review") {
         result = await runAcpAdversarialReview(cwd, {
           scope: request.scope,
           base: request.base,
           model: request.model,
-          focus: request.focus
+          focus: request.focus,
+          jobObserver
         });
       } else {
         result = await runAcpPrompt(cwd, request.prompt, {
           model: request.model,
           approvalMode: request.approvalMode ?? "default",
-          sessionId: request.sessionId
+          sessionId: request.sessionId,
+          jobObserver
         });
       }
 

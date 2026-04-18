@@ -1,0 +1,67 @@
+/**
+ * Helpers for capturing and forwarding ACP runtime diagnostics as bounded,
+ * sanitized messages. Used by both the direct SpawnedAcpClient and the ACP
+ * broker to keep stderr chatter out of model output while still giving jobs
+ * and status rendering visible context for quota, auth, and broker issues.
+ */
+
+export const MAX_DIAGNOSTIC_LENGTH = 500;
+export const BROKER_DIAGNOSTIC_METHOD = "broker/diagnostic";
+
+export function sanitizeDiagnosticMessage(value) {
+  return String(value ?? "")
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, MAX_DIAGNOSTIC_LENGTH);
+}
+
+export function buildBrokerDiagnosticNotification({ source, message }) {
+  return {
+    jsonrpc: "2.0",
+    method: BROKER_DIAGNOSTIC_METHOD,
+    params: {
+      source: String(source ?? "broker"),
+      message: sanitizeDiagnosticMessage(message)
+    }
+  };
+}
+
+export function createStderrDiagnosticCollector(emit) {
+  let pending = "";
+  return {
+    feed(chunk) {
+      pending += typeof chunk === "string" ? chunk : String(chunk ?? "");
+      let newlineIndex;
+      while ((newlineIndex = pending.indexOf("\n")) !== -1) {
+        const line = pending.slice(0, newlineIndex);
+        pending = pending.slice(newlineIndex + 1);
+        const sanitized = sanitizeDiagnosticMessage(line);
+        if (sanitized) {
+          try {
+            emit(sanitized);
+          } catch {
+            // Best-effort telemetry — never let diagnostic delivery crash the ACP client.
+          }
+        }
+      }
+      if (pending.length > MAX_DIAGNOSTIC_LENGTH * 4) {
+        pending = pending.slice(-MAX_DIAGNOSTIC_LENGTH * 4);
+      }
+    },
+    flush() {
+      if (pending.trim()) {
+        const sanitized = sanitizeDiagnosticMessage(pending);
+        pending = "";
+        if (sanitized) {
+          try {
+            emit(sanitized);
+          } catch {
+            // Best-effort.
+          }
+        }
+      }
+    }
+  };
+}

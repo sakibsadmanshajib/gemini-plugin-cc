@@ -18,12 +18,33 @@ import process from "node:process";
 
 import { parseArgs } from "./lib/args.mjs";
 import { BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import {
+  buildBrokerDiagnosticNotification,
+  createStderrDiagnosticCollector
+} from "./lib/acp-diagnostics.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
 import { spawn } from "node:child_process";
 import readline from "node:readline";
 
 const SHUTDOWN_GRACE_MS = 500;
+const MAX_DIAGNOSTIC_RING = 25;
+
+const diagnosticRing = [];
+
+function rememberDiagnostic(message) {
+  diagnosticRing.push(message);
+  if (diagnosticRing.length > MAX_DIAGNOSTIC_RING) {
+    diagnosticRing.shift();
+  }
+}
+
+function forwardDiagnosticToActiveClient(source, message) {
+  rememberDiagnostic(message);
+  if (activeClient && !activeClient.destroyed) {
+    send(activeClient, buildBrokerDiagnosticNotification({ source, message }));
+  }
+}
 
 // ─── Gemini ACP Child Process ─────────────────────────────────────────────────
 
@@ -47,15 +68,26 @@ function spawnAcpProcess(cwd) {
   const rl = readline.createInterface({ input: child.stdout });
   rl.on("line", (line) => handleAcpLine(line));
 
-  child.stderr?.resume(); // Drain stderr.
+  if (child.stderr) {
+    const collector = createStderrDiagnosticCollector((message) => {
+      process.stderr.write(`[gemini --acp stderr] ${message}\n`);
+      forwardDiagnosticToActiveClient("broker-child-stderr", message);
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk) => collector.feed(chunk));
+    child.stderr.on("end", () => collector.flush());
+  }
 
   child.on("exit", (code) => {
-    process.stderr.write(`gemini --acp exited with code ${code}\n`);
+    const exitMessage = `gemini --acp exited with code ${code}`;
+    process.stderr.write(`${exitMessage}\n`);
+    forwardDiagnosticToActiveClient("broker-child-exit", exitMessage);
     acpProcess = null;
     acpReady = false;
 
     // Reject all pending requests.
     for (const [id, pending] of pendingRequests) {
+      if (!pending.clientSocket) continue;
       send(pending.clientSocket, {
         jsonrpc: "2.0",
         id: pending.clientId,
@@ -66,7 +98,9 @@ function spawnAcpProcess(cwd) {
   });
 
   child.on("error", (error) => {
-    process.stderr.write(`gemini --acp error: ${error.message}\n`);
+    const errorMessage = `gemini --acp error: ${error.message}`;
+    process.stderr.write(`${errorMessage}\n`);
+    forwardDiagnosticToActiveClient("broker-child-error", errorMessage);
     acpProcess = null;
     acpReady = false;
   });

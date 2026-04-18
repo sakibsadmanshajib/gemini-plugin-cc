@@ -18,6 +18,7 @@ import readline from "node:readline";
 import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
 import { terminateProcessTree } from "./process.mjs";
+import { BROKER_DIAGNOSTIC_METHOD, createStderrDiagnosticCollector } from "./acp-diagnostics.mjs";
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
 const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
@@ -53,6 +54,7 @@ class AcpClientBase {
 
     /** @type {NotificationHandler | null} */
     this.onNotification = options.onNotification ?? null;
+    this.onDiagnostic = typeof options.onDiagnostic === "function" ? options.onDiagnostic : null;
 
     this.lineBuffer = "";
     this.exitPromise = new Promise((resolve) => {
@@ -94,6 +96,23 @@ class AcpClientBase {
     }
 
     // Notification (no id).
+    if (message.method === BROKER_DIAGNOSTIC_METHOD) {
+      if (this.onDiagnostic) {
+        try {
+          this.onDiagnostic({
+            source: message.params?.source ?? "broker",
+            message: message.params?.message ?? ""
+          });
+        } catch {
+          // Best-effort telemetry.
+        }
+      }
+      if (this.onNotification) {
+        this.onNotification(message);
+      }
+      return;
+    }
+
     if (message.method && this.onNotification) {
       this.onNotification(message);
     }
@@ -208,8 +227,21 @@ class SpawnedAcpClient extends AcpClientBase {
       this.handleExit(error);
     });
 
-    // Drain stderr to prevent back-pressure.
-    this.proc.stderr?.resume();
+    // Capture bounded stderr lines as diagnostics; always drain to prevent back-pressure.
+    if (this.proc.stderr) {
+      const collector = createStderrDiagnosticCollector((message) => {
+        if (this.onDiagnostic) {
+          try {
+            this.onDiagnostic({ source: "direct-stderr", message });
+          } catch {
+            // Best-effort.
+          }
+        }
+      });
+      this.proc.stderr.setEncoding("utf8");
+      this.proc.stderr.on("data", (chunk) => collector.feed(chunk));
+      this.proc.stderr.on("end", () => collector.flush());
+    }
 
     await this.handshake();
   }
@@ -311,7 +343,7 @@ export class GeminiAcpClient {
    * Connect to a Gemini ACP instance. Tries broker first, falls back to direct.
    *
    * @param {string} cwd
-   * @param {{ disableBroker?: boolean, brokerEndpoint?: string | null, reuseExistingBroker?: boolean, env?: NodeJS.ProcessEnv, onNotification?: NotificationHandler }} [options]
+   * @param {{ disableBroker?: boolean, brokerEndpoint?: string | null, reuseExistingBroker?: boolean, env?: NodeJS.ProcessEnv, onNotification?: NotificationHandler, onDiagnostic?: (payload: { source: string, message: string }) => void }} [options]
    * @returns {Promise<AcpClientBase>}
    */
   static async connect(cwd, options = {}) {
@@ -334,10 +366,16 @@ export class GeminiAcpClient {
         return client;
       } catch (error) {
         // If broker is busy, fall through to direct spawn.
-        if (error?.code === BROKER_BUSY_RPC_CODE) {
-          process.stderr.write("Broker busy, falling back to direct gemini --acp spawn.\n");
-        } else {
-          process.stderr.write(`Broker connection failed (${error?.message ?? error}), falling back to direct spawn.\n`);
+        const fallbackMessage = error?.code === BROKER_BUSY_RPC_CODE
+          ? "Broker busy, falling back to direct gemini --acp spawn."
+          : `Broker connection failed (${error?.message ?? error}), falling back to direct spawn.`;
+        process.stderr.write(`${fallbackMessage}\n`);
+        if (typeof options.onDiagnostic === "function") {
+          try {
+            options.onDiagnostic({ source: "broker-fallback", message: fallbackMessage });
+          } catch {
+            // Best-effort.
+          }
         }
       }
     }
