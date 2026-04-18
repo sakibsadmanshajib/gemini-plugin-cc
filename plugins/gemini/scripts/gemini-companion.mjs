@@ -60,6 +60,8 @@ import {
   renderSingleJobStatus,
   renderStatusSnapshot
 } from "./lib/render.mjs";
+import { THINKING_LEVELS } from "./lib/thinking.mjs";
+import { createStreamHandler } from "./lib/stream-output.mjs";
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
@@ -123,9 +125,9 @@ function printUsage() {
     [
       "Usage:",
       "  node scripts/gemini-companion.mjs setup [--enable-review-gate|--disable-review-gate] [--json]",
-      "  node scripts/gemini-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>]",
-      "  node scripts/gemini-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--model <name>] [focus text...]",
-      "  node scripts/gemini-companion.mjs task [--write] [--model <name>] [--approval-mode <mode>] [--background|--wait] [--resume-last] [--json] -- <prompt>",
+      "  node scripts/gemini-companion.mjs review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--thinking <off|low|medium|high>] [--stream-output]",
+      "  node scripts/gemini-companion.mjs adversarial-review [--wait|--background] [--base <ref>] [--scope <auto|working-tree|branch>] [--model <name>] [--thinking <off|low|medium|high>] [--stream-output] [focus text...]",
+      "  node scripts/gemini-companion.mjs task [--write] [--model <name>] [--thinking <off|low|medium|high>] [--approval-mode <mode>] [--stream-output] [--background|--wait] [--resume-last] [--json] -- <prompt>",
       "  node scripts/gemini-companion.mjs task-worker <job-id>",
       "  node scripts/gemini-companion.mjs status [job-id] [--wait] [--timeout-ms <ms>] [--all] [--json]",
       "  node scripts/gemini-companion.mjs result [job-id] [--json]",
@@ -195,22 +197,40 @@ async function handleSetup(argv) {
 
 async function handleReview(argv) {
   const { options } = parseCommandInput(argv, {
-    valueOptions: ["base", "scope", "model", "cwd"],
-    booleanOptions: ["json", "wait", "background"]
+    valueOptions: ["base", "scope", "model", "cwd", "thinking"],
+    booleanOptions: ["json", "wait", "background", "stream-output"]
+  });
+
+  let thinking;
+  if (options.thinking !== undefined) {
+    if (!THINKING_LEVELS.includes(options.thinking)) {
+      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
+      printUsage();
+      process.exit(1);
+    }
+    thinking = options.thinking;
+  }
+
+  const streamHandler = createStreamHandler({
+    mode: options["stream-output"] ? "passthrough" : "markers",
+    json: Boolean(options.json),
+    writer: (s) => process.stderr.write(s)
   });
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
 
   if (options.background) {
-    return runReviewInBackground(workspaceRoot, options, "review");
+    return runReviewInBackground(workspaceRoot, { ...options, thinking }, "review");
   }
 
   assertGemini3ModelVersionCompatibility(options.model);
   const result = await runAcpReview(cwd, {
     scope: options.scope,
     base: options.base,
-    model: resolveModel(options.model)
+    model: resolveModel(options.model),
+    thinking,
+    onStream: streamHandler
   });
 
   if (result.error) {
@@ -232,8 +252,24 @@ async function handleReview(argv) {
 
 async function handleReviewCommand(argv, { reviewName }) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["base", "scope", "model", "cwd"],
-    booleanOptions: ["json", "wait", "background"]
+    valueOptions: ["base", "scope", "model", "cwd", "thinking"],
+    booleanOptions: ["json", "wait", "background", "stream-output"]
+  });
+
+  let thinking;
+  if (options.thinking !== undefined) {
+    if (!THINKING_LEVELS.includes(options.thinking)) {
+      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
+      printUsage();
+      process.exit(1);
+    }
+    thinking = options.thinking;
+  }
+
+  const streamHandler = createStreamHandler({
+    mode: options["stream-output"] ? "passthrough" : "markers",
+    json: Boolean(options.json),
+    writer: (s) => process.stderr.write(s)
   });
 
   const cwd = resolveCommandCwd(options);
@@ -241,7 +277,7 @@ async function handleReviewCommand(argv, { reviewName }) {
   const focus = positionals.join(" ").trim() || undefined;
 
   if (options.background) {
-    return runReviewInBackground(workspaceRoot, { ...options, focus }, "adversarial-review");
+    return runReviewInBackground(workspaceRoot, { ...options, focus, thinking }, "adversarial-review");
   }
 
   assertGemini3ModelVersionCompatibility(options.model);
@@ -250,7 +286,9 @@ async function handleReviewCommand(argv, { reviewName }) {
     base: options.base,
     model: resolveModel(options.model),
     focus,
-    schemaPath: REVIEW_SCHEMA
+    schemaPath: REVIEW_SCHEMA,
+    thinking,
+    onStream: streamHandler
   });
 
   if (result.error) {
@@ -270,13 +308,29 @@ async function handleReviewCommand(argv, { reviewName }) {
 
 async function handleTask(argv) {
   const { options, positionals } = parseCommandInput(argv, {
-    valueOptions: ["model", "approval-mode", "cwd"],
-    booleanOptions: ["json", "write", "background", "wait", "resume-last"]
+    valueOptions: ["model", "approval-mode", "cwd", "thinking"],
+    booleanOptions: ["json", "write", "background", "wait", "resume-last", "stream-output"]
   });
 
   const cwd = resolveCommandCwd(options);
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const taskText = positionals.join(" ").trim();
+
+  let thinking;
+  if (options.thinking !== undefined) {
+    if (!THINKING_LEVELS.includes(options.thinking)) {
+      process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
+      printUsage();
+      process.exit(1);
+    }
+    thinking = options.thinking;
+  }
+
+  const streamHandler = createStreamHandler({
+    mode: options["stream-output"] ? "passthrough" : "markers",
+    json: Boolean(options.json),
+    writer: (s) => process.stderr.write(s)
+  });
 
   if (!taskText && !options["resume-last"]) {
     process.stderr.write("Error: No task text provided.\n");
@@ -307,6 +361,7 @@ async function handleTask(argv) {
       model,
       approvalMode,
       sessionId,
+      thinking,
       json: options.json
     });
   }
@@ -324,10 +379,24 @@ async function handleTask(argv) {
     const execution = await runTrackedJob(job, async () => {
       await updateJobPhase(workspaceRoot, job.id, "running");
 
+      const startTime = Date.now();
       const result = await runAcpPrompt(cwd, prompt, {
         model,
         approvalMode,
-        sessionId
+        sessionId,
+        thinking,
+        onStream: streamHandler
+      });
+
+      streamHandler({
+        type: "done",
+        stats: {
+          tools: result.toolCalls?.length ?? 0,
+          files: result.fileChanges?.length ?? 0,
+          chunks: 0,
+          thoughts: result.thoughtText ? 1 : 0,
+          elapsedMs: Date.now() - startTime
+        }
       });
 
       if (result.error) {
@@ -395,6 +464,7 @@ async function handleTaskWorker(argv) {
           scope: request.scope,
           base: request.base,
           model: request.model,
+          thinking: request.thinking,
           jobObserver
         });
       } else if (jobKind === "adversarial-review") {
@@ -403,6 +473,7 @@ async function handleTaskWorker(argv) {
           base: request.base,
           model: request.model,
           focus: request.focus,
+          thinking: request.thinking,
           jobObserver
         });
       } else {
@@ -410,6 +481,7 @@ async function handleTaskWorker(argv) {
           model: request.model,
           approvalMode: request.approvalMode ?? "default",
           sessionId: request.sessionId,
+          thinking: request.thinking,
           jobObserver
         });
       }
@@ -597,7 +669,8 @@ async function runReviewInBackground(workspaceRoot, options, kind) {
       scope: options.scope,
       base: options.base,
       model: resolveModel(options.model),
-      focus: options.focus
+      focus: options.focus,
+      thinking: options.thinking
     }
   });
 
