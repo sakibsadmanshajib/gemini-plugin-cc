@@ -54,7 +54,7 @@ function matchJobReference(jobs, reference, filter) {
   return null;
 }
 
-function defaultIsProcessAlive(pid) {
+export function defaultIsProcessAlive(pid) {
   if (!pid) {
     return true;
   }
@@ -62,7 +62,14 @@ function defaultIsProcessAlive(pid) {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error?.code === "EPERM";
+    // ESRCH: no such process → worker is gone.
+    // EPERM: PID exists but belongs to another user. Since we spawn
+    // workers as the current user, this means the original worker has
+    // exited and the PID was recycled by a different user's process.
+    // Treating EPERM as "alive" (the previous behavior) pinned jobs to
+    // `running` forever after such a recycle. Treat it as dead so the
+    // health classifier can surface `worker_missing`.
+    return false;
   }
 }
 

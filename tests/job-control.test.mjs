@@ -6,6 +6,7 @@ import { initGitRepo, makeTempDir } from "./helpers.mjs";
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
+  defaultIsProcessAlive,
   POSSIBLY_STALLED_AFTER_MS,
   QUIET_AFTER_MS
 } from "../plugins/gemini/scripts/lib/job-control.mjs";
@@ -209,4 +210,49 @@ test("buildStatusSnapshot preserves persisted auth_required and broker_unhealthy
   const byId = new Map(snapshot.running.map((j) => [j.id, j]));
   assert.equal(byId.get(authJob.id).healthStatus, "auth_required");
   assert.equal(byId.get(brokerJob.id).healthStatus, "broker_unhealthy");
+});
+
+test("defaultIsProcessAlive returns false when process.kill throws EPERM", (t) => {
+  const originalKill = process.kill;
+  t.after(() => {
+    process.kill = originalKill;
+  });
+  process.kill = () => {
+    const err = new Error("operation not permitted");
+    err.code = "EPERM";
+    throw err;
+  };
+  // EPERM means the PID exists but is owned by another user — since
+  // workers are spawned as the current user, the worker is gone and
+  // the PID was recycled. Must report as dead so jobs can transition
+  // to worker_missing instead of being pinned to running forever.
+  assert.equal(defaultIsProcessAlive(999999), false);
+});
+
+test("defaultIsProcessAlive returns false when process.kill throws ESRCH", (t) => {
+  const originalKill = process.kill;
+  t.after(() => {
+    process.kill = originalKill;
+  });
+  process.kill = () => {
+    const err = new Error("no such process");
+    err.code = "ESRCH";
+    throw err;
+  };
+  assert.equal(defaultIsProcessAlive(999999), false);
+});
+
+test("defaultIsProcessAlive returns true when process.kill succeeds", (t) => {
+  const originalKill = process.kill;
+  t.after(() => {
+    process.kill = originalKill;
+  });
+  process.kill = () => true;
+  assert.equal(defaultIsProcessAlive(1234), true);
+});
+
+test("defaultIsProcessAlive returns true when no pid is provided", () => {
+  assert.equal(defaultIsProcessAlive(null), true);
+  assert.equal(defaultIsProcessAlive(undefined), true);
+  assert.equal(defaultIsProcessAlive(0), true);
 });
