@@ -383,6 +383,20 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       if (options.onStream) {
         try { options.onStream({ type: "phase", message: `thinking:${options.thinking}` }); } catch {}
       }
+      // Delivery: upstream Gemini CLI (0.38.x) does not accept a per-invocation
+      // thinking override via CLI flag, env var, or session/new param; the
+      // configuration lives in settings.json at the model-alias level. Warn
+      // once per process so users understand why the flag has no observable
+      // effect, and point them at the persistent-settings path.
+      if (!globalThis.__gemini_thinking_warned) {
+        process.stderr.write(
+          "Warning: --thinking is parsed but not delivered to the running Gemini CLI. " +
+          "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
+          "for a persistent setting. See " +
+          "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
+        );
+        globalThis.__gemini_thinking_warned = true;
+      }
     }
 
     // Send prompt — ACP v1 expects prompt as ContentBlock[].
