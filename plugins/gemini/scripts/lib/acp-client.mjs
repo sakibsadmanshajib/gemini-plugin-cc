@@ -18,13 +18,18 @@ import readline from "node:readline";
 import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
 import { terminateProcessTree } from "./process.mjs";
-import { BROKER_DIAGNOSTIC_METHOD, createStderrDiagnosticCollector } from "./acp-diagnostics.mjs";
+import { BROKER_DIAGNOSTIC_METHOD, createStderrDiagnosticCollector, sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
 const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
 
 export const BROKER_ENDPOINT_ENV = "GEMINI_COMPANION_ACP_ENDPOINT";
 export const BROKER_BUSY_RPC_CODE = -32001;
+
+// Maximum retained size (in characters) of the in-progress line buffer. Guards
+// against memory growth from a peer that never emits a newline. Full ACP
+// messages are line-delimited and normally well under 1 MiB.
+export const ACP_MAX_LINE_BUFFER = 1 << 20;
 
 /**
  * @typedef {import("./acp-protocol").JsonRpcRequest} JsonRpcRequest
@@ -125,6 +130,10 @@ class AcpClientBase {
       const line = this.lineBuffer.slice(0, newlineIndex);
       this.lineBuffer = this.lineBuffer.slice(newlineIndex + 1);
       this.handleLine(line);
+    }
+    // Guard against an unbounded line-less flood from a misbehaving peer.
+    if (this.lineBuffer.length > ACP_MAX_LINE_BUFFER) {
+      this.lineBuffer = this.lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
     }
   }
 
@@ -372,7 +381,10 @@ export class GeminiAcpClient {
         process.stderr.write(`${fallbackMessage}\n`);
         if (typeof options.onDiagnostic === "function") {
           try {
-            options.onDiagnostic({ source: "broker-fallback", message: fallbackMessage });
+            options.onDiagnostic({
+              source: "broker-fallback",
+              message: sanitizeDiagnosticMessage(fallbackMessage)
+            });
           } catch {
             // Best-effort.
           }

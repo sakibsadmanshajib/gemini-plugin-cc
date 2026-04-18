@@ -32,18 +32,31 @@ const MAX_DIAGNOSTIC_RING = 25;
 
 const diagnosticRing = [];
 
-function rememberDiagnostic(message) {
-  diagnosticRing.push(message);
+function rememberDiagnostic(entry) {
+  diagnosticRing.push(entry);
   if (diagnosticRing.length > MAX_DIAGNOSTIC_RING) {
     diagnosticRing.shift();
   }
 }
 
 function forwardDiagnosticToActiveClient(source, message) {
-  rememberDiagnostic(message);
   if (activeClient && !activeClient.destroyed) {
     send(activeClient, buildBrokerDiagnosticNotification({ source, message }));
+  } else {
+    // Buffer for replay to the next client that takes the lock so pre-connect
+    // diagnostics (auth errors, broker child startup warnings) are not lost.
+    rememberDiagnostic({ source, message });
   }
+}
+
+function drainDiagnosticRingTo(socket) {
+  if (diagnosticRing.length === 0 || !socket || socket.destroyed) {
+    return;
+  }
+  for (const entry of diagnosticRing) {
+    send(socket, buildBrokerDiagnosticNotification(entry));
+  }
+  diagnosticRing.length = 0;
 }
 
 // ─── Gemini ACP Child Process ─────────────────────────────────────────────────
@@ -282,7 +295,11 @@ function handleClientMessage(socket, line) {
   }
 
   // Forward request to ACP process.
+  const newlyActive = activeClient !== socket;
   activeClient = socket;
+  if (newlyActive) {
+    drainDiagnosticRingTo(socket);
+  }
   const brokerId = nextRpcId++;
   pendingRequests.set(brokerId, { clientSocket: socket, clientId: message.id });
 
