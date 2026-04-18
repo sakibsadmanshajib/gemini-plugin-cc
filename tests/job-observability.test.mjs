@@ -271,6 +271,41 @@ test("unknown error events use cautious health status", async () => {
   assert.equal(stored.healthStatus, "possibly_stalled");
 });
 
+test("runTrackedJob completion preserves summary on the compact index", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "t" });
+  await runTrackedJob(job, async () => ({
+    exitStatus: 0,
+    summary: "Done.",
+    threadId: "th",
+    turnId: 1
+  }));
+  const idx = loadState(workspace).jobs.find((entry) => entry.id === job.id);
+  assert.equal(idx.summary, "Done.");
+});
+
+test("runTrackedJob failure path keeps errorMessage on the compact index", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "t" });
+  await runTrackedJob(job, async () => {
+    throw new Error("Boom");
+  }).catch(() => {});
+  const idx = loadState(workspace).jobs.find((entry) => entry.id === job.id);
+  assert.match(idx.errorMessage ?? "", /Boom/);
+});
+
+test("markTrackedJobCancelled returns { job, eventRecorded }", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "t" });
+  const result = await markTrackedJobCancelled(workspace, job.id, { reason: "user" });
+  assert.equal(typeof result, "object");
+  assert.equal(result.eventRecorded, true);
+  assert.equal(result.job.healthStatus, "cancelled");
+});
+
 test("concurrent recordJobEvent calls on the same job retain all events", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);

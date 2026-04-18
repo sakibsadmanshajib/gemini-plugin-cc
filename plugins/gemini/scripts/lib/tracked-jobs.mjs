@@ -6,8 +6,17 @@
 import fs from "node:fs";
 import process from "node:process";
 
-import { readJobFile, resolveJobLogFile, writeJobFile } from "./state.mjs";
-import { recordJobEvent, upsertCompactJobIndexEntry } from "./job-observability.mjs";
+import { withJobMutex } from "./atomic-state.mjs";
+import {
+  readJobFile,
+  resolveJobLogFile,
+  writeJobFile,
+  writeJobFileUnlocked
+} from "./state.mjs";
+import {
+  normalizeAndAppendEvent,
+  upsertCompactJobIndexEntry
+} from "./job-observability.mjs";
 
 export const SESSION_ID_ENV = "GEMINI_COMPANION_SESSION_ID";
 
@@ -36,12 +45,34 @@ function readStoredJobOrNull(cwd, jobId) {
   }
 }
 
-async function safeRecordJobEvent(workspaceRoot, jobId, event) {
-  try {
-    return await recordJobEvent(workspaceRoot, jobId, event);
-  } catch {
-    return null;
-  }
+/**
+ * Atomically merge a state patch into a job file AND append a lifecycle event
+ * (if provided) AND refresh the compact index entry — all under the same
+ * per-job mutex hold. This collapses the previous
+ * `writeJobFile + upsertCompactJobIndexEntry + safeRecordJobEvent` triple
+ * into a single cycle, which prevents the index from being rewritten a
+ * second time without the caller's lifecycle fields (e.g. `summary`).
+ *
+ * @param {string} workspaceRoot
+ * @param {string} jobId
+ * @param {object} patch - Fields to merge over the existing job record.
+ * @param {object|null} [event] - Optional event to append; falsy means skip.
+ * @returns {Promise<{ job: object, eventRecorded: boolean }>}
+ */
+export async function persistJobStateAndEvent(workspaceRoot, jobId, patch, event) {
+  return withJobMutex(workspaceRoot, jobId, async () => {
+    const existing = readJobFile(workspaceRoot, jobId) ?? { id: jobId };
+    const merged = { ...existing, ...patch };
+    let eventRecorded = false;
+    if (event) {
+      const appended = normalizeAndAppendEvent(merged, event);
+      Object.assign(merged, appended);
+      eventRecorded = true;
+    }
+    writeJobFileUnlocked(workspaceRoot, jobId, merged);
+    await upsertCompactJobIndexEntry(workspaceRoot, merged);
+    return { job: merged, eventRecorded };
+  });
 }
 
 /**
@@ -85,97 +116,76 @@ export async function createTrackedJob({ workspaceRoot, kind, title, request }) 
  */
 export async function runTrackedJob(job, runner, options = {}) {
   const startedAt = nowIso();
-  const runningRecord = {
-    ...job,
-    status: "running",
-    startedAt,
-    phase: "starting",
-    pid: process.pid,
-    logFile: options.logFile ?? job.logFile ?? null,
-    healthStatus: "active",
-    updatedAt: startedAt
-  };
-  await writeJobFile(job.workspaceRoot, job.id, runningRecord);
-  await upsertCompactJobIndexEntry(job.workspaceRoot, runningRecord);
-  await safeRecordJobEvent(job.workspaceRoot, job.id, {
-    type: "worker_started",
-    message: "Worker started.",
-    timestamp: startedAt
-  });
+  await persistJobStateAndEvent(
+    job.workspaceRoot,
+    job.id,
+    {
+      ...job,
+      status: "running",
+      startedAt,
+      phase: "starting",
+      pid: process.pid,
+      logFile: options.logFile ?? job.logFile ?? null,
+      healthStatus: "active",
+      updatedAt: startedAt
+    },
+    {
+      type: "worker_started",
+      message: "Worker started.",
+      timestamp: startedAt
+    }
+  );
 
   try {
     const execution = await runner();
     const completionStatus = execution.exitStatus === 0 ? "completed" : "failed";
     const completedAt = nowIso();
-    const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
-    await writeJobFile(job.workspaceRoot, job.id, {
-      ...existing,
-      status: completionStatus,
-      threadId: execution.threadId ?? null,
-      turnId: execution.turnId ?? null,
-      pid: null,
-      phase: completionStatus === "completed" ? "done" : "failed",
-      completedAt,
-      updatedAt: completedAt,
-      healthStatus: completionStatus,
-      result: execution.payload,
-      rendered: execution.rendered
-    });
-    await upsertCompactJobIndexEntry(job.workspaceRoot, {
-      ...existing,
-      id: job.id,
-      kind: existing.kind ?? job.kind,
-      title: existing.title ?? job.title,
-      status: completionStatus,
-      sessionId: existing.sessionId ?? job.sessionId,
-      workspaceRoot: existing.workspaceRoot ?? job.workspaceRoot,
-      logFile: existing.logFile ?? options.logFile ?? job.logFile ?? null,
-      threadId: execution.threadId ?? null,
-      turnId: execution.turnId ?? null,
-      summary: execution.summary,
-      phase: completionStatus === "completed" ? "done" : "failed",
-      pid: null,
-      completedAt,
-      updatedAt: completedAt,
-      healthStatus: completionStatus
-    });
-    await safeRecordJobEvent(job.workspaceRoot, job.id, {
-      type: completionStatus,
-      message: completionStatus === "completed" ? "Job completed." : "Job failed.",
-      timestamp: completedAt
-    });
+    await persistJobStateAndEvent(
+      job.workspaceRoot,
+      job.id,
+      {
+        status: completionStatus,
+        threadId: execution.threadId ?? null,
+        turnId: execution.turnId ?? null,
+        pid: null,
+        phase: completionStatus === "completed" ? "done" : "failed",
+        completedAt,
+        updatedAt: completedAt,
+        healthStatus: completionStatus,
+        summary: execution.summary,
+        result: execution.payload,
+        rendered: execution.rendered
+      },
+      {
+        type: completionStatus,
+        message: completionStatus === "completed" ? "Job completed." : "Job failed.",
+        timestamp: completedAt
+      }
+    );
     appendLogBlock(options.logFile ?? job.logFile ?? null, "Final output", execution.rendered);
     return execution;
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    const existing = readStoredJobOrNull(job.workspaceRoot, job.id) ?? runningRecord;
     const failedAt = nowIso();
-    await writeJobFile(job.workspaceRoot, job.id, {
-      ...existing,
-      status: "failed",
-      phase: "failed",
-      pid: null,
-      completedAt: failedAt,
-      updatedAt: failedAt,
-      healthStatus: "failed",
-      errorMessage
-    });
-    await upsertCompactJobIndexEntry(job.workspaceRoot, {
-      ...existing,
-      id: job.id,
-      status: "failed",
-      phase: "failed",
-      pid: null,
-      completedAt: failedAt,
-      updatedAt: failedAt,
-      healthStatus: "failed",
-      summary: `Failed: ${errorMessage.slice(0, 120)}`
-    });
-    await safeRecordJobEvent(job.workspaceRoot, job.id, {
-      type: "failed",
-      message: errorMessage,
-      timestamp: failedAt
-    });
+    await persistJobStateAndEvent(
+      job.workspaceRoot,
+      job.id,
+      {
+        status: "failed",
+        phase: "failed",
+        pid: null,
+        completedAt: failedAt,
+        updatedAt: failedAt,
+        healthStatus: "failed",
+        errorMessage,
+        summary: `Failed: ${errorMessage.slice(0, 120)}`
+      },
+      {
+        type: "failed",
+        message: errorMessage,
+        timestamp: failedAt
+      }
+    );
     appendLogBlock(options.logFile ?? job.logFile ?? null, "Error", errorMessage);
     throw error;
   }
@@ -192,15 +202,17 @@ export async function updateJobPhase(workspaceRoot, jobId, phase) {
   const existing = readStoredJobOrNull(workspaceRoot, jobId);
   if (existing && existing.status === "running") {
     const updatedAt = nowIso();
-    const nextJob = { ...existing, phase, updatedAt };
-    await writeJobFile(workspaceRoot, jobId, nextJob);
-    await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
-    await safeRecordJobEvent(workspaceRoot, jobId, {
-      type: "phase_changed",
-      phase,
-      message: `Phase changed to ${phase}.`,
-      timestamp: updatedAt
-    });
+    await persistJobStateAndEvent(
+      workspaceRoot,
+      jobId,
+      { phase, updatedAt },
+      {
+        type: "phase_changed",
+        phase,
+        message: `Phase changed to ${phase}.`,
+        timestamp: updatedAt
+      }
+    );
   }
 }
 
@@ -212,8 +224,9 @@ export async function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) 
 
   const completedAt = patch.completedAt ?? nowIso();
   const message = patch.message ?? "Job cancelled.";
-  const nextJob = {
-    ...existing,
+  // Merge caller's patch first, then force cancellation fields last so
+  // callers cannot override status/phase/healthStatus/pid.
+  const mergedPatch = {
     ...patch,
     status: "cancelled",
     phase: "cancelled",
@@ -224,13 +237,15 @@ export async function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) 
     healthMessage: message,
     recommendedAction: "Check /gemini:status or /gemini:result, then retry if the result is incomplete."
   };
-  await writeJobFile(workspaceRoot, jobId, nextJob);
-  await upsertCompactJobIndexEntry(workspaceRoot, nextJob);
-  const recorded = await safeRecordJobEvent(workspaceRoot, jobId, {
-    type: "worker_cancelled",
-    message,
-    source: patch.source,
-    timestamp: completedAt
-  });
-  return recorded ?? nextJob;
+  return persistJobStateAndEvent(
+    workspaceRoot,
+    jobId,
+    mergedPatch,
+    {
+      type: "worker_cancelled",
+      message,
+      source: patch.source,
+      timestamp: completedAt
+    }
+  );
 }

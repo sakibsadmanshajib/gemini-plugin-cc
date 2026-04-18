@@ -86,6 +86,7 @@ function compactJobIndexEntry(job) {
     threadId: job.threadId,
     turnId: job.turnId,
     summary: job.summary,
+    errorMessage: job.errorMessage,
     pid: job.pid,
     phase: job.phase,
     createdAt: job.createdAt,
@@ -101,6 +102,71 @@ function compactJobIndexEntry(job) {
     lastToolCallAt: job.lastToolCallAt,
     lastDiagnosticAt: job.lastDiagnosticAt
   };
+}
+
+/**
+ * Pure helper: compute the patch (events array + derived progress/health
+ * fields) that would result from appending `event` to `job`. Does NOT mutate
+ * `job` and does NOT perform any I/O. Callers that already hold the per-job
+ * mutex can merge this patch into the existing record and write atomically.
+ */
+export function normalizeAndAppendEvent(job, event) {
+  const timestamp = event?.timestamp ?? nowIso();
+  const normalizedEvent = sanitizeEvent(event, timestamp);
+  const persistedTimestamp = normalizedEvent.timestamp;
+  const events = [
+    ...(Array.isArray(job?.events) ? job.events : []),
+    normalizedEvent
+  ].slice(-MAX_JOB_EVENTS);
+  const patch = {
+    events,
+    lastHeartbeatAt: persistedTimestamp,
+    updatedAt: nowIso()
+  };
+
+  if (isProgressEvent(normalizedEvent)) {
+    patch.lastProgressAt = persistedTimestamp;
+    patch.healthStatus = "active";
+  }
+
+  if (normalizedEvent.type === "model_text_chunk") {
+    patch.lastModelOutputAt = persistedTimestamp;
+  }
+
+  if (normalizedEvent.type === "tool_call") {
+    patch.lastToolCallAt = persistedTimestamp;
+  }
+
+  if (isDiagnosticEvent(normalizedEvent)) {
+    const healthMessage = sanitizeText(normalizedEvent.message);
+    const classification = classifyDiagnostic(healthMessage);
+    patch.lastDiagnosticAt = persistedTimestamp;
+    patch.healthStatus =
+      classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
+        ? "possibly_stalled"
+        : classification.healthStatus;
+    patch.healthMessage = healthMessage;
+    patch.recommendedAction = recommendedActionFor(classification.kind);
+  }
+
+  if (normalizedEvent.type === "completed") {
+    patch.healthStatus = "completed";
+    patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
+  }
+
+  if (normalizedEvent.type === "failed") {
+    patch.healthStatus = "failed";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
+  }
+
+  if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
+    patch.healthStatus = "cancelled";
+    patch.healthMessage = sanitizeText(normalizedEvent.message);
+    patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
+  }
+
+  return patch;
 }
 
 export async function upsertCompactJobIndexEntry(workspaceRoot, job) {
@@ -143,58 +209,7 @@ export async function recordJobEvent(workspaceRoot, jobId, event) {
       throw new Error(`Job not found: ${jobId}`);
     }
 
-    const timestamp = event?.timestamp ?? nowIso();
-    const normalizedEvent = sanitizeEvent(event, timestamp);
-    const persistedTimestamp = normalizedEvent.timestamp;
-    const events = [...(Array.isArray(existing.events) ? existing.events : []), normalizedEvent].slice(-MAX_JOB_EVENTS);
-    const patch = {
-      events,
-      lastHeartbeatAt: persistedTimestamp,
-      updatedAt: nowIso()
-    };
-
-    if (isProgressEvent(normalizedEvent)) {
-      patch.lastProgressAt = persistedTimestamp;
-      patch.healthStatus = "active";
-    }
-
-    if (normalizedEvent.type === "model_text_chunk") {
-      patch.lastModelOutputAt = persistedTimestamp;
-    }
-
-    if (normalizedEvent.type === "tool_call") {
-      patch.lastToolCallAt = persistedTimestamp;
-    }
-
-    if (isDiagnosticEvent(normalizedEvent)) {
-      const healthMessage = sanitizeText(normalizedEvent.message);
-      const classification = classifyDiagnostic(healthMessage);
-      patch.lastDiagnosticAt = persistedTimestamp;
-      patch.healthStatus =
-        classification.kind === "unknown" && String(normalizedEvent.type ?? "").includes("error")
-          ? "possibly_stalled"
-          : classification.healthStatus;
-      patch.healthMessage = healthMessage;
-      patch.recommendedAction = recommendedActionFor(classification.kind);
-    }
-
-    if (normalizedEvent.type === "completed") {
-      patch.healthStatus = "completed";
-      patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
-    }
-
-    if (normalizedEvent.type === "failed") {
-      patch.healthStatus = "failed";
-      patch.healthMessage = sanitizeText(normalizedEvent.message);
-      patch.recommendedAction = "Check /gemini:status or /gemini:result for details before retrying.";
-    }
-
-    if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
-      patch.healthStatus = "cancelled";
-      patch.healthMessage = sanitizeText(normalizedEvent.message);
-      patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
-    }
-
+    const patch = normalizeAndAppendEvent(existing, event);
     const nextJob = { ...existing, ...patch };
     // We already hold the per-job mutex; use the unlocked write helper to
     // avoid the non-reentrant re-acquire that would otherwise deadlock.
