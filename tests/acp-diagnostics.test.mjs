@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -7,6 +8,7 @@ import {
 } from "../plugins/gemini/scripts/lib/gemini.mjs";
 
 import {
+  attachStderrDiagnosticCollector,
   buildBrokerDiagnosticNotification,
   createStderrDiagnosticCollector,
   sanitizeDiagnosticMessage
@@ -127,6 +129,18 @@ test("stderr collector emits [truncated diagnostic] on line-less flood and reset
   const collector = createStderrDiagnosticCollector((m) => messages.push(m));
   collector.feed("x".repeat(10_000));
   assert.ok(messages.some((m) => m.includes("[truncated diagnostic]")));
+});
+
+test("attachStderrDiagnosticCollector flushes pending stderr on close", () => {
+  const stream = new EventEmitter();
+  stream.setEncoding = () => {};
+  const messages = [];
+
+  attachStderrDiagnosticCollector(stream, (message) => messages.push(message));
+  stream.emit("data", "partial stderr without newline");
+  stream.emit("close");
+
+  assert.deepEqual(messages, ["partial stderr without newline"]);
 });
 
 test("formatBrokerDiagnostic produces a classification-ready diagnostic event", () => {

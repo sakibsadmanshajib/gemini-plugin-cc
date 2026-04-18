@@ -12,8 +12,11 @@ import {
   resolveJobsDir,
   resolveStateDir,
   resolveStateFile,
-  saveState
+  saveState,
+  setConfig,
+  upsertJob
 } from "../plugins/gemini/scripts/lib/state.mjs";
+import { withWorkspaceMutex } from "../plugins/gemini/scripts/lib/atomic-state.mjs";
 import { createTrackedJob } from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
 
 test("resolveStateDir produces a deterministic per-workspace directory", () => {
@@ -141,8 +144,58 @@ test("concurrent saveState writers do not unlink each other's job artifacts", as
   // unlink another writer's in-flight artifacts.
   assert.equal(fs.existsSync(aFile), true, "jobA.json must not be unlinked");
   assert.equal(fs.existsSync(bFile), true, "jobB.json must not be unlinked");
-  // Log files may or may not exist (createTrackedJob doesn't create one), but
-  // the reconciled state must also not drop their indexed logFile path.
-  if (fs.existsSync(aLog)) assert.ok(true);
-  if (fs.existsSync(bLog)) assert.ok(true);
+  // Reconciled state must still reference each job's indexed logFile path,
+  // regardless of whether the log file has been materialized yet.
+  const afterById = new Map(after.jobs.map((j) => [j.id, j]));
+  assert.equal(afterById.get(jobA.id)?.logFile, aLog);
+  assert.equal(afterById.get(jobB.id)?.logFile, bLog);
+});
+
+test("setConfig reads state inside the workspace mutex", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "config race" });
+  let pendingSetConfig;
+
+  await withWorkspaceMutex(workspace, async () => {
+    pendingSetConfig = setConfig(workspace, { stopReviewGate: true });
+    const fresh = loadState(workspace);
+    fresh.jobs = fresh.jobs.map((entry) =>
+      entry.id === job.id
+        ? { ...entry, pid: 123, healthStatus: "active", lastProgressAt: "2026-01-01T00:00:00.000Z" }
+        : entry
+    );
+    fs.writeFileSync(resolveStateFile(workspace), `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
+  });
+
+  await pendingSetConfig;
+  const [stored] = loadState(workspace).jobs;
+  assert.equal(stored.pid, 123);
+  assert.equal(stored.healthStatus, "active");
+  assert.equal(stored.lastProgressAt, "2026-01-01T00:00:00.000Z");
+});
+
+test("upsertJob reads state inside the workspace mutex", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "upsert race" });
+  let pendingUpsert;
+
+  await withWorkspaceMutex(workspace, async () => {
+    pendingUpsert = upsertJob(workspace, { id: job.id, title: "renamed" });
+    const fresh = loadState(workspace);
+    fresh.jobs = fresh.jobs.map((entry) =>
+      entry.id === job.id
+        ? { ...entry, pid: 456, healthStatus: "active", lastProgressAt: "2026-01-01T00:00:01.000Z" }
+        : entry
+    );
+    fs.writeFileSync(resolveStateFile(workspace), `${JSON.stringify(fresh, null, 2)}\n`, "utf8");
+  });
+
+  await pendingUpsert;
+  const [stored] = loadState(workspace).jobs;
+  assert.equal(stored.title, "renamed");
+  assert.equal(stored.pid, 456);
+  assert.equal(stored.healthStatus, "active");
+  assert.equal(stored.lastProgressAt, "2026-01-01T00:00:01.000Z");
 });

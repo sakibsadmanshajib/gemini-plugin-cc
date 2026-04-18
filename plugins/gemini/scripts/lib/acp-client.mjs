@@ -18,7 +18,7 @@ import readline from "node:readline";
 import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
 import { terminateProcessTree } from "./process.mjs";
-import { BROKER_DIAGNOSTIC_METHOD, createStderrDiagnosticCollector, sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
+import { attachStderrDiagnosticCollector, BROKER_DIAGNOSTIC_METHOD, sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
 
 const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
 const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
@@ -259,7 +259,7 @@ class SpawnedAcpClient extends AcpClientBase {
 
     // Capture bounded stderr lines as diagnostics; always drain to prevent back-pressure.
     if (this.proc.stderr) {
-      const collector = createStderrDiagnosticCollector((message) => {
+      attachStderrDiagnosticCollector(this.proc.stderr, (message) => {
         if (this.onDiagnostic) {
           try {
             this.onDiagnostic({ source: "direct-stderr", message });
@@ -268,9 +268,6 @@ class SpawnedAcpClient extends AcpClientBase {
           }
         }
       });
-      this.proc.stderr.setEncoding("utf8");
-      this.proc.stderr.on("data", (chunk) => collector.feed(chunk));
-      this.proc.stderr.on("end", () => collector.flush());
     }
 
     await this.handshake();

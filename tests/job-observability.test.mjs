@@ -85,6 +85,30 @@ test("runTrackedJob records worker start and completion events", async () => {
   assert.equal(stored.events.at(-1).message, "Job completed.");
 });
 
+test("runTrackedJob start transition preserves pre-existing events", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "pre-start event" });
+
+  await recordJobEvent(workspace, job.id, {
+    type: "status",
+    message: "Observer attached.",
+    timestamp: "2026-01-01T00:00:00.000Z"
+  });
+
+  await runTrackedJob(job, async () => ({
+    exitStatus: 0,
+    summary: "done"
+  }));
+
+  const stored = readJobFile(workspace, job.id);
+  assert.deepEqual(stored.events.map((event) => event.type), [
+    "status",
+    "worker_started",
+    "completed"
+  ]);
+});
+
 test("runTrackedJob records failure events without swallowing the original error", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
@@ -109,10 +133,11 @@ test("updateJobPhase records phase change events", async () => {
   initGitRepo(workspace);
   const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "phase" });
 
-  // Fire-and-forget a long-running tracked job; wait for the worker_started
-  // write to flush before changing the phase so updateJobPhase sees the
-  // running status.
-  runTrackedJob(job, async () => new Promise(() => {})).catch(() => {});
+  let finishRunner;
+  const runnerDone = new Promise((resolve) => {
+    finishRunner = resolve;
+  });
+  const running = runTrackedJob(job, async () => runnerDone);
   // Yield to the mutex queue so the "running" write lands first.
   await new Promise((resolve) => setImmediate(resolve));
   await updateJobPhase(workspace, job.id, "collecting_context");
@@ -121,6 +146,9 @@ test("updateJobPhase records phase change events", async () => {
   assert.equal(stored.phase, "collecting_context");
   assert.equal(stored.events.at(-1).type, "phase_changed");
   assert.equal(stored.events.at(-1).phase, "collecting_context");
+
+  finishRunner({ exitStatus: 0, summary: "", rendered: "" });
+  await running;
 });
 
 test("markTrackedJobCancelled records cancellation health and recommended action", async () => {
@@ -153,6 +181,8 @@ test("classifyDiagnostic recognizes quota, auth, broker, model, and network mess
   assert.equal(classifyDiagnostic("Broker is busy with another request.").kind, "broker");
   assert.equal(classifyDiagnostic("model is unavailable").kind, "model");
   assert.equal(classifyDiagnostic("ECONNRESET while calling API").kind, "network");
+  assert.equal(classifyDiagnostic("socket hang up while calling API").kind, "network");
+  assert.equal(classifyDiagnostic("endpoint disconnected during request").kind, "network");
   assert.equal(classifyDiagnostic("retrying after transient worker issue").kind, "unknown");
 });
 
@@ -259,6 +289,93 @@ test("diagnostic events update health fields with bounded sanitized messages", a
   assert.equal(JSON.stringify(stored).includes("do not store"), false);
 });
 
+test("diagnostic sanitization strips OSC and DCS payloads", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "escape hygiene" });
+
+  await recordJobEvent(workspace, job.id, {
+    type: "diagnostic",
+    message: "\u001b]0;hidden-title\u0007\u001bPprivate-payload\u001b\\401 auth expired",
+    timestamp: "2026-01-01T00:00:03.000Z"
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.healthStatus, "auth_required");
+  assert.match(stored.healthMessage, /401 auth expired/);
+  assert.equal(stored.healthMessage.includes("hidden-title"), false);
+  assert.equal(stored.healthMessage.includes("private-payload"), false);
+});
+
+test("sanitizeEvent enforces per-field value types", () => {
+  const e = sanitizeEvent(
+    {
+      type: 1,
+      timestamp: 0,
+      message: true,
+      phase: 2,
+      chars: 42,
+      final: true
+    },
+    "2026-04-18T00:00:00Z"
+  );
+
+  assert.deepEqual(e, {
+    timestamp: "2026-04-18T00:00:00Z",
+    chars: 42
+  });
+});
+
+test("non-terminal events preserve terminal health", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "terminal" });
+
+  await recordJobEvent(workspace, job.id, {
+    type: "completed",
+    message: "Job completed.",
+    timestamp: "2026-01-01T00:00:04.000Z"
+  });
+  await recordJobEvent(workspace, job.id, {
+    type: "diagnostic",
+    message: "401 auth expired after completion",
+    timestamp: "2026-01-01T00:00:05.000Z"
+  });
+  await recordJobEvent(workspace, job.id, {
+    type: "model_text_chunk",
+    chars: 12,
+    timestamp: "2026-01-01T00:00:06.000Z"
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.healthStatus, "completed");
+  assert.equal(stored.recommendedAction, "Run /gemini:result to inspect the completed job output.");
+  assert.equal(stored.lastProgressAt, undefined);
+  assert.equal(stored.lastDiagnosticAt, undefined);
+});
+
+test("progress events clear stale diagnostic recovery actions", async () => {
+  const workspace = makeTempDir();
+  initGitRepo(workspace);
+  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "recovery" });
+
+  await recordJobEvent(workspace, job.id, {
+    type: "diagnostic",
+    message: "401 auth expired",
+    timestamp: "2026-01-01T00:00:07.000Z"
+  });
+  await recordJobEvent(workspace, job.id, {
+    type: "model_text_chunk",
+    chars: 1,
+    timestamp: "2026-01-01T00:00:08.000Z"
+  });
+
+  const stored = readJobFile(workspace, job.id);
+  assert.equal(stored.healthStatus, "active");
+  assert.equal(stored.healthMessage, null);
+  assert.equal(stored.recommendedAction, null);
+});
+
 test("unknown error events use cautious health status", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
@@ -319,7 +436,7 @@ test("buildJobEventFromAcpNotification records chars, not model text, for agent_
   assert.equal(evt.message, undefined);
 });
 
-test("isDiagnosticEvent does not match error_cleared or diagnostic_acknowledged", () => {
+test("isDiagnosticEvent matches exact types and diagnostic prefix only", () => {
   assert.equal(isDiagnosticEvent({ type: "error_cleared" }), false);
   assert.equal(
     isDiagnosticEvent({ type: "diagnostic_acknowledged" }),
@@ -332,7 +449,7 @@ test("isDiagnosticEvent does not match error_cleared or diagnostic_acknowledged"
   assert.equal(isDiagnosticEvent({ type: "diagnostic_quota" }), true);
 });
 
-test("sanitizeEvent passes through numeric and boolean whitelisted fields", () => {
+test("sanitizeEvent passes through numeric whitelisted fields and drops non-whitelisted keys", () => {
   const e = sanitizeEvent(
     { type: "model_text_chunk", chars: 42, final: true },
     "2026-04-18T00:00:00Z"

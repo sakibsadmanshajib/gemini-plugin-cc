@@ -10,6 +10,8 @@ export const BROKER_DIAGNOSTIC_METHOD = "broker/diagnostic";
 
 export function sanitizeDiagnosticMessage(value) {
   return String(value ?? "")
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)/g, "")
+    .replace(/\u001b[PX^_][\s\S]*?(?:\u001b\\|$)/g, "")
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u001f\u007f]/g, " ")
     .replace(/\s+/g, " ")
@@ -73,4 +75,14 @@ export function createStderrDiagnosticCollector(emit) {
       }
     }
   };
+}
+
+export function attachStderrDiagnosticCollector(stream, emit) {
+  const collector = createStderrDiagnosticCollector(emit);
+  stream.setEncoding?.("utf8");
+  stream.on("data", (chunk) => collector.feed(chunk));
+  const flush = () => collector.flush();
+  stream.on("end", flush);
+  stream.on("close", flush);
+  return collector;
 }

@@ -36,7 +36,7 @@ import {
   runAcpPrompt,
   runAcpReview
 } from "./lib/gemini.mjs";
-import { getConfig, loadState, readJobFile, setConfig } from "./lib/state.mjs";
+import { getConfig, loadState, readJobFile, saveState, setConfig } from "./lib/state.mjs";
 import {
   createTrackedJob,
   runTrackedJob,
@@ -50,7 +50,7 @@ import {
   resolveResultJob
 } from "./lib/job-control.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
-import { binaryAvailable } from "./lib/process.mjs";
+import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import {
   outputCommandResult,
   renderCancelReport,
@@ -541,12 +541,10 @@ async function handleCancel(argv) {
       completedAt: new Date().toISOString()
     };
   }
-  const { saveState } = await import("./lib/state.mjs");
   await saveState(workspaceRoot, state);
 
   // Kill the process if we have a PID.
   if (job.pid) {
-    const { terminateProcessTree } = await import("./lib/process.mjs");
     try {
       terminateProcessTree(job.pid);
     } catch {

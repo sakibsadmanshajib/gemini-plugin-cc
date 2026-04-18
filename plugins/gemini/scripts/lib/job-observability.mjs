@@ -27,6 +27,9 @@ const SAFE_EVENT_FIELDS = new Set([
   "transport",
   "chars"
 ]);
+const NUMERIC_EVENT_FIELDS = new Set(["chars"]);
+const TERMINAL_HEALTH_STATUSES = new Set(["completed", "failed", "cancelled"]);
+const TERMINAL_EVENT_TYPES = new Set(["completed", "failed", "worker_cancelled", "cancelled"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -34,6 +37,8 @@ function nowIso() {
 
 function sanitizeText(value) {
   return String(value ?? "")
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\|$)/g, "")
+    .replace(/\u001b[PX^_][\s\S]*?(?:\u001b\\|$)/g, "")
     .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .slice(0, MAX_DIAGNOSTIC_LENGTH);
@@ -48,9 +53,7 @@ function sanitizeEvent(event, timestamp) {
     }
     if (typeof value === "string") {
       normalized[key] = sanitizeText(value);
-    } else if (typeof value === "number" && Number.isFinite(value)) {
-      normalized[key] = value;
-    } else if (typeof value === "boolean") {
+    } else if (NUMERIC_EVENT_FIELDS.has(key) && typeof value === "number" && Number.isFinite(value)) {
       normalized[key] = value;
     }
     // Any other type (object, function, symbol, undefined, non-finite number)
@@ -126,9 +129,14 @@ function compactJobIndexEntry(job) {
  * mutex can merge this patch into the existing record and write atomically.
  */
 export function normalizeAndAppendEvent(job, event) {
-  const timestamp = event?.timestamp ?? nowIso();
+  const timestamp = typeof event?.timestamp === "string" ? event.timestamp : nowIso();
   const normalizedEvent = sanitizeEvent(event, timestamp);
   const persistedTimestamp = normalizedEvent.timestamp;
+  const eventType = String(normalizedEvent.type ?? "");
+  const preserveTerminalHealth =
+    (TERMINAL_HEALTH_STATUSES.has(String(job?.healthStatus ?? "")) ||
+      TERMINAL_HEALTH_STATUSES.has(String(job?.status ?? ""))) &&
+    !TERMINAL_EVENT_TYPES.has(eventType);
   const events = [
     ...(Array.isArray(job?.events) ? job.events : []),
     normalizedEvent
@@ -139,20 +147,22 @@ export function normalizeAndAppendEvent(job, event) {
     updatedAt: nowIso()
   };
 
-  if (isProgressEvent(normalizedEvent)) {
+  if (isProgressEvent(normalizedEvent) && !preserveTerminalHealth) {
     patch.lastProgressAt = persistedTimestamp;
     patch.healthStatus = "active";
+    patch.healthMessage = null;
+    patch.recommendedAction = null;
   }
 
-  if (normalizedEvent.type === "model_text_chunk") {
+  if (normalizedEvent.type === "model_text_chunk" && !preserveTerminalHealth) {
     patch.lastModelOutputAt = persistedTimestamp;
   }
 
-  if (normalizedEvent.type === "tool_call") {
+  if (normalizedEvent.type === "tool_call" && !preserveTerminalHealth) {
     patch.lastToolCallAt = persistedTimestamp;
   }
 
-  if (isDiagnosticEvent(normalizedEvent)) {
+  if (isDiagnosticEvent(normalizedEvent) && !preserveTerminalHealth) {
     const healthMessage = sanitizeText(normalizedEvent.message);
     const classification = classifyDiagnostic(healthMessage);
     patch.lastDiagnosticAt = persistedTimestamp;
@@ -166,6 +176,7 @@ export function normalizeAndAppendEvent(job, event) {
 
   if (normalizedEvent.type === "completed") {
     patch.healthStatus = "completed";
+    patch.healthMessage = sanitizeText(normalizedEvent.message) || "Job completed.";
     patch.recommendedAction = "Run /gemini:result to inspect the completed job output.";
   }
 
@@ -199,19 +210,20 @@ export async function upsertCompactJobIndexEntry(workspaceRoot, job) {
 export function classifyDiagnostic(text) {
   const value = String(text ?? "");
   const lower = value.toLowerCase();
+  const mentionsBroker = /\b(acp|broker)\b/.test(lower);
   if (/(rate limit|quota|429|resource exhausted)/.test(lower)) {
     return { kind: "rate_limit", healthStatus: "rate_limited" };
   }
   if (/(auth|credential|login|unauthorized|401|permission denied)/.test(lower)) {
     return { kind: "auth", healthStatus: "auth_required" };
   }
-  if (/(broker|socket|endpoint|busy|disconnected|not ready)/.test(lower)) {
+  if (mentionsBroker && /(broker|socket|endpoint|busy|disconnected|not ready|connection)/.test(lower)) {
     return { kind: "broker", healthStatus: "broker_unhealthy" };
   }
   if (/(model.*unavailable|unavailable.*model|not found.*model)/.test(lower)) {
     return { kind: "model", healthStatus: "possibly_stalled" };
   }
-  if (/(econnreset|etimedout|network|dns|api error|connection)/.test(lower)) {
+  if (/(econnreset|etimedout|network|dns|api error|connection|socket|endpoint|disconnected|hang up)/.test(lower)) {
     return { kind: "network", healthStatus: "possibly_stalled" };
   }
   return { kind: "unknown", healthStatus: "quiet" };

@@ -40,8 +40,8 @@ async function runWithMutex(map, key, fn) {
   } finally {
     const tail = map.get(key);
     release();
-    // Drop the entry if our promise is still the tail — meaning no one else
-    // is queued behind us — so the map does not grow unbounded.
+    // Drop the entry only when the most recently queued promise resolves with
+    // no later waiters queued, so the map does not grow unbounded.
     if (tail) {
       tail.then(() => {
         if (map.get(key) === tail) {

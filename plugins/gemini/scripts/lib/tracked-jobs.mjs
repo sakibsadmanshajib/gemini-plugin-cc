@@ -120,7 +120,6 @@ export async function runTrackedJob(job, runner, options = {}) {
     job.workspaceRoot,
     job.id,
     {
-      ...job,
       status: "running",
       startedAt,
       phase: "starting",

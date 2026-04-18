@@ -151,27 +151,31 @@ function reconcileState(current, incoming) {
   };
 }
 
+function saveStateUnlocked(cwd, state) {
+  ensureStateDir(cwd);
+  // Re-load current on-disk state inside the mutex so we reconcile against
+  // the freshest snapshot and never unlink another writer's files.
+  const current = loadState(cwd);
+  const nextState = reconcileState(current, state);
+
+  writeJsonAtomic(resolveStateFile(cwd), nextState);
+
+  // Prune job artifacts only for jobs that were dropped by reconciliation
+  // (i.e. the MAX_JOBS cap). Jobs absent from the caller's snapshot but
+  // still present in `current` are retained by `reconcileState`, so they
+  // will survive here.
+  const retainedIds = new Set(nextState.jobs.map((j) => j.id));
+  for (const prevJob of current.jobs ?? []) {
+    if (!retainedIds.has(prevJob.id)) {
+      removeFileIfExists(resolveJobFile(cwd, prevJob.id));
+      removeFileIfExists(resolveJobLogFile(cwd, prevJob.id));
+    }
+  }
+}
+
 export async function saveState(cwd, state) {
   return withWorkspaceMutex(cwd, async () => {
-    ensureStateDir(cwd);
-    // Re-load current on-disk state inside the mutex so we reconcile against
-    // the freshest snapshot and never unlink another writer's files.
-    const current = loadState(cwd);
-    const nextState = reconcileState(current, state);
-
-    writeJsonAtomic(resolveStateFile(cwd), nextState);
-
-    // Prune job artifacts only for jobs that were dropped by reconciliation
-    // (i.e. the MAX_JOBS cap). Jobs absent from the caller's snapshot but
-    // still present in `current` are retained by `reconcileState`, so they
-    // will survive here.
-    const retainedIds = new Set(nextState.jobs.map((j) => j.id));
-    for (const prevJob of current.jobs ?? []) {
-      if (!retainedIds.has(prevJob.id)) {
-        removeFileIfExists(resolveJobFile(cwd, prevJob.id));
-        removeFileIfExists(resolveJobLogFile(cwd, prevJob.id));
-      }
-    }
+    saveStateUnlocked(cwd, state);
   });
 }
 
@@ -180,9 +184,11 @@ export function getConfig(cwd) {
 }
 
 export async function setConfig(cwd, patch) {
-  const state = loadState(cwd);
-  state.config = { ...state.config, ...patch };
-  await saveState(cwd, state);
+  return withWorkspaceMutex(cwd, async () => {
+    const state = loadState(cwd);
+    state.config = { ...state.config, ...patch };
+    saveStateUnlocked(cwd, state);
+  });
 }
 
 export function listJobs(cwd) {
@@ -190,18 +196,20 @@ export function listJobs(cwd) {
 }
 
 export async function upsertJob(cwd, job) {
-  const state = loadState(cwd);
-  const index = state.jobs.findIndex((j) => j.id === job.id);
-  const now = new Date().toISOString();
-  const updated = { ...job, updatedAt: now };
+  return withWorkspaceMutex(cwd, async () => {
+    const state = loadState(cwd);
+    const index = state.jobs.findIndex((j) => j.id === job.id);
+    const now = new Date().toISOString();
+    const updated = { ...job, updatedAt: now };
 
-  if (index >= 0) {
-    state.jobs[index] = { ...state.jobs[index], ...updated };
-  } else {
-    state.jobs.push({ ...updated, createdAt: now });
-  }
+    if (index >= 0) {
+      state.jobs[index] = { ...state.jobs[index], ...updated };
+    } else {
+      state.jobs.push({ ...updated, createdAt: now });
+    }
 
-  await saveState(cwd, state);
+    saveStateUnlocked(cwd, state);
+  });
 }
 
 export function readJobFile(cwd, jobId) {

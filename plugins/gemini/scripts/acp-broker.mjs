@@ -15,12 +15,13 @@ import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
 
 import { parseArgs } from "./lib/args.mjs";
 import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
 import {
+  attachStderrDiagnosticCollector,
   buildBrokerDiagnosticNotification,
-  createStderrDiagnosticCollector,
   sanitizeDiagnosticMessage
 } from "./lib/acp-diagnostics.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
@@ -90,13 +91,10 @@ function spawnAcpProcess(cwd) {
   rl.on("line", (line) => handleAcpLine(line));
 
   if (child.stderr) {
-    const collector = createStderrDiagnosticCollector((message) => {
+    attachStderrDiagnosticCollector(child.stderr, (message) => {
       process.stderr.write(`[gemini --acp stderr] ${message}\n`);
       forwardDiagnosticToActiveClient("broker-child-stderr", message);
     });
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk) => collector.feed(chunk));
-    child.stderr.on("end", () => collector.flush());
   }
 
   child.on("exit", (code) => {
@@ -228,12 +226,7 @@ function handleClientConnection(socket) {
     if (lineBuffer.length > ACP_MAX_LINE_BUFFER) {
       const dropped = lineBuffer.length - ACP_MAX_LINE_BUFFER;
       lineBuffer = lineBuffer.slice(-ACP_MAX_LINE_BUFFER);
-      forwardDiagnosticToActiveClient(
-        "acp-transport",
-        sanitizeDiagnosticMessage(
-          `[client line buffer overflow — dropped ${dropped} bytes]`
-        )
-      );
+      sendClientLineBufferOverflowDiagnostic(socket, dropped);
     }
   });
 
@@ -346,6 +339,18 @@ function send(socket, message) {
   socket.write(`${JSON.stringify(message)}\n`);
 }
 
+function sendClientLineBufferOverflowDiagnostic(socket, dropped) {
+  send(
+    socket,
+    buildBrokerDiagnosticNotification({
+      source: "acp-transport",
+      message: sanitizeDiagnosticMessage(
+        `[client line buffer overflow: dropped ${dropped} bytes]`
+      )
+    })
+  );
+}
+
 function writePidFile(pidFile) {
   if (!pidFile) {
     return;
@@ -355,6 +360,19 @@ function writePidFile(pidFile) {
 }
 
 let server = null;
+
+export const __testing = {
+  handleClientConnection,
+  resetBrokerState() {
+    diagnosticRing.length = 0;
+    pendingRequests.clear();
+    activeClient = null;
+    acpProcess = null;
+    acpReady = false;
+    nextRpcId = 1;
+    server = null;
+  }
+};
 
 function shutdown() {
   process.stderr.write("ACP broker shutting down.\n");
@@ -427,10 +445,12 @@ async function main() {
   process.on("SIGINT", shutdown);
 }
 
-try {
-  await main();
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exit(1);
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  try {
+    await main();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exit(1);
+  }
 }
