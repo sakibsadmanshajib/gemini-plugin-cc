@@ -1,6 +1,6 @@
 {
   "name": "gemini-plugin-cc",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Claude Code plugin for Gemini CLI delegation and code review.",
   "type": "module",
   "scripts": {
