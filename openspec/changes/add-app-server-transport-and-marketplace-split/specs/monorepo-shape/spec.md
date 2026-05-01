@@ -37,6 +37,8 @@ The toolchain configuration SHALL remain centralized at the repo root, unchanged
 #### Scenario: Root configuration files unchanged
 
 - **GIVEN** the repo at the end of this change
-- **WHEN** a contributor inspects `tsconfig.base.json`, `eslint.config.js`, and `prettier.config.cjs` at the root
+- **WHEN** a contributor inspects `tsconfig.json` and `biome.json` at the root
 - **THEN** their content matches what `modernize-toolchain` established
+- **AND** no ESLint or Prettier config files are present (per the
+  toolchain spec)
 - **AND** package-level configs only `extends`/import the root configs

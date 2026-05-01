@@ -5,9 +5,17 @@ into `acp-plugins-cc` — a multi-backend ACP plugin suite for Claude
 Code.
 
 For orientation:
-- [`architecture.md`](./architecture.md) — layered system overview
-- [`glossary.md`](./glossary.md) — definitions of project-specific
-  terms
+- [`openspec/architecture.md`](../openspec/architecture.md) — layered
+  system overview
+- [`openspec/glossary.md`](../openspec/glossary.md) — definitions of
+  project-specific terms
+
+> **Note:** This file was previously `openspec/project.md`. OpenSpec 1.3
+> replaced that role with `openspec/config.yaml` (the `context:` section
+> is loaded into every planning request). The operational content here
+> — effort tables, stage-gate checklist, full DAG, capability matrix —
+> is preserved as a project-management artifact rather than as
+> always-loaded planning context.
 
 ## Structure
 

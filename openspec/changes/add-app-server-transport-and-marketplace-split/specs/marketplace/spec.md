@@ -34,7 +34,7 @@ claude plugin install claude@artagon-acp
 - **WHEN** the user copies and runs the install commands
 - **THEN** the marketplace is added
 - **AND** all three plugins install without errors
-- **AND** the user sees six slash command namespaces:
+- **AND** the user sees three slash command namespaces:
   `/gemini:*`, `/codex:*`, `/claude:*`
 
 ## ADDED Requirements (v1 Deprecation)

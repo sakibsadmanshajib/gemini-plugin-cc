@@ -87,7 +87,9 @@ dispatches to the chosen backend.
 ## Pointers for newcomers
 
 - Read `glossary.md` for ACP/transport/backend terminology
-- Read `project.md` for the dependency DAG of changes
+- Read `config.yaml` (`context:` section) for the project-shape and
+  authoring conventions, or `../docs/agent-cli-design.md` for the full
+  dependency DAG, effort estimates, and stage-gate checklist
 - Read `changes/modernize-toolchain/design.md` for the toolchain
   decision rationale
 - Read `changes/add-transport-abstraction-with-gemini/specs/acp-core/spec.md`

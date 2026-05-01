@@ -1,5 +1,13 @@
 # Review Round 4 — Future Maintainer
 
+> **Editor's note (2026-05-01):** This record references
+> `openspec/project.md`, which OpenSpec 1.3 replaced with
+> `openspec/config.yaml` (the `context:` section). The full operational
+> content (DAG, effort tables, capability matrix, stage-gate checklist)
+> was preserved at `docs/agent-cli-design.md`. Read action items below
+> as targeting whichever of those two locations now holds the
+> referenced content.
+
 **Reviewer lens**: a contributor joining the project six months from
 now reads only the OpenSpec workspace. Can they figure out:
 - the system's architecture
