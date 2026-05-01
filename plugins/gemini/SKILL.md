@@ -36,8 +36,8 @@ Use the slash commands:
 
 Codex auto-discovers this plugin via:
 - `.codex-plugin/plugin.json` (canonical Codex manifest, at `plugins/gemini/.codex-plugin/plugin.json`)
-- Root `SKILL.md` (this file)
-- `agents/openai.yaml` (implicit-invocation contract)
+- `SKILL.md` at the plugin source-dir root (this file — `plugins/gemini/SKILL.md`)
+- `agents/openai.yaml` (implicit-invocation contract, at `plugins/gemini/agents/openai.yaml`)
 
 Invoke implicitly via `$gemini <task>`, or shell out directly:
 
@@ -89,9 +89,9 @@ The two state roots do not share. Each host runs its own broker against its own 
 - `.agents/plugins/marketplace.json` — Codex marketplace descriptor (canonical path per OpenAI docs)
 - `.claude-plugin/marketplace.json` — Claude Code marketplace descriptor
 - `plugins/gemini/commands/` — Claude Code slash command definitions
-- `agents/openai.yaml` — Codex implicit-invocation interface (consumed by Codex's plugin loader at the source-dir root; Claude Code does not use it)
+- `plugins/gemini/agents/openai.yaml` — Codex implicit-invocation interface (consumed by Codex's plugin loader at the plugin source-dir root)
 - `plugins/gemini/.codex-plugin/plugin.json` — canonical Codex plugin manifest
 - `plugins/gemini/.claude-plugin/plugin.json` — Claude Code plugin manifest (byte-identical to Codex variant)
 - `plugins/gemini/scripts/gemini-companion.mjs` — the host-agnostic runtime
 
-> **Note for future contributors:** The fork-root `SKILL.md` (this file) and `agents/openai.yaml` are **Codex-only** — they support Codex's auto-discovery model, which scans the plugin install root for those files. Claude Code does NOT consume them and will not include them in its plugin install (Claude Code installs from `plugins/gemini/`, which is a strict subtree). This is intentional, not a bug.
+> **Note for future contributors:** This `SKILL.md` (at `plugins/gemini/SKILL.md`) and `agents/openai.yaml` (at `plugins/gemini/agents/openai.yaml`) live INSIDE the plugin source dir that BOTH hosts install. Codex's plugin loader auto-discovers them at the install-root level (skill discovery + implicit-invocation). Claude Code installs the same subtree but ignores `agents/openai.yaml` (it has no concept of implicit-invocation YAML); the SKILL.md frontmatter is consumed by both hosts.

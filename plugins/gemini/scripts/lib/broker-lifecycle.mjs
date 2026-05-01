@@ -108,6 +108,14 @@ async function isBrokerEndpointReady(endpoint) {
 }
 
 /**
+ * @deprecated Not called from runtime as of round-1 swarm fix.
+ *   `ensureBrokerSession` now folds in the liveness check itself (single
+ *   probe per decision) and never calls this function. Retained as a
+ *   public API surface only to keep `broker-reaper.test.mjs` green; new
+ *   callers should rely on `ensureBrokerSession`'s built-in teardown
+ *   path instead. Slated for removal in a follow-up cleanup PR once the
+ *   reaper tests are migrated to exercise `ensureBrokerSession` directly.
+ *
  * Kill any orphaned broker for this workspace. Codex has no SessionEnd hook,
  * so prior brokers can leak. We treat a broker as stale ONLY if BOTH:
  *   1. its session file is older than STALE_BROKER_AGE_MS, AND

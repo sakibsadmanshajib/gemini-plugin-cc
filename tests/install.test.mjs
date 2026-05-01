@@ -334,6 +334,20 @@ test("install: state dir is identical when accessed via symlink vs realpath", as
 
 // ─── 4. Plugin source tree is install-ready for Codex's plugin manager ───
 
+test(`install: ${INSTALL_DOC_RELATIVE} exists at fork root for both-host install instructions`, () => {
+  // docs/INSTALL.md is host-agnostic (covers Claude Code AND Codex install
+  // recipes) and is referenced by SKILL.md (line 50) plus marketplace error
+  // paths. It lives at the FORK ROOT (PLUGIN_ROOT), not inside the plugin
+  // source subtree, because Claude Code's marketplace descriptor and Codex's
+  // marketplace descriptor both live at the fork root and point at the
+  // plugin subtree separately. The INSTALL doc covers the wiring between
+  // those two descriptors.
+  const abs = path.join(PLUGIN_ROOT, INSTALL_DOC_RELATIVE);
+  assert.ok(fs.existsSync(abs),
+    `${INSTALL_DOC_RELATIVE} must exist at fork root — both SKILL.md and ` +
+    `marketplace descriptors reference it for cross-host install instructions`);
+});
+
 test("install: plugin source dir contains all files Codex's marketplace install requires", () => {
   // A Codex plugin marketplace entry of the form
   //   { source: { source: "local", path: "<repo>/<source-dir>" } }
