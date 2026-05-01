@@ -256,3 +256,83 @@ test("defaultIsProcessAlive returns true when no pid is provided", () => {
   assert.equal(defaultIsProcessAlive(undefined), true);
   assert.equal(defaultIsProcessAlive(0), true);
 });
+
+// ─── filterJobsForCurrentSession env-injection coverage ────────────────────
+// Added in round-1 swarm fix-batch (Gemini HIGH gap). The function accepts
+// an optional `env` argument that defaults to `process.env`. This is the
+// regression vector for cross-session job leakage between Claude and Codex
+// sessions sharing a workspace.
+
+import { filterJobsForCurrentSession } from "../plugins/gemini/scripts/lib/job-control.mjs";
+const SESSION_ID_ENV_VAR = "GEMINI_COMPANION_SESSION_ID";
+
+const FILTER_SAMPLE_JOBS = [
+  { id: "job-1", sessionId: "session-A", status: "completed" },
+  { id: "job-2", sessionId: "session-A", status: "running" },
+  { id: "job-3", sessionId: "session-B", status: "completed" },
+  { id: "job-4", sessionId: null, status: "completed" }
+];
+
+test("filterJobsForCurrentSession: empty env returns all jobs (no filter)", () => {
+  const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, {});
+  assert.equal(result.length, FILTER_SAMPLE_JOBS.length,
+    "empty env (no SESSION_ID) must return all jobs unfiltered");
+  assert.deepStrictEqual(result, FILTER_SAMPLE_JOBS,
+    "all jobs returned unmodified when no SESSION_ID set");
+});
+
+test("filterJobsForCurrentSession: env with SESSION_ID returns only matching jobs", () => {
+  const env = { [SESSION_ID_ENV_VAR]: "session-A" };
+  const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
+
+  assert.equal(result.length, 2, "session-A should match exactly 2 jobs");
+  assert.ok(result.every((j) => j.sessionId === "session-A"),
+    "every returned job must have matching sessionId");
+  assert.deepStrictEqual(
+    result.map((j) => j.id).sort(),
+    ["job-1", "job-2"],
+    "specific job IDs must match"
+  );
+});
+
+test("filterJobsForCurrentSession: env with non-matching SESSION_ID returns empty array", () => {
+  const env = { [SESSION_ID_ENV_VAR]: "session-NONEXISTENT" };
+  const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
+
+  assert.equal(result.length, 0,
+    "no jobs match the unknown SESSION_ID; result must be empty");
+  assert.deepStrictEqual(result, [], "result is empty array, not undefined/null");
+});
+
+test("filterJobsForCurrentSession: env arg omitted falls back to process.env", () => {
+  const savedSessionId = process.env[SESSION_ID_ENV_VAR];
+  delete process.env[SESSION_ID_ENV_VAR];
+
+  try {
+    const unfiltered = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS);
+    assert.equal(unfiltered.length, FILTER_SAMPLE_JOBS.length,
+      "default env=process.env with no SESSION_ID returns all jobs");
+
+    process.env[SESSION_ID_ENV_VAR] = "session-B";
+    const filtered = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS);
+    assert.equal(filtered.length, 1, "process.env=session-B → 1 match");
+    assert.equal(filtered[0].id, "job-3");
+  } finally {
+    if (savedSessionId === undefined) {
+      delete process.env[SESSION_ID_ENV_VAR];
+    } else {
+      process.env[SESSION_ID_ENV_VAR] = savedSessionId;
+    }
+  }
+});
+
+test("filterJobsForCurrentSession: jobs with null sessionId excluded under specific filter", () => {
+  // Cross-session leakage check — a job with sessionId=null (unscoped) is NOT
+  // a match for any specific SESSION_ID. Otherwise unscoped jobs leak between
+  // Claude and Codex sessions sharing a workspace.
+  const env = { [SESSION_ID_ENV_VAR]: "session-A" };
+  const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
+
+  assert.ok(result.every((j) => j.sessionId !== null),
+    "null-sessionId (unscoped) jobs must NOT match a specific session filter");
+});

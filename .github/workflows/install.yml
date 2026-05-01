@@ -24,25 +24,35 @@ on:
       - 'fix/**'
       - 'chore/**'
     paths:
-      - 'SKILL.md'
-      - 'agents/**'
+      - 'plugins/gemini/SKILL.md'
+      - 'plugins/gemini/agents/**'
       - 'plugins/gemini/scripts/**'
       - 'plugins/gemini/.codex-plugin/**'
       - 'plugins/gemini/.claude-plugin/**'
+      - 'plugins/gemini/hooks/**'
+      - '.agents/plugins/**'                # Codex marketplace descriptor
+      - '.claude-plugin/**'                 # Claude Code marketplace descriptor (repo root)
       - 'tests/install*.mjs'
       - 'tests/broker-reaper.test.mjs'
+      - 'tests/broker-lifecycle.test.mjs'
+      - 'tests/job-control.test.mjs'
       - 'tests/plugin-info.test.mjs'
       - '.github/workflows/install.yml'
   pull_request:
     branches: [main]
     paths:
-      - 'SKILL.md'
-      - 'agents/**'
+      - 'plugins/gemini/SKILL.md'
+      - 'plugins/gemini/agents/**'
       - 'plugins/gemini/scripts/**'
       - 'plugins/gemini/.codex-plugin/**'
       - 'plugins/gemini/.claude-plugin/**'
+      - 'plugins/gemini/hooks/**'
+      - '.agents/plugins/**'                # Codex marketplace descriptor
+      - '.claude-plugin/**'                 # Claude Code marketplace descriptor (repo root)
       - 'tests/install*.mjs'
       - 'tests/broker-reaper.test.mjs'
+      - 'tests/broker-lifecycle.test.mjs'
+      - 'tests/job-control.test.mjs'
       - 'tests/plugin-info.test.mjs'
       - '.github/workflows/install.yml'
   workflow_dispatch: {}

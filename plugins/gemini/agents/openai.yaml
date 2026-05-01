@@ -8,5 +8,5 @@ policy:
 
 # Codex-side metadata for the gemini dual-host plugin.
 # Both Claude Code (via /gemini:* slash commands) and Codex (via this
-# yaml + the root SKILL.md) shell out to the same gemini-companion.mjs
-# runtime. See SKILL.md and .codex/INSTALL.md for invocation contract details.
+# yaml + the SKILL.md alongside it) shell out to the same gemini-companion.mjs
+# runtime. See SKILL.md and docs/INSTALL.md for invocation contract details.

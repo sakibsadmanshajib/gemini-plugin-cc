@@ -168,18 +168,29 @@ export async function reapStaleBroker(cwd, killProcess) {
  * @returns {Promise<{ endpoint: string, pidFile: string, logFile: string, sessionDir: string, pid: number | null } | null>}
  */
 export async function ensureBrokerSession(cwd, options = {}) {
-  // Reap any stale broker before doing anything else. Under Codex there's no
-  // SessionEnd hook, so brokers from prior invocations leak otherwise.
-  // The reaper checks BOTH session-file mtime AND endpoint liveness — a
-  // long-running healthy broker is preserved.
-  await reapStaleBroker(cwd, options.killProcess ?? null);
-
+  // Single liveness probe per decision. Under Codex there's no SessionEnd
+  // hook, so prior brokers can leak — the staleness check is folded in here
+  // (no separate reaper call) so the endpoint is probed exactly ONCE per
+  // ensureBrokerSession invocation, regardless of session-file age.
+  //
+  // Decision tree:
+  //   1. No session file        → spawn new broker.
+  //   2. Endpoint accepts conns → return existing (healthy, regardless of mtime).
+  //   3. Endpoint dead          → tear down old session, spawn new broker.
+  //
+  // Rationale (from round-1 swarm review): a status-enum from a separate
+  // reapStaleBroker() call would create a freshness race — the broker can die
+  // between the reaper's probe and ensureBrokerSession's decision to skip its
+  // own probe. One probe per decision is race-free by construction.
   const existing = loadBrokerSession(cwd);
-  if (existing && (await isBrokerEndpointReady(existing.endpoint))) {
+  if (!existing) {
+    // No prior session — fall through to spawn path below.
+  } else if (await isBrokerEndpointReady(existing.endpoint)) {
+    // Healthy broker, regardless of mtime. Reuse.
     return existing;
-  }
-
-  if (existing) {
+  } else {
+    // Existing session file but endpoint not responding. Old broker is dead;
+    // tear down before spawning a fresh one.
     teardownBrokerSession({
       endpoint: existing.endpoint ?? null,
       pidFile: existing.pidFile ?? null,

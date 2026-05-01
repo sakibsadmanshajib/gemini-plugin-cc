@@ -2,8 +2,13 @@
  * plugin-info.mjs — single source of truth for plugin name + version.
  *
  * Verifies that getPluginInfo() returns the values from one of the canonical
- * manifest files, AND that the result agrees across .codex-plugin/.claude-plugin/
- * package.json (no drift between the three identities).
+ * manifest files (`.codex-plugin/plugin.json` or `.claude-plugin/plugin.json`),
+ * AND that those two manifests agree on plugin identity. The two manifests are
+ * required to be byte-identical and the test enforces that here.
+ *
+ * Note: `package.json` is intentionally NOT in the fallback chain (its `name`
+ * field is the npm package name, not the plugin identifier — including it
+ * would silently change ACP wire identity). See plugin-info.mjs for rationale.
  */
 
 import fs from "node:fs";

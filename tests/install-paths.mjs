@@ -23,19 +23,24 @@ export const CLAUDE_PLUGIN_DIR_NAME = ".claude-plugin";
 // Manifest filename used by both hosts inside their respective dirs.
 export const PLUGIN_MANIFEST_FILENAME = "plugin.json";
 
-// Marketplace manifest filename. Lives at `<repo-root>/.agents/plugins/marketplace.json`
-// per Codex docs OR inside this repo's `.claude-plugin/` for Claude Code marketplace publishing.
+// Marketplace manifest filename, used at multiple locations.
 export const MARKETPLACE_MANIFEST_FILENAME = "marketplace.json";
 
-// Codex-host-specific install metadata directory.
-export const CODEX_HOST_DIR_NAME = ".codex";
-export const CODEX_INSTALL_DOC_FILENAME = "INSTALL.md";
+// Codex's documented marketplace location: `<repo-root>/.agents/plugins/marketplace.json`.
+export const CODEX_MARKETPLACE_DIR_RELATIVE = path.join(".agents", "plugins");
 
-// Codex implicit-invocation interface file (auto-discovered by Codex CLI).
+// Claude Code's marketplace location for this repo: `.claude-plugin/marketplace.json`.
+// Same dir as the Claude plugin manifest by convention.
+export const CLAUDE_MARKETPLACE_DIR_RELATIVE = CLAUDE_PLUGIN_DIR_NAME;
+
+// Install documentation lives at `docs/INSTALL.md` (host-agnostic, covers both Claude and Codex).
+export const INSTALL_DOC_RELATIVE = path.join("docs", "INSTALL.md");
+
+// Codex implicit-invocation interface file (auto-discovered by Codex CLI inside the plugin source dir).
 export const AGENTS_DIR_NAME = "agents";
 export const OPENAI_AGENT_FILENAME = "openai.yaml";
 
-// Skill manifest at the plugin root (agentskills.io single-skill convention).
+// Skill manifest filename. Codex looks for it inside the plugin source dir.
 export const SKILL_MANIFEST_FILENAME = "SKILL.md";
 
 // Runtime entry points the plugin manifest implicitly references.

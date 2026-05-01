@@ -65,11 +65,20 @@ function runStopReview(cwd, input) {
     maxBuffer: 5 * 1024 * 1024
   });
 
-  // Fail OPEN, not closed: a missing/broken `gemini` CLI must not lock the user
-  // into review-failed loops where Claude refuses to stop. ENOENT (binary missing)
-  // is the canonical case — the user toggled the gate on but doesn't actually
-  // have `gemini` on the PATH the hook inherits (often happens with Finder-launched
-  // GUI apps). Surface a clear reason and let the turn end normally.
+  // Failure semantics:
+  //
+  // - ENOENT (binary missing): fail OPEN. The gate is toggled on but `gemini`
+  //   isn't on the hook's inherited PATH (common with Finder-launched GUI apps).
+  //   Locking the user into review-failed loops over a config gap is worse than
+  //   skipping the gate; surface the reason so they can fix PATH.
+  //
+  // - All other failures (non-zero exit, signal kill, OOM, etc.): fail CLOSED.
+  //   The gate's semantic results are stdout-based (`ALLOW:` / `BLOCK:` parsed
+  //   below) and only meaningful after a successful command. A non-zero exit
+  //   here means infrastructure failure, NOT a legitimate review verdict —
+  //   silently fail-open would disable a security-relevant gate on transient
+  //   problems. Per round-1 swarm review: Copilot, Codex, and Gemini all
+  //   converged on this fail-closed-for-non-ENOENT semantic.
   if (result.error?.code === "ENOENT") {
     return {
       ok: true,
@@ -78,8 +87,8 @@ function runStopReview(cwd, input) {
   }
   if (result.error || result.status !== 0) {
     return {
-      ok: true,
-      reason: `Stop-review skipped: gemini exited ${result.status ?? "with error"}: ${(result.stderr ?? "").slice(0, 200) || "unknown error"}`
+      ok: false,
+      reason: `Gemini review failed: ${(result.stderr ?? "").slice(0, 200) || "unknown error (exit " + (result.status ?? "?") + ")"}`
     };
   }
 

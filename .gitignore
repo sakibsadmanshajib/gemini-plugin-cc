@@ -47,5 +47,10 @@ yarn-error.log*
 # Plugin state (generated at runtime)
 state/
 
-docs/
+# Ignore generated/scratch content under docs/ but keep INSTALL.md tracked.
+# Note: gitignoring `docs/` (the directory itself) prevents `!docs/INSTALL.md`
+# from re-including a child — git stops descending once the parent is ignored.
+# Use `docs/*` so the directory itself stays unignored, then exclude only
+# specific files we want to keep tracked.
+docs/*
 !docs/INSTALL.md
