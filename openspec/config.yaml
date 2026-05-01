@@ -29,6 +29,17 @@ context: |
     → add-app-server-transport-and-marketplace-split
     → add-middleware-and-release
 
+  ## Out-of-band changes (parallel track, not on the Stage ladder)
+
+  - `align-gemini-plugin-cli-schema-with-codex` — preparatory cleanup
+    that freezes Codex's `--json` shape and CLI flag taxonomy as a v1
+    baseline (`delegate-plugin-cli-schema/v1`) and makes
+    `gemini-plugin-cc` conform. Hard cut at v0→v1 signaled by a
+    top-level `schemaVersion` field on every `--json` output. Today
+    this carries proposal + design only; specs and tasks land in a
+    follow-up change. Independent of the Stage 1/2 ladder; can ship
+    before, during, or after any of them.
+
   Stage 1 gate (run before starting Stage 2): MockBedrockTransport
   passes the AcpSession conformance suite, one wire-log → fixture →
   regression-test cycle reproduced, mutation score ≥70% on `lib/acp/`
