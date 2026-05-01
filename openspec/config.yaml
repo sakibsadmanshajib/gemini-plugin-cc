@@ -1,0 +1,95 @@
+schema: spec-driven
+
+context: |
+  # acp-plugins-cc
+
+  Modernization of `gemini-plugin-cc` (single-Gemini Claude Code plugin)
+  into `acp-plugins-cc` — a multi-backend ACP plugin suite that lets
+  Claude Code delegate to Gemini, Codex, and Claude itself through one
+  interface (`/<backend>:review`, `/<backend>:rescue`, …).
+
+  ## Current vs target shape
+
+  Today: Node ≥18.18 ESM (`.mjs`), `node --test`, single shell
+  `plugins/gemini/`, no monorepo, no TypeScript, no shared `lib/`.
+
+  Target: pnpm workspace with `lib/` (shared `@artagon/acp-plugin-lib`)
+  + `plugins/{gemini,codex,claude}/` shells. Transports: `cli.mjs`,
+  `sdk.mjs`, `http.mjs`, all conforming to a single `AcpSession`
+  (`lib/acp/types.mjs`). Middleware chain wraps each session:
+  redaction → audit → cost → retry → fallback → cache.
+
+  ## Change ladder (each arrow is a hard prerequisite)
+
+  modernize-toolchain
+    → add-testing-and-observability
+    → add-transport-abstraction-with-gemini   ◄── Stage 1 gate
+    → add-codex-sdk-backend
+    → add-claude-sdk-adapter
+    → add-app-server-transport-and-marketplace-split
+    → add-middleware-and-release
+
+  Stage 1 gate (run before starting Stage 2): MockBedrockTransport
+  passes the AcpSession conformance suite, one wire-log → fixture →
+  regression-test cycle reproduced, mutation score ≥70% on `lib/acp/`
+  and `lib/transport/`, cross-model review on ≥2 PRs per archived
+  Stage 1 proposal, `docs/stage-1-retro.md` written, pivot review.
+
+  Detail lives in `openspec/architecture.md` (layer map, "where to add
+  things"), `openspec/glossary.md` (project-specific terms),
+  `openspec/reviews/round-*.md` (5 rounds of adversarial review whose
+  blocking findings shaped current specs).
+
+  ## Validator gotcha (project-specific)
+
+  The OpenSpec validator scans only the **first body line** of a
+  requirement for SHALL or MUST. Wrapped sentences where the keyword
+  lands on line 2+ silently fail strict validation. When a requirement
+  body needs multiple sentences, ensure SHALL/MUST appears in the first
+  line.
+
+  ## Cross-model review policy
+
+  Stage 1 mandates Codex or Gemini adversarial review on ≥2 PRs per
+  archived proposal. Use `/codex:rescue`, `/gemini:rescue`, or the
+  `gh-meta-review` swarm before archiving any Stage 1 change.
+
+rules:
+  proposal:
+    - Required sections in order — Why, What Changes, Impact,
+      Dependencies, Risks and Mitigations, Estimated Effort, Validation
+      (add Rollback when behavior changes user-visibly).
+    - Capabilities introduced or modified must align with the change
+      ladder above. Before claiming a new capability name, check both
+      `openspec/specs/` (already-archived) and
+      `openspec/changes/*/specs/` (in-flight reservations from sibling
+      changes) — the latter are invisible to `openspec list` but will
+      collide on archive.
+    - Keep proposals to ~2 pages. Implementation detail belongs in
+      `design.md`.
+
+  design:
+    - Required only when a non-trivial decision needs rationale beyond
+      the spec. Skip when proposal + tasks make the approach obvious.
+    - Document alternatives considered and why they were rejected.
+
+  tasks:
+    - Phase-grouped checklist with stable task IDs (T1.1, T1.2, …) so
+      commit messages and PRs can cross-reference.
+    - Each task should be implementable in ≤2 hours. Split larger ones.
+
+  specs:
+    - One `spec.md` per capability under
+      `specs/<capability-name>/spec.md`.
+    - New capabilities use `## ADDED Requirements`; changes to an
+      existing capability use `## MODIFIED Requirements`.
+    - Each `### Requirement:` heading is followed by a body whose
+      **first line contains SHALL or MUST** (validator parses only line
+      one — see context above).
+    - Every requirement has at least one `#### Scenario:` block written
+      GIVEN / WHEN / THEN with bolded step labels.
+    - Cross-references between specs use the post-archive path
+      `openspec/specs/<cap>/spec.md`, since archive moves deltas from
+      `openspec/changes/<id>/specs/<cap>/` into the canonical tree.
+    - Gate before requesting review or archiving:
+      `openspec validate <change-id> --strict`.
