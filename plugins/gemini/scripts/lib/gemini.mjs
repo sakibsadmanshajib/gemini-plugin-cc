@@ -196,6 +196,15 @@ export function getGeminiAvailability() {
  * Check Gemini authentication status.
  * Tries to connect via ACP and call authenticate, falling back to env var check.
  *
+ * CI runs against an ACP-mock `gemini` binary (see `tests/mocks/gemini-mock.mjs`,
+ * inspired by Zed Industries' ACP testbench pattern: a real executable that
+ * speaks the JSON-RPC handshake with canned responses). The mock advertises
+ * `oauth-personal` and answers `authenticate` immediately, so this code path
+ * does not need a separate timeout escape hatch — the mock returns in
+ * milliseconds and the real binary is interactive only when explicitly invoked
+ * by the user. Tests for this function should drive it via the mock, not
+ * stub `process.env` flags.
+ *
  * @param {string} cwd
  * @returns {Promise<{ authenticated: boolean, method: string | null }>}
  */
@@ -213,7 +222,6 @@ export async function getGeminiAuthStatus(cwd) {
     return { authenticated: true, method: "service_account" };
   }
 
-  // Try ACP: connect, inspect authMethods from initialize, then probe each.
   try {
     const client = await GeminiAcpClient.connect(cwd, { disableBroker: true });
     try {

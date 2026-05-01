@@ -20,6 +20,11 @@ import { resolveWorkspaceRoot } from "./workspace.mjs";
 
 const STATE_VERSION = 1;
 const PLUGIN_DATA_ENV = "CLAUDE_PLUGIN_DATA";
+// Claude Code's session lifecycle hook injects CLAUDE_ENV_FILE; Codex never sets it.
+// Using this as the host signal (instead of CLAUDE_PLUGIN_DATA, which a user might
+// export in their shell rc) keeps Codex jobs out of Claude's state tree even when
+// the user has CLAUDE_PLUGIN_DATA set globally.
+const CLAUDE_HOST_SIGNAL_ENV = "CLAUDE_ENV_FILE";
 const FALLBACK_STATE_ROOT_DIR = path.join(os.tmpdir(), "gemini-companion");
 const STATE_FILE_NAME = "state.json";
 const JOBS_DIR_NAME = "jobs";
@@ -48,10 +53,29 @@ function defaultState() {
   };
 }
 
+function isClaudeHost() {
+  // Claude Code's session lifecycle hook injects CLAUDE_ENV_FILE pointing at a
+  // real, existing file. We require both the var to be set AND the path to
+  // actually exist on disk — a stray export of CLAUDE_ENV_FILE in shell rc
+  // pointing at a nonexistent path must NOT count as a Claude signal.
+  const envFile = process.env[CLAUDE_HOST_SIGNAL_ENV];
+  if (!envFile) return false;
+  try {
+    return fs.statSync(envFile).isFile();
+  } catch {
+    return false;
+  }
+}
+
 function stateRootDir() {
-  return process.env[PLUGIN_DATA_ENV]
-    ? path.join(process.env[PLUGIN_DATA_ENV], "state")
-    : FALLBACK_STATE_ROOT_DIR;
+  // Claude Code: use CLAUDE_PLUGIN_DATA only when CLAUDE_ENV_FILE confirms Claude is the host.
+  // Both vars must be set AND CLAUDE_ENV_FILE must point at a real file (the
+  // session.env Claude's hook actually wrote). This prevents a user-exported
+  // CLAUDE_PLUGIN_DATA from pulling Codex into Claude's state tree.
+  if (isClaudeHost() && process.env[PLUGIN_DATA_ENV]) {
+    return path.join(process.env[PLUGIN_DATA_ENV], "state");
+  }
+  return FALLBACK_STATE_ROOT_DIR;
 }
 
 export function resolveStateDir(cwd) {

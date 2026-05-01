@@ -19,8 +19,8 @@ export function sortJobsNewestFirst(jobs) {
   return [...jobs].sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
 }
 
-export function filterJobsForCurrentSession(jobs) {
-  const sessionId = process.env[SESSION_ID_ENV] ?? null;
+export function filterJobsForCurrentSession(jobs, env = process.env) {
+  const sessionId = env[SESSION_ID_ENV] ?? null;
   if (!sessionId) {
     return jobs;
   }
@@ -203,7 +203,7 @@ export function buildStatusSnapshot(cwd, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const config = getConfig(workspaceRoot);
   const allJobs = sortJobsNewestFirst(listJobs(workspaceRoot));
-  const sessionJobs = filterJobsForCurrentSession(allJobs);
+  const sessionJobs = filterJobsForCurrentSession(allJobs, options.env);
   const maxJobs = options.maxJobs ?? DEFAULT_MAX_STATUS_JOBS;
 
   const running = sessionJobs
@@ -251,10 +251,10 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
   };
 }
 
-export function resolveResultJob(cwd, reference) {
+export function resolveResultJob(cwd, reference, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(
-    reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot))
+    reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot), options.env)
   );
   const selected = matchJobReference(
     jobs,

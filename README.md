@@ -1,6 +1,26 @@
-# Gemini Plugin for Claude Code
+# Gemini Plugin for Claude Code (and Codex CLI)
 
-Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to review code or delegate tasks.
+Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **or** [Codex CLI](https://developers.openai.com/codex/cli) to review code or delegate tasks. One runtime; both hosts.
+
+**Install:** see [`docs/INSTALL.md`](docs/INSTALL.md) for the full recipe covering both Claude Code and Codex CLI. Short version (Codex) — add this to `~/.agents/plugins/marketplace.json`:
+
+```json
+{
+  "name": "personal",
+  "interface": { "displayName": "Personal plugins" },
+  "plugins": [
+    {
+      "name": "gemini",
+      "source": { "source": "local", "path": "<absolute path to this repo>/plugins/gemini" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity",
+      "interface": { "displayName": "Gemini Integration" }
+    }
+  ]
+}
+```
+
+Then run `codex` → `/plugins` → install. The plugin ships `.codex-plugin/plugin.json` (canonical Codex location) and `.claude-plugin/plugin.json` (byte-identical, used by Claude Code).
 
 **Why bring Gemini into Claude Code?** Gemini 2.5 Pro offers a 1M-token context window, a distinct reasoning style, and strong code analysis — making it a useful second opinion alongside Claude. Instead of switching tools, you get both models collaborating in the same session: Claude drives, Gemini reviews or investigates, results come back inline.
 

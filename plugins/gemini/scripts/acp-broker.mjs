@@ -19,6 +19,12 @@ import { pathToFileURL } from "node:url";
 
 import { parseArgs } from "./lib/args.mjs";
 import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import { getPluginInfo } from "./lib/plugin-info.mjs";
+
+// Broker advertises itself as "<plugin-name>-broker" so peers can distinguish
+// the broker layer from the direct ACP client. Version follows the plugin's.
+const _info = getPluginInfo();
+const BROKER_INFO = { name: `${_info.name}-broker`, version: _info.version };
 import {
   attachStderrDiagnosticCollector,
   BROKER_DIAGNOSTIC_METHOD,
@@ -134,10 +140,7 @@ function spawnAcpProcess(cwd) {
     id: initId,
     method: "initialize",
     params: {
-      clientInfo: {
-        name: "gemini-plugin-cc-broker",
-        version: "1.0.0"
-      }
+      clientInfo: BROKER_INFO
     }
   });
 
@@ -292,10 +295,7 @@ function handleClientMessage(socket, line) {
       id: message.id ?? null,
       result: {
         capabilities: {},
-        serverInfo: {
-          name: "gemini-plugin-cc-broker",
-          version: "1.0.0"
-        }
+        serverInfo: BROKER_INFO
       }
     });
     return;
