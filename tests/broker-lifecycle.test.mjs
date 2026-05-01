@@ -142,25 +142,37 @@ test("ensureBrokerSession: dead endpoint tears down old session before respawn a
   const fixture = await setupFakeBroker({ withLiveListener: false });
 
   // Pin a load-bearing precondition: the old session file IS on disk before
-  // ensureBrokerSession runs. This is what ensures the post-condition below
-  // is meaningful — we're proving teardown removed it, not that it never
-  // existed.
+  // ensureBrokerSession runs, with a fake-socket endpoint that no live
+  // broker would ever emit (the test's setupFakeBroker uses a path under
+  // `gem-be-`).
   assert.ok(fs.existsSync(fixture.sessionFile),
     "precondition: stale session file must be on disk before ensureBrokerSession runs");
+  const oldEndpoint = fixture.endpoint;
+  assert.ok(oldEndpoint && oldEndpoint.includes("gem-be-"),
+    `precondition: fixture endpoint must point at the test's short-temp socket; got ${oldEndpoint}`);
 
   // Run with a generous timeout so behavior does not depend on whether the
   // real `acp-broker.mjs` happens to start in <Xms on the runner. macOS and
-  // Ubuntu have very different broker-spawn timings; the IMPORTANT invariant
-  // is purely teardown-of-old-session, not whether the new spawn succeeds.
+  // Ubuntu have very different broker-spawn timings.
   const result = await ensureBrokerSession(fixture.workspace, {
     timeoutMs: 5000,
     killProcess: () => {}
   });
 
-  // Load-bearing invariant: the OLD session file is gone. Teardown happened
-  // before respawn was attempted.
-  assert.ok(!fs.existsSync(fixture.sessionFile),
-    "old session file must be removed before spawn is attempted");
+  // Load-bearing invariant: whatever is at `sessionFile` post-call is NOT
+  // the old session content. Two valid post-states:
+  //   (a) Spawn timed out (slow runner): file is absent — clearBrokerSession
+  //       ran, no replacement landed.
+  //   (b) Spawn succeeded (fast runner): file exists but holds a NEW session
+  //       with a different endpoint pointing at the real broker's socket.
+  // Both states prove teardown happened. What FAILS this assertion is the
+  // "no teardown" bug — the old fake-socket endpoint still being in the file.
+  if (fs.existsSync(fixture.sessionFile)) {
+    const onDisk = JSON.parse(fs.readFileSync(fixture.sessionFile, "utf8"));
+    assert.notEqual(onDisk.endpoint, oldEndpoint,
+      `teardown invariant violated: old session endpoint (${oldEndpoint}) is still on disk after ensureBrokerSession ran (state b would have a different endpoint, state a would have no file)`);
+  }
+  // else: state (a) — file is absent, teardown unambiguously happened.
 
   // If spawn succeeded (a fresh broker is now running), tear it down so the
   // test does not leave a zombie process behind.
