@@ -62,13 +62,20 @@ permissions:
 
 jobs:
   integration:
-    name: install (${{ matrix.os }}, node-${{ matrix.node-version }})
-    runs-on: ${{ matrix.os }}
+    # Linux-only: macOS runner minutes bill at ~10× Linux on GitHub-hosted
+    # runners (https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions).
+    # The plugin runtime is platform-portable Node — Linux runs catch the
+    # vast majority of platform regressions; macOS-specific behaviors
+    # (Unix socket path 104-char limit, BSD vs GNU `find`/`stat`) live in
+    # tests already exercised against `os.tmpdir()` and `node:path`. If a
+    # macOS-only regression is suspected, run install.yml manually via
+    # workflow_dispatch on a fork.
+    name: install (ubuntu-latest, node-${{ matrix.node-version }})
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         node-version: [20.x, 22.x]
 
     steps:
