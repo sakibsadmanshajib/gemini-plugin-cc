@@ -137,29 +137,49 @@ test("ensureBrokerSession: live endpoint returns existing session (single probe,
 });
 
 test("ensureBrokerSession: dead endpoint tears down old session before respawn attempt", async () => {
-  const { ensureBrokerSession } = await import(path.join(LIB_DIR, "broker-lifecycle.mjs"));
+  const { ensureBrokerSession, teardownBrokerSession } = await import(path.join(LIB_DIR, "broker-lifecycle.mjs"));
   // No listener — endpoint is dead.
   const fixture = await setupFakeBroker({ withLiveListener: false });
 
-  // Spawn will try to start a real broker, which we don't want to actually
-  // happen in a test. Use a minimal timeout so it bails fast.
+  // Pin a load-bearing precondition: the old session file IS on disk before
+  // ensureBrokerSession runs. This is what ensures the post-condition below
+  // is meaningful — we're proving teardown removed it, not that it never
+  // existed.
+  assert.ok(fs.existsSync(fixture.sessionFile),
+    "precondition: stale session file must be on disk before ensureBrokerSession runs");
+
+  // Run with a generous timeout so behavior does not depend on whether the
+  // real `acp-broker.mjs` happens to start in <Xms on the runner. macOS and
+  // Ubuntu have very different broker-spawn timings; the IMPORTANT invariant
+  // is purely teardown-of-old-session, not whether the new spawn succeeds.
   const result = await ensureBrokerSession(fixture.workspace, {
-    timeoutMs: 100,
+    timeoutMs: 5000,
     killProcess: () => {}
   });
 
-  // Result is null because the spawn timed out, but the IMPORTANT invariant
-  // is that the OLD session file is gone (teardown happened before spawn).
-  assert.equal(result, null,
-    "spawn must time out (returns null) since we use 100ms and broker isn't real");
+  // Load-bearing invariant: the OLD session file is gone. Teardown happened
+  // before respawn was attempted.
   assert.ok(!fs.existsSync(fixture.sessionFile),
     "old session file must be removed before spawn is attempted");
+
+  // If spawn succeeded (a fresh broker is now running), tear it down so the
+  // test does not leave a zombie process behind.
+  if (result) {
+    teardownBrokerSession({
+      endpoint: result.endpoint,
+      pidFile: result.pidFile,
+      logFile: result.logFile,
+      sessionDir: result.sessionDir,
+      pid: result.pid,
+      killProcess: (pid) => { try { process.kill(pid); } catch { /* ignore */ } }
+    });
+  }
 
   await fixture.cleanup();
 });
 
-test("ensureBrokerSession: no prior session — spawn path is taken", async () => {
-  const { ensureBrokerSession } = await import(path.join(LIB_DIR, "broker-lifecycle.mjs"));
+test("ensureBrokerSession: no prior session — spawn path does not throw on empty state", async () => {
+  const { ensureBrokerSession, teardownBrokerSession } = await import(path.join(LIB_DIR, "broker-lifecycle.mjs"));
   delete process.env[CLAUDE_HOST_SIGNAL_ENV];
   delete process.env[CLAUDE_PLUGIN_DATA_ENV];
 
@@ -172,11 +192,26 @@ test("ensureBrokerSession: no prior session — spawn path is taken", async () =
   const sessionFile = path.join(stateDir, BROKER_SESSION_FILENAME);
   assert.ok(!fs.existsSync(sessionFile), "precondition: no session file");
 
-  // Spawn will time out fast in the test environment — we just verify the
-  // function doesn't throw on an empty state.
-  const result = await ensureBrokerSession(workspace, { timeoutMs: 100 });
-  assert.equal(result, null,
-    "spawn times out in test env (expected); important is no throw on empty state");
+  // Use a generous timeout so the test is timing-insensitive across platforms.
+  // Whether spawn succeeds in 100ms (Ubuntu) or 2000ms (macOS) is platform
+  // detail; the load-bearing invariant is "no throw on empty state".
+  let result;
+  await assert.doesNotReject(
+    async () => { result = await ensureBrokerSession(workspace, { timeoutMs: 5000 }); },
+    "ensureBrokerSession must not throw when invoked with no prior session"
+  );
+
+  // Tear down any broker we accidentally spawned so the test is hermetic.
+  if (result) {
+    teardownBrokerSession({
+      endpoint: result.endpoint,
+      pidFile: result.pidFile,
+      logFile: result.logFile,
+      sessionDir: result.sessionDir,
+      pid: result.pid,
+      killProcess: (pid) => { try { process.kill(pid); } catch { /* ignore */ } }
+    });
+  }
 
   fs.rmSync(workspace, { recursive: true, force: true });
 });
