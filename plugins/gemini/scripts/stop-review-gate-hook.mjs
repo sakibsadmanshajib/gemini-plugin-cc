@@ -19,6 +19,7 @@ import { getConfig, listJobs } from "./lib/state.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import { loadPrompt } from "./lib/prompts.mjs";
 import { runCommand } from "./lib/process.mjs";
+import { VERDICT, parseVerdict } from "./lib/review-gate-verdict.mjs";
 
 function readHookInput() {
   const raw = fs.readFileSync(0, "utf8").trim();
@@ -94,13 +95,14 @@ function runStopReview(cwd, input) {
 
   const output = result.stdout.trim();
   const firstLine = output.split("\n")[0] ?? "";
+  const verdict = parseVerdict(firstLine);
 
-  if (firstLine.startsWith("ALLOW:")) {
-    return { ok: true, reason: firstLine };
+  if (verdict.kind === "allow") {
+    return { ok: true, reason: verdict.reason };
   }
 
-  if (firstLine.startsWith("BLOCK:")) {
-    return { ok: false, reason: firstLine };
+  if (verdict.kind === "block") {
+    return { ok: false, reason: verdict.reason };
   }
 
   // If the output doesn't match expected format, allow by default.
@@ -155,6 +157,15 @@ function main() {
     return;
   }
 
+  // Surface the success-path reason on stderr so the user sees WHY the gate
+  // was skipped or allowed (per Copilot review on artagon PR #1: review.reason
+  // was previously dropped when review.ok was true, leaving the user with no
+  // signal that ENOENT had silenced the gate). Skip the noisy ALLOW: case
+  // (genuine pass-through from Gemini) — only log when the reason explains
+  // a SKIP or a format issue.
+  if (review.reason && !review.reason.startsWith(VERDICT.ALLOW)) {
+    logNote(review.reason);
+  }
   logNote(runningTaskNote);
 }
 

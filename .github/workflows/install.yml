@@ -85,26 +85,42 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
 
-      - name: Install Gemini CLI globally
-        # The install-integration tests invoke `gemini-companion.mjs setup`
-        # which probes for the `gemini` binary on PATH. Without it, the
-        # setup test asserts geminiAvailable=false but still passes (the
-        # runtime returns a setup-message rather than failing). With it
-        # installed we additionally verify the runtime can dispatch a real
-        # binary. Either path proves the integration; we install for
-        # stronger coverage.
+      - name: Install ACP-mock gemini binary on PATH (Zed-style testbench)
+        # We deliberately do NOT install the real @google/gemini-cli on CI.
+        # The real binary's auth probe (`getGeminiAuthStatus` -> ACP
+        # `authenticate` request) hangs indefinitely on runners that have no
+        # network reach to Google's OAuth endpoints — the JSON-RPC request
+        # has no native timeout, so the test step would wedge at 30s.
+        #
+        # Instead, we shadow `gemini` with a real executable that speaks
+        # the ACP JSON-RPC handshake with canned responses (see
+        # `tests/mocks/gemini-mock.mjs` and Zed Industries' agent-server
+        # testbench for the pattern). The runtime cannot tell it's a mock —
+        # `spawn("gemini", ["--acp"])` resolves via PATH lookup and gets
+        # JSON-RPC framing on stdio, exactly like the real binary.
         run: |
-          npm install -g @google/gemini-cli
-          gemini --version
-        continue-on-error: true
+          MOCK_BIN_DIR="${{ runner.temp }}/gemini-mock-bin"
+          mkdir -p "$MOCK_BIN_DIR"
+          MOCK_PATH="$GITHUB_WORKSPACE/tests/mocks/gemini-mock.mjs"
+          # Expose as a shell wrapper rather than a symlink so the
+          # `#!/usr/bin/env node` shebang fires on every platform.
+          cat > "$MOCK_BIN_DIR/gemini" <<EOF
+          #!/usr/bin/env bash
+          exec node "$MOCK_PATH" "\$@"
+          EOF
+          chmod +x "$MOCK_BIN_DIR/gemini"
+          # Prepend to PATH for all subsequent steps.
+          echo "$MOCK_BIN_DIR" >> "$GITHUB_PATH"
+          # Smoke check (uses the just-staged binary via direct path —
+          # GITHUB_PATH only takes effect on the NEXT step).
+          "$MOCK_BIN_DIR/gemini" --version
 
-      - name: Verify Gemini CLI presence (informational)
+      - name: Verify ACP-mock presence (informational)
         run: |
-          if command -v gemini >/dev/null 2>&1; then
-            echo "gemini CLI: $(gemini --version)"
-          else
-            echo "gemini CLI not on PATH; tests will exercise the unavailable path"
-          fi
+          echo "gemini binary: $(command -v gemini || echo 'NOT FOUND')"
+          echo "gemini --version: $(gemini --version)"
+          # The mock advertises a synthetic version; tests don't pin exact
+          # values, only that the runtime sees `geminiAvailable=true`.
 
       - name: Install plugin dependencies
         # The plugin has zero npm runtime deps (tests use only Node 20+

@@ -222,5 +222,20 @@ test("stop-review-gate-hook: fails OPEN on ENOENT (gemini binary missing)", asyn
     }
   }
 
+  // Per Copilot review on artagon PR #1: when the gate is toggled on but
+  // `gemini` is missing from PATH, the user MUST see WHY review didn't run.
+  // The hook surfaces this via two complementary paths:
+  //   1. `buildSetupNote()` (the precheck) — fires when the binary is
+  //      missing from PATH at hook entry; emits "Gemini CLI is not
+  //      installed. Run /gemini:setup to install." on stderr.
+  //   2. `runStopReview` ENOENT branch — fires for races where the
+  //      precheck saw the binary but the actual spawn lost it; emits
+  //      "Stop-review skipped: `gemini` CLI not on PATH..." on stderr.
+  // In real environments missing-from-PATH lands on path 1; the runStopReview
+  // ENOENT branch is a defensive safety net for the racy case.
+  const stderr = result.stderr ?? "";
+  assert.match(stderr, /(Gemini CLI is not installed|Stop-review skipped.*gemini.*PATH)/i,
+    `Missing-binary skip reason must surface on stderr (either via setupNote or runStopReview ENOENT branch); got stderr=${JSON.stringify(stderr)}`);
+
   fixture.cleanup();
 });
