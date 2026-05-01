@@ -391,14 +391,47 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
     return m;
   }
 
+  /**
+   * Shape enforcement (round-2 swarm Codex MISSED): each host's marketplace
+   * uses a SPECIFIC source-shape per its respective plugin spec. Codex
+   * requires the structured object form; Claude Code uses the bare string
+   * form. Without per-host shape enforcement, a host regressing to the
+   * wrong shape (e.g., Codex descriptor with a string source) would be
+   * silently accepted by `extractSourcePath`'s union normalization. The
+   * test below asserts the shape FIRST, then proceeds to path validation.
+   *
+   * @param {string} host - "Codex" or "Claude"
+   * @param {unknown} src - the plugin's `source` field
+   */
+  function assertSourceShape(host, src) {
+    if (host === "Codex") {
+      assert.equal(typeof src, "object",
+        `Codex marketplace source MUST be object form per OpenAI Codex plugin spec ` +
+        `(https://developers.openai.com/codex/plugins/build); got ${typeof src}`);
+      assert.ok(src !== null,
+        `Codex marketplace source must not be null; entry: ${JSON.stringify(src)}`);
+      assert.equal(src.source, "local",
+        `Codex marketplace source.source MUST be "local" for local plugins; got '${src.source}'`);
+      assert.equal(typeof src.path, "string",
+        `Codex marketplace source.path MUST be string; got ${typeof src.path}`);
+    } else if (host === "Claude") {
+      assert.equal(typeof src, "string",
+        `Claude marketplace source MUST be bare string per Claude Code plugin spec; ` +
+        `got ${typeof src} (entry: ${JSON.stringify(src)})`);
+    } else {
+      assert.fail(`unknown host label: ${host}`);
+    }
+  }
+
   function extractSourcePath(plugin, label) {
     const src = plugin.source;
-    // Codex marketplace: `{source: "local", path: "./..."}` (structured); Claude
-    // marketplace: `"./..."` (string). Both forms valid per ecosystem precedent.
+    // Codex: `{source: "local", path: "./..."}` (structured object).
+    // Claude: `"./..."` (bare string). Shape was already enforced by
+    // assertSourceShape above; this normalizer just unifies the path.
     const srcPath = typeof src === "string" ? src : src?.path;
     assert.ok(srcPath, `${label} plugin entry must have source path; entry: ${JSON.stringify(plugin)}`);
     assert.ok(srcPath.startsWith("./"),
-      `${label} source path must be relative with ./ prefix per Codex docs; got '${srcPath}'`);
+      `${label} source path must be relative with ./ prefix per spec; got '${srcPath}'`);
     return srcPath;
   }
 
@@ -413,10 +446,16 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
   const codex = readMarketplace("Codex (.agents/plugins/)", codexMarketplacePath);
   const claude = readMarketplace("Claude (.claude-plugin/)", claudeMarketplacePath);
 
-  // Per-file: every plugin entry has a valid `./`-prefixed source path
-  // pointing at a real directory.
-  for (const plugin of codex.plugins) assertSourceDirExists("Codex", extractSourcePath(plugin, "Codex"));
-  for (const plugin of claude.plugins) assertSourceDirExists("Claude", extractSourcePath(plugin, "Claude"));
+  // Per-file: shape enforcement FIRST (catches host-shape regressions),
+  // THEN path validation.
+  for (const plugin of codex.plugins) {
+    assertSourceShape("Codex", plugin.source);
+    assertSourceDirExists("Codex", extractSourcePath(plugin, "Codex"));
+  }
+  for (const plugin of claude.plugins) {
+    assertSourceShape("Claude", plugin.source);
+    assertSourceDirExists("Claude", extractSourcePath(plugin, "Claude"));
+  }
 
   // Cross-file parity: the two descriptors must agree on plugin identity.
   // We don't require the marketplace `name` field to match (each host has its own

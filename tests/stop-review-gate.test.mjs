@@ -116,6 +116,46 @@ function stageFailingGeminiShim() {
 }
 
 /**
+ * Stage a `gemini` shim that exits 0 with a stdout line that does NOT
+ * start with `ALLOW:` or `BLOCK:` (the verdict tokens defined in
+ * `lib/review-gate-verdict.mjs`). This drives the hook's success-path
+ * unknown-format branch — `parseVerdict` returns `kind: "unknown"`,
+ * `runStopReview` returns `{ ok: true, reason: "Gemini response did not
+ * match expected format..." }`, and `main()` MUST surface that reason
+ * via `logNote()` (round-2 swarm Codex DISAGREE + Gemini D1 — the
+ * actual Copilot #4 fix at hook lines 160-169).
+ *
+ * @param {string} stdoutLine - the line the shim emits on stdout (no
+ *   trailing newline; the shim adds one)
+ */
+function stageMalformedGeminiShim(stdoutLine = "WEIRD: not a verdict") {
+  const shimDir = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-shim-malformed-"));
+  const shimPath = path.join(shimDir, "gemini");
+  // Two-line shim: a `--version` probe answers cleanly so binaryAvailable()
+  // / setupNote precheck both pass; otherwise echo the malformed verdict
+  // line and exit 0. The hook spawns `gemini -p <prompt> --output-format
+  // text --approval-mode plan`, so we match on absence of `--version`.
+  const shimSource = [
+    "#!/bin/sh",
+    "for arg in \"$@\"; do",
+    "  if [ \"$arg\" = \"--version\" ]; then",
+    "    echo '0.0.0-shim'",
+    "    exit 0",
+    "  fi",
+    "done",
+    `echo '${stdoutLine.replace(/'/g, "'\\''")}'`,
+    "exit 0",
+    ""
+  ].join("\n");
+  fs.writeFileSync(shimPath, shimSource, { mode: 0o755 });
+  return {
+    shimDir,
+    pathOverride: shimDir,
+    cleanup: () => fs.rmSync(shimDir, { recursive: true, force: true })
+  };
+}
+
+/**
  * PATH that contains essentials (node, git) but NO `gemini` binary.
  *
  * We can't pass an empty PATH or rely on hard-coded /usr/bin — node lives
@@ -238,4 +278,76 @@ test("stop-review-gate-hook: fails OPEN on ENOENT (gemini binary missing)", asyn
     `Missing-binary skip reason must surface on stderr (either via setupNote or runStopReview ENOENT branch); got stderr=${JSON.stringify(stderr)}`);
 
   fixture.cleanup();
+});
+
+test("stop-review-gate-hook: surfaces 'did not match expected format' reason on stderr (Copilot #4 — round-2 swarm)", async () => {
+  // Round-2 swarm finding (Codex DISAGREE + Gemini D1): the success-path
+  // `logNote(review.reason)` branch at hook lines 160-169 is the actual
+  // Copilot #4 fix — but the previous tests only exercised either the
+  // precheck `setupNote` branch (when gemini is absent) or the fail-CLOSED
+  // non-zero-exit branch. Neither reaches `runStopReview`'s success-path
+  // unknown-format branch.
+  //
+  // This test pins it: stage a `gemini` shim that exits 0 with stdout that
+  // does NOT start with VERDICT.ALLOW or VERDICT.BLOCK. Hook must:
+  //   1. Pass `binaryAvailable("gemini")` precheck (shim is on PATH)
+  //   2. Pass `getGeminiAuthStatus` (no-op — shim doesn't speak ACP, but
+  //      the auth probe lives in `setup`, not the stop-review-gate path)
+  //   3. Run `runStopReview` → `parseVerdict` returns kind: "unknown"
+  //   4. Return { ok: true, reason: "Gemini response did not match
+  //      expected format..." }
+  //   5. main() filter `!review.reason.startsWith(VERDICT.ALLOW)` is true
+  //      → logNote(review.reason) fires → stderr contains the reason
+  const fixture = await setupWorkspaceWithGateEnabled();
+  const shim = stageMalformedGeminiShim("WEIRD: not a verdict");
+
+  const hookInput = JSON.stringify({
+    cwd: fixture.workspace,
+    stopHookInput: { claudeResponse: "I changed src/foo.js to do X." }
+  });
+
+  const result = spawnSync(process.execPath, [HOOK_SCRIPT], {
+    cwd: fixture.workspace,
+    input: hookInput,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH: shim.pathOverride + ":" + pathWithoutGemini(),
+      CLAUDE_PROJECT_DIR: fixture.workspace,
+      CLAUDE_ENV_FILE: "",
+      CLAUDE_PLUGIN_DATA: ""
+    },
+    timeout: 15_000
+  });
+
+  assert.equal(result.status, 0,
+    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`);
+
+  // Must NOT be a block decision — gate is fail-OPEN on unknown-format
+  // (per the existing comment at hook line 106-107).
+  const stdout = (result.stdout ?? "").trim();
+  if (stdout.length > 0) {
+    let decision;
+    try {
+      decision = JSON.parse(stdout.split("\n").pop());
+    } catch {
+      decision = null;
+    }
+    if (decision) {
+      assert.notEqual(decision.decision, "block",
+        `unknown-format response must NOT block; got block decision: ${JSON.stringify(decision)}`);
+    }
+  }
+
+  // Load-bearing assertion (Copilot #4): the success-path skip reason
+  // MUST surface on stderr via main()'s logNote(review.reason). The
+  // reason string is set at hook line 107 and starts with "Gemini
+  // response did not match expected format. Allowing.".
+  const stderr = result.stderr ?? "";
+  assert.match(stderr, /Gemini response did not match expected format/i,
+    `Copilot #4 fix at hook lines 160-169 must surface unknown-format reason ` +
+    `on stderr via logNote(review.reason); got stderr=${JSON.stringify(stderr)}`);
+
+  fixture.cleanup();
+  shim.cleanup();
 });
