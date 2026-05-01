@@ -1,13 +1,5 @@
 # Review Round 5 — Implementation Realist
 
-> **Editor's note (2026-05-01):** This record references
-> `openspec/project.md`, which OpenSpec 1.3 replaced with
-> `openspec/config.yaml` (the `context:` section). The full operational
-> content (DAG, effort tables, capability matrix, stage-gate checklist)
-> was preserved at `docs/agent-cli-design.md`. Read action items below
-> as targeting whichever of those two locations now holds the
-> referenced content.
-
 **Reviewer lens**: someone who has shipped multi-backend agent
 infrastructure before. They look at the spec, they look at the
 estimate, they look at the task list, and they ask: is this
@@ -142,8 +134,9 @@ Two practical options:
 The plan implies sequencing but doesn't say. If parallel, the
 scope of "testing-only blocking" needs to be explicit.
 
-**Fix**: project.md adds a note: "proposals 2 and 3 may overlap
-once testing harness primitives ship." Or commit to sequencing.
+**Fix**: docs/agent-cli-design.md adds a note: "proposals 2 and 3 may
+overlap once testing harness primitives ship." Or commit to
+sequencing.
 
 ### M-6: Estimates assume single engineer; pivot policy assumes one too
 

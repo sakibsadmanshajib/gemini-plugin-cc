@@ -1,13 +1,5 @@
 # Review Round 4 — Future Maintainer
 
-> **Editor's note (2026-05-01):** This record references
-> `openspec/project.md`, which OpenSpec 1.3 replaced with
-> `openspec/config.yaml` (the `context:` section). The full operational
-> content (DAG, effort tables, capability matrix, stage-gate checklist)
-> was preserved at `docs/agent-cli-design.md`. Read action items below
-> as targeting whichever of those two locations now holds the
-> referenced content.
-
 **Reviewer lens**: a contributor joining the project six months from
 now reads only the OpenSpec workspace. Can they figure out:
 - the system's architecture
@@ -26,7 +18,7 @@ the spec leaves them stuck.
 
 ### B-1: Capability index is incomplete
 
-`project.md` lists capabilities by name but doesn't:
+`docs/agent-cli-design.md` lists capabilities by name but doesn't:
 - show which change introduced each
 - link to the spec file
 - distinguish ADDED from MODIFIED
@@ -34,7 +26,7 @@ the spec leaves them stuck.
 A maintainer searching for "where is `feature-flags` defined" must
 grep across all proposals.
 
-**Fix**: amend `project.md` with a capability matrix:
+**Fix**: amend `docs/agent-cli-design.md` with a capability matrix:
 
 | Capability | Introduced in | Modified by |
 |---|---|---|
@@ -65,8 +57,8 @@ maintainer needs:
 - a "where to add X" guide
 
 **Fix**: create `openspec/architecture.md` summarizing the layered
-shape. Reference from `project.md`. Each proposal references this
-doc rather than re-explaining.
+shape. Reference from `docs/agent-cli-design.md`. Each proposal
+references this doc rather than re-explaining.
 
 ### M-4: Glossary missing
 
@@ -76,7 +68,7 @@ shell, marketplace. A new maintainer who knows generic ACP context
 can guess; one without ACP context is lost.
 
 **Fix**: `openspec/glossary.md` with definitions of project-specific
-terms. Linked from `project.md`.
+terms. Linked from `docs/agent-cli-design.md`.
 
 ### M-5: The dependency DAG is implicit
 
@@ -84,7 +76,7 @@ Round 1 noted this. Re-emphasized: a future maintainer needs to know
 "what order do I read these in." Currently must read each proposal's
 "Dependencies" section.
 
-**Fix**: explicit DAG in `project.md`.
+**Fix**: explicit DAG in `docs/agent-cli-design.md`.
 
 ---
 
@@ -238,13 +230,13 @@ permanent open issues that fade into background.
 7 proposals, 18 findings (5 blocking, 9 major, 4 notes).
 
 **Blockers worth applying**:
-1. Capability matrix in project.md (B-1)
+1. Capability matrix in docs/agent-cli-design.md (B-1)
 2. Cross-reference path standardization for archive (B-2 — note for
    archive process)
 3. Architecture overview doc (M-3, promoted to blocker because future
    maintainers genuinely cannot navigate without it)
 4. Glossary (M-4, similarly promoted)
-5. Dependency DAG explicit in project.md (M-5)
+5. Dependency DAG explicit in docs/agent-cli-design.md (M-5)
 6. Translator interface contract (M-4.1)
 7. /agent:* ownership (M-7.2)
 

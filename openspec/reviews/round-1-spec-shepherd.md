@@ -1,13 +1,5 @@
 # Review Round 1 — Spec Shepherd
 
-> **Editor's note (2026-05-01):** This record references
-> `openspec/project.md`, which OpenSpec 1.3 replaced with
-> `openspec/config.yaml` (the `context:` section). The full operational
-> content (DAG, effort tables, capability matrix, stage-gate checklist)
-> was preserved at `docs/agent-cli-design.md`. Read action items below
-> as targeting whichever of those two locations now holds the
-> referenced content.
-
 **Reviewer lens**: structural integrity, requirement clarity, scenario
 completeness, OpenSpec format adherence.
 
@@ -51,14 +43,14 @@ under `## MODIFIED Requirements` in spec deltas, not as new
 to include `## MODIFIED Requirements` for the affected requirements
 from `monorepo-shape` and `feature-flags`.
 
-### M-3: Project.md doesn't list the dependency graph
+### M-3: Project plan doesn't list the dependency graph
 
-`openspec/project.md` lists 7 changes but doesn't show the dependency
-ordering. A reader must read each `proposal.md`'s "Dependencies"
-section to reconstruct the graph.
+`docs/agent-cli-design.md` lists 7 changes but doesn't show the
+dependency ordering. A reader must read each `proposal.md`'s
+"Dependencies" section to reconstruct the graph.
 
-**Fix**: add a small DAG to `project.md` showing prerequisite
-relationships.
+**Fix**: add a small DAG to `docs/agent-cli-design.md` showing
+prerequisite relationships.
 
 ### N-4: No validation script provided
 
