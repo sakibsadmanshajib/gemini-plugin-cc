@@ -1,0 +1,141 @@
+name: install
+
+# Plugin install integration tests — runs gemini-companion.mjs end-to-end
+# against the actual Gemini CLI binary under both env shapes (Claude Code
+# and Codex CLI). Separate from `test.yml` because:
+#   1. These tests require @google/gemini-cli to be installed.
+#   2. They take longer (~12s) due to spawning gemini under each env shape.
+#   3. They cover the install/host-detection contract (Claude env shape vs
+#      Codex env shape) which is a separate concern from runtime logic tests.
+#
+# Security note: this workflow uses NO `${{ github.event.* }}` or other
+# user-controlled interpolation in `run:` blocks. All template expansions
+# are GitHub-managed values (runner.temp, matrix, etc.). The only env vars
+# set by `run:` come from previously-set `env:` blocks or matrix values —
+# never from PR/issue/commit user-supplied content. This avoids the
+# command-injection class documented at
+# https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'SKILL.md'
+      - 'agents/**'
+      - 'plugins/gemini/scripts/**'
+      - 'plugins/gemini/.codex-plugin/**'
+      - 'plugins/gemini/.claude-plugin/**'
+      - 'tests/install*.mjs'
+      - 'tests/broker-reaper.test.mjs'
+      - 'tests/plugin-info.test.mjs'
+      - '.github/workflows/install.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'SKILL.md'
+      - 'agents/**'
+      - 'plugins/gemini/scripts/**'
+      - 'plugins/gemini/.codex-plugin/**'
+      - 'plugins/gemini/.claude-plugin/**'
+      - 'tests/install*.mjs'
+      - 'tests/broker-reaper.test.mjs'
+      - 'tests/plugin-info.test.mjs'
+      - '.github/workflows/install.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: install (${{ matrix.os }}, node-${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node-version: [20.x, 22.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          git config --global init.defaultBranch main
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install Gemini CLI globally
+        # The install-integration tests invoke `gemini-companion.mjs setup`
+        # which probes for the `gemini` binary on PATH. Without it, the
+        # setup test asserts geminiAvailable=false but still passes (the
+        # runtime returns a setup-message rather than failing). With it
+        # installed we additionally verify the runtime can dispatch a real
+        # binary. Either path proves the integration; we install for
+        # stronger coverage.
+        run: |
+          npm install -g @google/gemini-cli
+          gemini --version
+        continue-on-error: true
+
+      - name: Verify Gemini CLI presence (informational)
+        run: |
+          if command -v gemini >/dev/null 2>&1; then
+            echo "gemini CLI: $(gemini --version)"
+          else
+            echo "gemini CLI not on PATH; tests will exercise the unavailable path"
+          fi
+
+      - name: Install plugin dependencies
+        # The plugin has zero npm runtime deps (tests use only Node 20+
+        # built-ins). This step exists to surface any future dep additions.
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "no package-lock.json; running without install"
+          fi
+
+      - name: Run upstream test suite (regression baseline)
+        run: npm test
+
+      - name: Run install-integration tests under Claude env shape
+        env:
+          # Simulate Claude Code: BOTH host-signal env vars must be set for
+          # the runtime to treat this as Claude. Setting only CLAUDE_PLUGIN_DATA
+          # leaves the runtime in Codex mode (defense against shell-rc exports).
+          # CLAUDE_ENV_FILE must point at a real file — the runtime stat()s it.
+          CLAUDE_ENV_FILE: ${{ runner.temp }}/claude-plugin-data/session.env
+          CLAUDE_PLUGIN_DATA: ${{ runner.temp }}/claude-plugin-data
+        run: |
+          mkdir -p "$CLAUDE_PLUGIN_DATA"
+          # Create the session.env file the runtime will stat().
+          printf "# Claude session env\n" > "$CLAUDE_ENV_FILE"
+          node --test tests/install.test.mjs
+
+      - name: Run install-integration tests under Codex env shape
+        run: |
+          # Simulate Codex: BOTH host-signal env vars explicitly unset
+          # (workflow `env:` cannot unset; we use bash unset before invoking).
+          unset CLAUDE_ENV_FILE
+          unset CLAUDE_PLUGIN_DATA
+          unset GEMINI_COMPANION_SESSION_ID
+          node --test tests/install.test.mjs
+
+      - name: Run broker-reaper tests
+        run: |
+          # The reaper tests stand up real Unix sockets and verify the
+          # endpoint-liveness gate. Not env-shape-specific — they force
+          # Codex shape internally and assert reaper behavior is correct.
+          unset CLAUDE_ENV_FILE
+          unset CLAUDE_PLUGIN_DATA
+          node --test tests/broker-reaper.test.mjs
+
+      - name: Run plugin-info tests
+        run: node --test tests/plugin-info.test.mjs

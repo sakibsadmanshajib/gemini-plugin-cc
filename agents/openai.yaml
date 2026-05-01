@@ -1,0 +1,12 @@
+interface:
+  display_name: "Gemini"
+  short_description: "Hand off to Google Gemini CLI for code review, adversarial review, debugging, or large-context investigation."
+  default_prompt: "Use $gemini when a task benefits from Gemini's 1M-token context window or a second-opinion reasoning pass — typical cases include cross-file code review, adversarial review of recent changes, refactor impact analysis, deep debugging, or documentation synthesis."
+
+policy:
+  allow_implicit_invocation: true
+
+# Codex-side metadata for the gemini dual-host plugin.
+# Both Claude Code (via /gemini:* slash commands) and Codex (via this
+# yaml + the root SKILL.md) shell out to the same gemini-companion.mjs
+# runtime. See SKILL.md and .codex/INSTALL.md for invocation contract details.

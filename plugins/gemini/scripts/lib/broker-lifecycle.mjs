@@ -21,6 +21,11 @@ const BROKER_SCRIPT = path.resolve(
 );
 
 const SESSION_DIR_NAME = "acp-session";
+// Brokers older than this AND not accepting connections are reaped.
+// Codex has no SessionEnd hook, so prior Codex-invoked brokers would otherwise
+// leak. The reaper checks BOTH conditions — never kills a healthy broker even
+// if its session-file mtime is old (legitimate idle case under Claude Code).
+export const STALE_BROKER_AGE_MS = 60 * 60 * 1000; // 1 hour
 
 /**
  * Wait for a broker endpoint to accept connections.
@@ -103,6 +108,59 @@ async function isBrokerEndpointReady(endpoint) {
 }
 
 /**
+ * Kill any orphaned broker for this workspace. Codex has no SessionEnd hook,
+ * so prior brokers can leak. We treat a broker as stale ONLY if BOTH:
+ *   1. its session file is older than STALE_BROKER_AGE_MS, AND
+ *   2. its endpoint is not accepting connections.
+ *
+ * The endpoint check is non-negotiable: a long-running broker that is
+ * legitimately idle (e.g. Claude Code session running for 2+ hours with no
+ * Gemini calls) writes its session file exactly once at creation, so mtime
+ * alone would falsely flag it as stale and murder a healthy session.
+ *
+ * @param {string} cwd
+ * @param {((pid: number) => void) | null} killProcess
+ * @returns {Promise<void>}
+ */
+export async function reapStaleBroker(cwd, killProcess) {
+  let stat;
+  try {
+    stat = fs.statSync(resolveBrokerStateFile(cwd));
+  } catch {
+    return;
+  }
+  if (Date.now() - stat.mtimeMs < STALE_BROKER_AGE_MS) {
+    return;
+  }
+  const session = loadBrokerSession(cwd);
+  if (!session) {
+    return;
+  }
+  // Endpoint liveness is the actual safety check. If the broker is still
+  // accepting connections, it's healthy regardless of session-file age —
+  // do not kill it.
+  if (await isBrokerEndpointReady(session.endpoint)) {
+    return;
+  }
+  if (typeof session.pid === "number" && killProcess) {
+    try {
+      killProcess(session.pid);
+    } catch {
+      // ignore
+    }
+  }
+  teardownBrokerSession({
+    endpoint: session.endpoint ?? null,
+    pidFile: session.pidFile ?? null,
+    logFile: session.logFile ?? null,
+    sessionDir: session.sessionDir ?? null,
+    pid: session.pid ?? null,
+    killProcess: null  // already killed above
+  });
+  clearBrokerSession(cwd);
+}
+
+/**
  * Ensure a broker process is running for the given workspace. Starts one if needed.
  *
  * @param {string} cwd
@@ -110,6 +168,12 @@ async function isBrokerEndpointReady(endpoint) {
  * @returns {Promise<{ endpoint: string, pidFile: string, logFile: string, sessionDir: string, pid: number | null } | null>}
  */
 export async function ensureBrokerSession(cwd, options = {}) {
+  // Reap any stale broker before doing anything else. Under Codex there's no
+  // SessionEnd hook, so brokers from prior invocations leak otherwise.
+  // The reaper checks BOTH session-file mtime AND endpoint liveness — a
+  // long-running healthy broker is preserved.
+  await reapStaleBroker(cwd, options.killProcess ?? null);
+
   const existing = loadBrokerSession(cwd);
   if (existing && (await isBrokerEndpointReady(existing.endpoint))) {
     return existing;

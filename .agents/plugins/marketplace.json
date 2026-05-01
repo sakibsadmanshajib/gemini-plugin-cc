@@ -1,0 +1,27 @@
+{
+  "name": "google-gemini",
+  "interface": {
+    "displayName": "Google Gemini"
+  },
+  "metadata": {
+    "description": "Gemini plugin to use in Codex CLI for delegation, code review, and large-context investigation.",
+    "version": "1.0.1"
+  },
+  "plugins": [
+    {
+      "name": "gemini",
+      "source": {
+        "source": "local",
+        "path": "./plugins/gemini"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity",
+      "interface": {
+        "displayName": "Gemini Integration"
+      }
+    }
+  ]
+}

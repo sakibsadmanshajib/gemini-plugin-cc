@@ -65,10 +65,21 @@ function runStopReview(cwd, input) {
     maxBuffer: 5 * 1024 * 1024
   });
 
+  // Fail OPEN, not closed: a missing/broken `gemini` CLI must not lock the user
+  // into review-failed loops where Claude refuses to stop. ENOENT (binary missing)
+  // is the canonical case — the user toggled the gate on but doesn't actually
+  // have `gemini` on the PATH the hook inherits (often happens with Finder-launched
+  // GUI apps). Surface a clear reason and let the turn end normally.
+  if (result.error?.code === "ENOENT") {
+    return {
+      ok: true,
+      reason: "Stop-review skipped: `gemini` CLI not on PATH for this hook environment."
+    };
+  }
   if (result.error || result.status !== 0) {
     return {
-      ok: false,
-      reason: `Gemini review failed: ${result.stderr?.slice(0, 200) || "unknown error"}`
+      ok: true,
+      reason: `Stop-review skipped: gemini exited ${result.status ?? "with error"}: ${(result.stderr ?? "").slice(0, 200) || "unknown error"}`
     };
   }
 

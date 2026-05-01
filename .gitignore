@@ -48,3 +48,4 @@ yarn-error.log*
 state/
 
 docs/
+!docs/INSTALL.md

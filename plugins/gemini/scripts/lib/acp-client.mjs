@@ -10,7 +10,6 @@
  * - GeminiAcpClient.connect(): Tries broker first, falls back to direct spawn
  */
 
-import fs from "node:fs";
 import net from "node:net";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -19,9 +18,7 @@ import { parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
 import { terminateProcessTree } from "./process.mjs";
 import { attachStderrDiagnosticCollector, BROKER_DIAGNOSTIC_METHOD, sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
-
-const PLUGIN_MANIFEST_URL = new URL("../../.claude-plugin/plugin.json", import.meta.url);
-const PLUGIN_MANIFEST = JSON.parse(fs.readFileSync(PLUGIN_MANIFEST_URL, "utf8"));
+import { getPluginInfo } from "./plugin-info.mjs";
 
 export const BROKER_ENDPOINT_ENV = "GEMINI_COMPANION_ACP_ENDPOINT";
 export const BROKER_BUSY_RPC_CODE = -32001;
@@ -196,12 +193,10 @@ class AcpClientBase {
    * @returns {Promise<InitializeResult>}
    */
   async handshake() {
+    const info = getPluginInfo();
     const result = await this.request("initialize", {
       protocolVersion: 1,
-      clientInfo: {
-        name: PLUGIN_MANIFEST.name ?? "gemini-plugin-cc",
-        version: PLUGIN_MANIFEST.version ?? "1.0.0"
-      }
+      clientInfo: { name: info.name, version: info.version }
     });
     this.capabilities = result;
     return result;

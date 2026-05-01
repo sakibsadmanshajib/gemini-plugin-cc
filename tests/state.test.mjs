@@ -30,12 +30,22 @@ test("resolveStateDir produces a deterministic per-workspace directory", () => {
   assert.equal(resolveStateDir(workspace), stateDir);
 });
 
-test("resolveStateDir uses CLAUDE_PLUGIN_DATA when it is provided", () => {
+test("resolveStateDir uses CLAUDE_PLUGIN_DATA when CLAUDE_ENV_FILE is also set (Claude Code host signal)", () => {
+  // The runtime now requires BOTH CLAUDE_ENV_FILE (the actual Claude Code
+  // session-hook signal) AND CLAUDE_PLUGIN_DATA. CLAUDE_PLUGIN_DATA alone is
+  // not enough — a user who exports it in shell rc must not pull Codex into
+  // Claude's state tree.
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const pluginDataDir = makeTempDir();
   const previousPluginDataDir = process.env.CLAUDE_PLUGIN_DATA;
+  const previousEnvFile = process.env.CLAUDE_ENV_FILE;
   process.env.CLAUDE_PLUGIN_DATA = pluginDataDir;
+  // Runtime stat()s CLAUDE_ENV_FILE before treating it as a Claude signal,
+  // so we must actually create the file the var points at.
+  const envFilePath = path.join(pluginDataDir, "session.env");
+  fs.writeFileSync(envFilePath, "# Claude session env\n", "utf8");
+  process.env.CLAUDE_ENV_FILE = envFilePath;
 
   try {
     const stateDir = resolveStateDir(workspace);
@@ -47,6 +57,11 @@ test("resolveStateDir uses CLAUDE_PLUGIN_DATA when it is provided", () => {
       delete process.env.CLAUDE_PLUGIN_DATA;
     } else {
       process.env.CLAUDE_PLUGIN_DATA = previousPluginDataDir;
+    }
+    if (previousEnvFile == null) {
+      delete process.env.CLAUDE_ENV_FILE;
+    } else {
+      process.env.CLAUDE_ENV_FILE = previousEnvFile;
     }
   }
 });
