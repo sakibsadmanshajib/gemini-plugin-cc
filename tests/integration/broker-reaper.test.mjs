@@ -33,7 +33,7 @@ import {
   BROKER_PID_FILENAME,
   BROKER_LOG_FILENAME,
   BROKER_SESSION_FILENAME
-} from "./install-paths.mjs";
+} from "../install-paths.mjs";
 
 const LIB_DIR = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, "scripts", "lib");
 const REAPER_TMPDIR_PREFIX_WORKSPACE = "gemini-reaper-ws-";

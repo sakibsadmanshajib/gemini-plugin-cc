@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 
-import { listenOnRestrictedUnixSocket } from "../plugins/gemini/scripts/lib/socket-permissions.mjs";
+import { listenOnRestrictedUnixSocket } from "../../plugins/gemini/scripts/lib/socket-permissions.mjs";
 
 test("listenOnRestrictedUnixSocket sets restrictive umask only while listening", () => {
   const originalUmask = process.umask();

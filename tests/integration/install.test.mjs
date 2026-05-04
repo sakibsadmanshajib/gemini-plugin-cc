@@ -65,7 +65,7 @@ import {
   TEMP_PREFIX_SYMPARENT,
   pluginSourcePath,
   manifestPath
-} from "./install-paths.mjs";
+} from "../install-paths.mjs";
 
 const RUNTIME = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, RUNTIME_SCRIPT_RELATIVE);
 const STATE_LIB_PATH = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, "scripts", "lib", "state.mjs");

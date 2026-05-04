@@ -4,7 +4,9 @@
   "description": "Claude Code plugin for Gemini CLI delegation and code review.",
   "type": "module",
   "scripts": {
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/unit/*.test.mjs tests/integration/*.test.mjs",
+    "test:unit": "node --test tests/unit/*.test.mjs",
+    "test:int": "node --test tests/integration/*.test.mjs"
   },
   "engines": {
     "node": ">=18.18.0"

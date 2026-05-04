@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LIB_DIR = path.resolve(__dirname, "..", "plugins", "gemini", "scripts", "lib");
+const LIB_DIR = path.resolve(__dirname, "..", "..", "plugins", "gemini", "scripts", "lib");
 
 const GEMINI_MJS = fs.readFileSync(path.join(LIB_DIR, "gemini.mjs"), "utf8");
 const ACP_PROTOCOL_DTS = fs.readFileSync(path.join(LIB_DIR, "acp-protocol.d.ts"), "utf8");

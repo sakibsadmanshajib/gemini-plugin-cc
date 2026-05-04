@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createBrokerEndpoint, parseBrokerEndpoint } from "../plugins/gemini/scripts/lib/broker-endpoint.mjs";
+import { createBrokerEndpoint, parseBrokerEndpoint } from "../../plugins/gemini/scripts/lib/broker-endpoint.mjs";
 
 test("createBrokerEndpoint uses Unix sockets on non-Windows platforms", () => {
   const endpoint = createBrokerEndpoint("/tmp/cxc-12345", "darwin");

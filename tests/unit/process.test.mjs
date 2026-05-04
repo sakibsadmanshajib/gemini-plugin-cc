@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { runCommand, binaryAvailable, formatCommandFailure } from "../plugins/gemini/scripts/lib/process.mjs";
+import { runCommand, binaryAvailable, formatCommandFailure } from "../../plugins/gemini/scripts/lib/process.mjs";
 
 test("runCommand captures stdout and stderr", () => {
   const result = runCommand("node", ["-e", 'process.stdout.write("hello")']);

@@ -40,7 +40,7 @@ import {
   PLUGIN_SOURCE_DIR_RELATIVE,
   CLAUDE_HOST_SIGNAL_ENV,
   CLAUDE_PLUGIN_DATA_ENV
-} from "./install-paths.mjs";
+} from "../install-paths.mjs";
 
 const HOOK_SCRIPT = path.join(
   PLUGIN_ROOT,

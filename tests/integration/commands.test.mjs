@@ -3,9 +3,9 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
-import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
+import { initGitRepo, makeTempDir, run } from "../helpers.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PLUGIN_ROOT = path.join(ROOT, "plugins", "gemini");
 const COMPANION_SCRIPT = path.join(PLUGIN_ROOT, "scripts", "gemini-companion.mjs");
 

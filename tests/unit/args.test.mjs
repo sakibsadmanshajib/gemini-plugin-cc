@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseArgs, parseCommandInput } from "../plugins/gemini/scripts/lib/args.mjs";
+import { parseArgs, parseCommandInput } from "../../plugins/gemini/scripts/lib/args.mjs";
 
 const REVIEW_SCHEMA = {
   valueOptions: ["base", "scope", "model", "cwd"],

@@ -4,9 +4,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
-import { __testing as gemini } from "../plugins/gemini/scripts/lib/gemini.mjs";
+import { __testing as gemini } from "../../plugins/gemini/scripts/lib/gemini.mjs";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const GEMINI_SOURCE = fs.readFileSync(path.join(ROOT, "plugins/gemini/scripts/lib/gemini.mjs"), "utf8");
 
 test("simulateNotificationDispatch keeps thought text out of returned data by default", () => {

@@ -6,7 +6,7 @@ import {
   renderResultOutput,
   renderSingleJobStatus,
   renderStatusSnapshot
-} from "../plugins/gemini/scripts/lib/render.mjs";
+} from "../../plugins/gemini/scripts/lib/render.mjs";
 
 test("renderReviewResult renders an approve verdict with no findings", () => {
   const output = renderReviewResult({

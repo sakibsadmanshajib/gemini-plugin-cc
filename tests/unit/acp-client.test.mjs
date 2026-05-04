@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { __testing } from "../plugins/gemini/scripts/lib/acp-client.mjs";
+import { __testing } from "../../plugins/gemini/scripts/lib/acp-client.mjs";
 
 /**
  * Build a minimal fake ACP client that mimics the fields AcpClientBase.handleLine

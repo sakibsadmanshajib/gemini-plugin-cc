@@ -2,17 +2,17 @@ import fs from "node:fs";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { initGitRepo, makeTempDir } from "./helpers.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
   defaultIsProcessAlive,
   POSSIBLY_STALLED_AFTER_MS,
   QUIET_AFTER_MS
-} from "../plugins/gemini/scripts/lib/job-control.mjs";
-import { recordJobEvent } from "../plugins/gemini/scripts/lib/job-observability.mjs";
-import { createTrackedJob } from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
-import { readJobFile, resolveJobLogFile, writeJobFile } from "../plugins/gemini/scripts/lib/state.mjs";
+} from "../../plugins/gemini/scripts/lib/job-control.mjs";
+import { recordJobEvent } from "../../plugins/gemini/scripts/lib/job-observability.mjs";
+import { createTrackedJob } from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
+import { readJobFile, resolveJobLogFile, writeJobFile } from "../../plugins/gemini/scripts/lib/state.mjs";
 
 function iso(ms) {
   return new Date(ms).toISOString();
@@ -263,7 +263,7 @@ test("defaultIsProcessAlive returns true when no pid is provided", () => {
 // regression vector for cross-session job leakage between Claude and Codex
 // sessions sharing a workspace.
 
-import { filterJobsForCurrentSession } from "../plugins/gemini/scripts/lib/job-control.mjs";
+import { filterJobsForCurrentSession } from "../../plugins/gemini/scripts/lib/job-control.mjs";
 const SESSION_ID_ENV_VAR = "GEMINI_COMPANION_SESSION_ID";
 
 const FILTER_SAMPLE_JOBS = [

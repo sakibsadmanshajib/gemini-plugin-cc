@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { initGitRepo, makeTempDir } from "./helpers.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 import {
   loadState,
   resolveJobFile,
@@ -15,9 +15,9 @@ import {
   saveState,
   setConfig,
   upsertJob
-} from "../plugins/gemini/scripts/lib/state.mjs";
-import { withWorkspaceMutex } from "../plugins/gemini/scripts/lib/atomic-state.mjs";
-import { createTrackedJob } from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
+} from "../../plugins/gemini/scripts/lib/state.mjs";
+import { withWorkspaceMutex } from "../../plugins/gemini/scripts/lib/atomic-state.mjs";
+import { createTrackedJob } from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
 
 test("resolveStateDir produces a deterministic per-workspace directory", () => {
   const workspace = makeTempDir();

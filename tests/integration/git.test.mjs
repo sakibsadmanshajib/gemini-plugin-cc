@@ -3,8 +3,8 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { collectReviewContext } from "../plugins/gemini/scripts/lib/git.mjs";
-import { initGitRepo, makeTempDir, run } from "./helpers.mjs";
+import { collectReviewContext } from "../../plugins/gemini/scripts/lib/git.mjs";
+import { initGitRepo, makeTempDir, run } from "../helpers.mjs";
 
 function resolveReviewTarget(cwd, opts) {
   // Import dynamically to avoid issues if the export name differs.

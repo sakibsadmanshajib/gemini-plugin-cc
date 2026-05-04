@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PLUGIN_ROOT = path.resolve(__dirname, "..");
+const PLUGIN_ROOT = path.resolve(__dirname, "..", "..");
 
 test("plugin-info: getPluginInfo returns a non-empty name and version", async () => {
   const { getPluginInfo, _resetPluginInfoCacheForTests } = await import(

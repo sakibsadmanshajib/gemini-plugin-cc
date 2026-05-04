@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createStreamHandler, STREAM_MODES } from "../plugins/gemini/scripts/lib/stream-output.mjs";
+import { createStreamHandler, STREAM_MODES } from "../../plugins/gemini/scripts/lib/stream-output.mjs";
 
 function captureWriter() {
   const out = [];

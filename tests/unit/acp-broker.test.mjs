@@ -2,8 +2,8 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ACP_MAX_LINE_BUFFER } from "../plugins/gemini/scripts/lib/acp-client.mjs";
-import { __testing as brokerTesting } from "../plugins/gemini/scripts/acp-broker.mjs";
+import { ACP_MAX_LINE_BUFFER } from "../../plugins/gemini/scripts/lib/acp-client.mjs";
+import { __testing as brokerTesting } from "../../plugins/gemini/scripts/acp-broker.mjs";
 
 function makeSocket() {
   const socket = new EventEmitter();

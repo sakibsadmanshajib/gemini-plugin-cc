@@ -3,12 +3,12 @@ import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { makeTempDir } from "./helpers.mjs";
+import { makeTempDir } from "../helpers.mjs";
 import {
   withJobMutex,
   withWorkspaceMutex,
   writeJsonAtomic
-} from "../plugins/gemini/scripts/lib/atomic-state.mjs";
+} from "../../plugins/gemini/scripts/lib/atomic-state.mjs";
 
 test("withJobMutex serializes same-jobId writers and parallelises different jobs", async () => {
   const ws = makeTempDir();

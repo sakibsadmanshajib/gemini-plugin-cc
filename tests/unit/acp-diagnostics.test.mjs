@@ -5,14 +5,14 @@ import assert from "node:assert/strict";
 import {
   buildJobEventFromAcpNotification,
   formatBrokerDiagnostic
-} from "../plugins/gemini/scripts/lib/gemini.mjs";
+} from "../../plugins/gemini/scripts/lib/gemini.mjs";
 
 import {
   attachStderrDiagnosticCollector,
   buildBrokerDiagnosticNotification,
   createStderrDiagnosticCollector,
   sanitizeDiagnosticMessage
-} from "../plugins/gemini/scripts/lib/acp-diagnostics.mjs";
+} from "../../plugins/gemini/scripts/lib/acp-diagnostics.mjs";
 
 test("buildJobEventFromAcpNotification maps agent_message_chunk to model_text_chunk with chars only", () => {
   const event = buildJobEventFromAcpNotification({

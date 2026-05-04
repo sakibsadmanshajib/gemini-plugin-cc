@@ -1,22 +1,22 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { initGitRepo, makeTempDir } from "./helpers.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 import {
   createTrackedJob,
   markTrackedJobCancelled,
   runTrackedJob,
   updateJobPhase
-} from "../plugins/gemini/scripts/lib/tracked-jobs.mjs";
-import { loadState, readJobFile } from "../plugins/gemini/scripts/lib/state.mjs";
+} from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
+import { loadState, readJobFile } from "../../plugins/gemini/scripts/lib/state.mjs";
 import {
   classifyDiagnostic,
   recordJobEvent,
   MAX_JOB_EVENTS,
   MAX_DIAGNOSTIC_LENGTH,
   __testing as jobObsTesting
-} from "../plugins/gemini/scripts/lib/job-observability.mjs";
-import { buildJobEventFromAcpNotification } from "../plugins/gemini/scripts/lib/gemini.mjs";
+} from "../../plugins/gemini/scripts/lib/job-observability.mjs";
+import { buildJobEventFromAcpNotification } from "../../plugins/gemini/scripts/lib/gemini.mjs";
 
 const { isDiagnosticEvent, sanitizeEvent } = jobObsTesting;
 

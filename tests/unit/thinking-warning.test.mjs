@@ -8,8 +8,8 @@ import assert from "node:assert/strict";
 // code path the real flow uses — resolving thinking config and checking
 // the globalThis guard.
 
-import { __testing as gemini } from "../plugins/gemini/scripts/lib/gemini.mjs";
-import { resolveThinkingConfig } from "../plugins/gemini/scripts/lib/thinking.mjs";
+import { __testing as gemini } from "../../plugins/gemini/scripts/lib/gemini.mjs";
+import { resolveThinkingConfig } from "../../plugins/gemini/scripts/lib/thinking.mjs";
 
 test("thinking warning guard fires exactly once per process", () => {
   const out = [];

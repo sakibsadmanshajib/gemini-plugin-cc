@@ -4,7 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RESCUE = fs.readFileSync(path.join(ROOT, "plugins/gemini/commands/rescue.md"), "utf8");
 const REVIEW = fs.readFileSync(path.join(ROOT, "plugins/gemini/commands/review.md"), "utf8");
 const RESCUE_AGENT = fs.readFileSync(path.join(ROOT, "plugins/gemini/agents/gemini-rescue.md"), "utf8");

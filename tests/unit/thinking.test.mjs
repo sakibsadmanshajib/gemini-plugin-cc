@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveThinkingConfig, THINKING_LEVELS } from "../plugins/gemini/scripts/lib/thinking.mjs";
+import { resolveThinkingConfig, THINKING_LEVELS } from "../../plugins/gemini/scripts/lib/thinking.mjs";
 
 test("THINKING_LEVELS enumerates the four accepted levels in order", () => {
   assert.deepEqual(THINKING_LEVELS, ["off", "low", "medium", "high"]);
