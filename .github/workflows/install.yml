@@ -32,11 +32,14 @@ on:
       - 'plugins/gemini/hooks/**'
       - '.agents/plugins/**'                # Codex marketplace descriptor
       - '.claude-plugin/**'                 # Claude Code marketplace descriptor (repo root)
-      - 'tests/install*.mjs'
-      - 'tests/broker-reaper.test.mjs'
-      - 'tests/broker-lifecycle.test.mjs'
-      - 'tests/job-control.test.mjs'
-      - 'tests/plugin-info.test.mjs'
+      - 'tests/integration/install.test.mjs'
+      - 'tests/integration/broker-reaper.test.mjs'
+      - 'tests/integration/broker-lifecycle.test.mjs'
+      - 'tests/unit/job-control.test.mjs'
+      - 'tests/unit/plugin-info.test.mjs'
+      - 'tests/helpers.mjs'
+      - 'tests/install-paths.mjs'
+      - 'tests/mocks/**'
       - '.github/workflows/install.yml'
   pull_request:
     branches: [main]
@@ -49,11 +52,14 @@ on:
       - 'plugins/gemini/hooks/**'
       - '.agents/plugins/**'                # Codex marketplace descriptor
       - '.claude-plugin/**'                 # Claude Code marketplace descriptor (repo root)
-      - 'tests/install*.mjs'
-      - 'tests/broker-reaper.test.mjs'
-      - 'tests/broker-lifecycle.test.mjs'
-      - 'tests/job-control.test.mjs'
-      - 'tests/plugin-info.test.mjs'
+      - 'tests/integration/install.test.mjs'
+      - 'tests/integration/broker-reaper.test.mjs'
+      - 'tests/integration/broker-lifecycle.test.mjs'
+      - 'tests/unit/job-control.test.mjs'
+      - 'tests/unit/plugin-info.test.mjs'
+      - 'tests/helpers.mjs'
+      - 'tests/install-paths.mjs'
+      - 'tests/mocks/**'
       - '.github/workflows/install.yml'
   workflow_dispatch: {}
 
@@ -154,7 +160,7 @@ jobs:
           mkdir -p "$CLAUDE_PLUGIN_DATA"
           # Create the session.env file the runtime will stat().
           printf "# Claude session env\n" > "$CLAUDE_ENV_FILE"
-          node --test tests/install.test.mjs
+          node --test tests/integration/install.test.mjs
 
       - name: Run install-integration tests under Codex env shape
         run: |
@@ -163,7 +169,7 @@ jobs:
           unset CLAUDE_ENV_FILE
           unset CLAUDE_PLUGIN_DATA
           unset GEMINI_COMPANION_SESSION_ID
-          node --test tests/install.test.mjs
+          node --test tests/integration/install.test.mjs
 
       - name: Run broker-reaper tests
         run: |
@@ -172,7 +178,7 @@ jobs:
           # Codex shape internally and assert reaper behavior is correct.
           unset CLAUDE_ENV_FILE
           unset CLAUDE_PLUGIN_DATA
-          node --test tests/broker-reaper.test.mjs
+          node --test tests/integration/broker-reaper.test.mjs
 
       - name: Run plugin-info tests
-        run: node --test tests/plugin-info.test.mjs
+        run: node --test tests/unit/plugin-info.test.mjs
