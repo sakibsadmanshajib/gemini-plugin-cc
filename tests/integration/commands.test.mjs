@@ -38,6 +38,9 @@ test("command files match expected set", () => {
   const commandFiles = fs.readdirSync(path.join(PLUGIN_ROOT, "commands")).sort();
   assert.deepEqual(commandFiles, [
     "adversarial-review.md",
+    // Cost-budget surface companion to /gemini:stats — exposes a
+    // soft token budget vs. usage report.
+    "budget.md",
     "cancel.md",
     // Cross-pollination commands per docs/plugins.md — alongside the
     // legacy gemini-driving commands, plugins/gemini/ now ships
@@ -49,6 +52,10 @@ test("command files match expected set", () => {
     "result.md",
     "review.md",
     "setup.md",
+    // Cost observability surface — reads the JSONL cost log and
+    // prints aggregate / per-backend / recent turns. Pure read; no
+    // backend invocation.
+    "stats.md",
     "status.md"
   ]);
 });

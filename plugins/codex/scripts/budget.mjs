@@ -1,0 +1,124 @@
+#!/usr/bin/env node
+/**
+ * Entry script for `/codex:budget` (installed in Codex CLI).
+ *
+ * Compares aggregate token usage from the cost log against a token
+ * budget and prints how much is remaining (or by how much it's
+ * exceeded). Pure read — never blocks a turn; this is observability
+ * to drive user awareness, not a hard ceiling.
+ *
+ * Budget resolution (in order of precedence):
+ *   1. `--limit <n>` flag
+ *   2. `$ARTAGON_BUDGET_TOKENS` env var
+ *   3. Default: 1,000,000 tokens
+ *
+ * Window resolution:
+ *   - `--since <iso>` / `--until <iso>` filter the records considered
+ *   - Default: count all-time
+ *   - `--month` shorthand sets `since` to the first of the current
+ *     calendar month (UTC) — common monthly-budget workflow
+ *
+ * Output:
+ *   Budget: 1,000,000 tokens
+ *   Used:     124,000 (12.4%)
+ *   Left:     876,000
+ *   Status: ✓ within budget
+ *
+ * Or, on overage:
+ *   Status: ✗ over by 24,000 tokens (102.4%)
+ *
+ * Exit code is always 0 — the host displays the report; downstream
+ * tooling that wants gating can read `--json` and decide.
+ */
+
+import process from "node:process";
+
+import { readCostRecords, summarizeCostRecords } from "#lib/cost/aggregate.mjs";
+
+const DEFAULT_BUDGET = 1_000_000;
+
+/** @param {string[]} argv */
+function parseArgs(argv) {
+  /** @type {{ json?: boolean, limit?: number, since?: Date, until?: Date, month?: boolean }} */
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const tok = argv[i];
+    if (tok === "--json") out.json = true;
+    else if (tok === "--month") out.month = true;
+    else if (tok === "--limit") {
+      const n = Number(argv[++i]);
+      if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid --limit: ${argv[i]}`);
+      out.limit = n;
+    } else if (tok === "--since") {
+      const d = new Date(argv[++i]);
+      if (Number.isNaN(d.getTime())) throw new Error(`invalid --since: ${argv[i]}`);
+      out.since = d;
+    } else if (tok === "--until") {
+      const d = new Date(argv[++i]);
+      if (Number.isNaN(d.getTime())) throw new Error(`invalid --until: ${argv[i]}`);
+      out.until = d;
+    }
+    // unknown tokens silently ignored — slash-command shells may pass
+    // free-form text we don't need.
+  }
+  return out;
+}
+
+let opts;
+try {
+  opts = parseArgs(process.argv.slice(2));
+} catch (err) {
+  process.stderr.write(`budget: ${/** @type {Error} */ (err).message}\n`);
+  process.exit(2);
+}
+
+const envBudget = Number(process.env.ARTAGON_BUDGET_TOKENS);
+const budget =
+  opts.limit ?? (Number.isFinite(envBudget) && envBudget > 0 ? envBudget : DEFAULT_BUDGET);
+
+let since = opts.since;
+if (opts.month && !since) {
+  const now = new Date();
+  since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+}
+
+const records = readCostRecords({ since, until: opts.until });
+const summary = summarizeCostRecords(records);
+const used = summary.total_tokens;
+const remaining = budget - used;
+const pct = budget > 0 ? (used / budget) * 100 : 0;
+
+const windowLabel = opts.month
+  ? `(this month, ${since?.toISOString().slice(0, 10)} →)`
+  : since
+    ? `(since ${since.toISOString()})`
+    : "(all time)";
+
+if (opts.json) {
+  const out = {
+    budget,
+    used,
+    remaining,
+    pct,
+    status: remaining >= 0 ? "within_budget" : "over_budget",
+    window: {
+      since: since?.toISOString() ?? null,
+      until: opts.until?.toISOString() ?? null
+    },
+    summary
+  };
+  process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
+  process.exit(0);
+}
+
+/** @param {number} n */
+const fmt = (n) => Math.round(n).toLocaleString();
+const status =
+  remaining >= 0 ? "OK within budget" : `OVER by ${fmt(-remaining)} tokens (${pct.toFixed(1)}%)`;
+
+process.stdout.write(`Budget ${windowLabel}\n`);
+process.stdout.write(`  Limit:  ${fmt(budget).padStart(12)} tokens\n`);
+process.stdout.write(`  Used:   ${fmt(used).padStart(12)} (${pct.toFixed(1)}%)\n`);
+process.stdout.write(`  Left:   ${fmt(remaining).padStart(12)}\n`);
+process.stdout.write(`  Status: ${status}\n`);
+process.exit(0);

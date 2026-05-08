@@ -76,3 +76,39 @@ describe("plugin entry script invocation (smoke)", () => {
     });
   }
 });
+
+// Observability scripts (stats / budget) behave differently: they don't
+// require a prompt and exit 0 even on an empty log (with a friendly
+// message). They share the same import-graph smoke goal.
+const observabilityScripts = [
+  "plugins/claude/scripts/stats.mjs",
+  "plugins/codex/scripts/stats.mjs",
+  "plugins/gemini/scripts/stats.mjs",
+  "plugins/claude/scripts/budget.mjs",
+  "plugins/codex/scripts/budget.mjs",
+  "plugins/gemini/scripts/budget.mjs"
+];
+
+describe("observability script invocation (stats / budget)", () => {
+  for (const relPath of observabilityScripts) {
+    test(`${relPath}: no records → exit 0 + stdout content`, () => {
+      // Point at a path that definitely doesn't exist to simulate a
+      // fresh install. Must use a directory under tmp so we don't
+      // pollute the developer's real log.
+      const result = spawnSync(process.execPath, [path.join(ROOT, relPath)], {
+        cwd: ROOT,
+        timeout: 10000,
+        env: {
+          ...process.env,
+          ARTAGON_COST_LOG: "/dev/null/never-exists/cost.jsonl"
+        }
+      });
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      // Empty-log message (stats) or zero-token report (budget); either
+      // way the script must produce SOMETHING on stdout.
+      expect(result.stdout.toString().length).toBeGreaterThan(0);
+    });
+  }
+});
