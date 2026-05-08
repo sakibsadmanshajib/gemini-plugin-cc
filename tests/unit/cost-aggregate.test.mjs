@@ -176,12 +176,68 @@ describe("summarizeCostRecords", () => {
       total_tokens: 0,
       prompt_tokens: 0,
       completion_tokens: 0,
+      cache_creation_tokens: 0,
+      cache_read_tokens: 0,
       total_duration_ms: 0,
       estimated_usd: 0,
+      estimated_usd_without_cache: 0,
       per_backend: {},
       first_seen: null,
       last_seen: null
     });
+  });
+
+  test("Cache savings surface in summary when records have cache_read_tokens", () => {
+    const records = /** @type {any[]} */ ([
+      {
+        timestamp: "2026-01-01T00:00:00Z",
+        backend: BACKEND_NAMES.CLAUDE,
+        usage: {
+          prompt_tokens: 10_000,
+          completion_tokens: 0,
+          total_tokens: 110_000,
+          cache_read_tokens: 100_000
+        },
+        durationMs: 100,
+        ok: true
+      }
+    ]);
+    const s = summarizeCostRecords(records);
+    expect(s.cache_read_tokens).toBe(100_000);
+    expect(s.cache_creation_tokens).toBe(0);
+    // With cache: 10k regular + 100k @ 10% = 10k + 10k effective = 20k effective input.
+    //   = 20_000/1M * $3 = $0.06
+    // Without cache: (10k + 100k) / 1M * $3 = $0.33
+    // Savings = $0.27
+    expect(s.estimated_usd).toBeCloseTo(0.06, 4);
+    expect(s.estimated_usd_without_cache).toBeCloseTo(0.33, 4);
+    expect(s.estimated_usd_without_cache - s.estimated_usd).toBeCloseTo(0.27, 4);
+    // Per-backend cache fields populated.
+    expect(s.per_backend.claude.cache_read_tokens).toBe(100_000);
+    expect(s.per_backend.claude.cache_creation_tokens).toBe(0);
+  });
+
+  test("Cache savings line appears in formatCostSummaryText when applicable", () => {
+    const text = formatCostSummaryText(
+      summarizeCostRecords(
+        /** @type {any[]} */ ([
+          {
+            timestamp: "2026-01-01T00:00:00Z",
+            backend: BACKEND_NAMES.CLAUDE,
+            usage: {
+              prompt_tokens: 10_000,
+              completion_tokens: 0,
+              total_tokens: 110_000,
+              cache_read_tokens: 100_000
+            },
+            durationMs: 100,
+            ok: true
+          }
+        ])
+      )
+    );
+    expect(text).toMatch(/Cache savings:/);
+    expect(text).toMatch(/100,000 hits/);
   });
 
   test("Aggregates per-backend totals + global totals + window", () => {
