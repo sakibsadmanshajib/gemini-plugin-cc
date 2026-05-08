@@ -67,7 +67,13 @@ test("openWireLog writes one line per record(), correct envelope", () => {
   expect(b.msg).toEqual({ jsonrpc: "2.0", id: 1, result: { pong: true } });
 });
 
-test("default redaction: scrubs api_key / apiKey / token / password / authorization", () => {
+test("default redaction: scrubs all 9 sensitive field names", () => {
+  // Field names MUST match the union of redaction layers:
+  //   lib/middleware/redaction.mjs DEFAULT_FIELD_NAMES (the primary)
+  //   lib/wire-log.mjs REDACT_TOKENS (this test target)
+  //   lib/logger.mjs REDACTED_PATHS (the structured logger)
+  // A name missing from any of these three opens a leak window for
+  // payloads that bypass that layer.
   const log = openWireLog({ ACP_WIRE_LOG: logPath });
   log.record("out", {
     method: "test",
@@ -80,6 +86,7 @@ test("default redaction: scrubs api_key / apiKey / token / password / authorizat
       access_token: "at-leak-6",
       refresh_token: "rt-leak-7",
       password: "p-leak-8",
+      secret: "s-leak-9",
       safe: "kept"
     }
   });
@@ -95,7 +102,8 @@ test("default redaction: scrubs api_key / apiKey / token / password / authorizat
     "t-leak-5",
     "at-leak-6",
     "rt-leak-7",
-    "p-leak-8"
+    "p-leak-8",
+    "s-leak-9"
   ]) {
     expect(raw).not.toContain(leak);
   }
@@ -108,6 +116,7 @@ test("default redaction: scrubs api_key / apiKey / token / password / authorizat
   expect(raw).toContain('"access_token":"[redacted]"');
   expect(raw).toContain('"refresh_token":"[redacted]"');
   expect(raw).toContain('"password":"[redacted]"');
+  expect(raw).toContain('"secret":"[redacted]"');
   // Non-credential fields are preserved.
   expect(raw).toContain('"safe":"kept"');
 });
