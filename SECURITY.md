@@ -89,6 +89,11 @@ Reviewable in the codebase:
 - **Cost record write mode 0o600** — owner-only read/write.
 - **No stack-trace exposure** in HTTP facade error responses;
   detail goes to stderr (`js/stack-trace-exposure`).
+- **Constant-time API key comparison** in the OpenAI facade —
+  `crypto.timingSafeEqual` over equal-length buffers, with a
+  pre-check that exits the comparison loop without leaking which
+  configured key matched (`lib/server/openai-facade.mjs`
+  `compareKeysConstantTime`).
 - **PID-reuse hardening** in the orphan-runner reaper — captures
   OS-reported start time at register; refuses to SIGKILL on PID
   recycle (`lib/runners/orphan-check.mjs`).

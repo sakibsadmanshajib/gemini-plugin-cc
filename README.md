@@ -178,6 +178,16 @@ Releases are signed via npm provenance + Sigstore (`npm publish --provenance` ov
 - `actions/attest-sbom@v1` and `actions/attest-build-provenance@v1` add separate Sigstore attestations
 - Triggered by `git tag -s v* && git push --tags` (see [`.github/workflows/npm-publish.yml`](.github/workflows/npm-publish.yml))
 
+## Security
+
+Vulnerability disclosure goes through a private channel — **do not file public GitHub issues for security bugs**. See [`SECURITY.md`](SECURITY.md) for the full policy:
+
+- Preferred: open a [private security advisory](https://github.com/artagon/artagon-agent-cli-plugin/security/advisories/new)
+- Or email `security@artagon.dev`
+- 3-business-day acknowledgement, 7-day initial assessment, 90-day default coordinated-disclosure window
+
+The page also indexes the in-repo hardening (CodeQL extended pack, SHA-pinned actions, OIDC provenance, `crypto.timingSafeEqual` for API keys, mode-0o600 cost log, no stack-trace exposure on HTTP errors, PID-reuse-hardened orphan reaper).
+
 ## Status
 
 **Currently working:**
