@@ -35,7 +35,7 @@
     "typecheck": "tsgo --noEmit",
     "typecheck:fallback": "tsc --noEmit",
     "lint": "biome check .",
-    "lint:fix": "biome check --apply .",
+    "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "prepare": "husky"
   },
