@@ -36,32 +36,39 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
   test("--help prints usage", () => {
     const r = runBinSync(["--help"]);
     expect(r.status).toBe(0);
-    expect(r.stdout.toString()).toMatch(/artagon-openai-server \[flags\]/);
+    // commander format: "Usage: artagon-openai-server [options]"
+    expect(r.stdout.toString()).toMatch(/Usage: artagon-openai-server/);
     expect(r.stdout.toString()).toMatch(/--port/);
   });
 
   test("unknown flag: exits 2 with the flag named", () => {
     const r = runBinSync(["--bogus"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/unknown flag: --bogus/);
+    // commander: "error: unknown option '--bogus'"
+    expect(r.stderr.toString()).toMatch(/unknown option '--bogus'/);
   });
 
   test("invalid --port: exits 2", () => {
     const r = runBinSync(["--port", "99999"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/invalid --port/);
+    // commander surfaces our InvalidArgumentError
+    expect(r.stderr.toString()).toMatch(/--port/);
+    expect(r.stderr.toString()).toMatch(/0, 65535/);
   });
 
   test("--host without value: exits 2", () => {
     const r = runBinSync(["--host"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/--host requires a value/);
+    // commander: "error: option '--host <h>' argument missing"
+    expect(r.stderr.toString()).toMatch(/--host/);
+    expect(r.stderr.toString()).toMatch(/missing/);
   });
 
   test("--cors without value: exits 2", () => {
     const r = runBinSync(["--cors"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/--cors requires a value/);
+    expect(r.stderr.toString()).toMatch(/--cors/);
+    expect(r.stderr.toString()).toMatch(/missing/);
   });
 
   test("--help mentions --cors flag + env var", () => {
@@ -74,7 +81,8 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
   test("--api-key without value: exits 2", () => {
     const r = runBinSync(["--api-key"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/--api-key requires a value/);
+    expect(r.stderr.toString()).toMatch(/--api-key/);
+    expect(r.stderr.toString()).toMatch(/missing/);
   });
 
   test("--help mentions --api-key flag + env var", () => {
@@ -87,7 +95,8 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
   test("--api-key-file without value: exits 2", () => {
     const r = runBinSync(["--api-key-file"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/--api-key-file requires a path/);
+    expect(r.stderr.toString()).toMatch(/--api-key-file/);
+    expect(r.stderr.toString()).toMatch(/missing/);
   });
 
   test("--api-key-file with non-existent path: exits 2 with file error", () => {
