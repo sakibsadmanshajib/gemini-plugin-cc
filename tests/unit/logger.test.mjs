@@ -127,18 +127,17 @@ test("redaction: top-level + nested credentials scrub via REDACTED_PATHS", async
   // The exported `logger` writes via pino.destination(2) which
   // bypasses process.stderr.write — monkey-patching the JS-level
   // wrapper captures nothing. So this test builds a SEPARATE pino
-  // logger with the SAME REDACTED_PATHS list (mirrored from
-  // logger.mjs) plus a buffer destination, and verifies pino's
-  // redact handles top-level fields correctly.
+  // logger with the SAME redact config (the *exported* REDACTED_PATHS
+  // list, not a mirrored copy) plus a buffer destination, and
+  // verifies pino's redact handles top-level fields correctly.
   //
   // Regression test for the pre-fix bug: REDACTED_PATHS only had
   // `*.api_key`-style entries, which match exactly ONE level of
   // nesting. A top-level `logger.info({api_key: "..."})` — the
-  // most common usage — would write the credential verbatim. Fix
-  // added bare paths (`api_key`, `password`, `secret`, etc.)
-  // alongside the `*.`-prefixed versions. Mirroring the list here
-  // catches regressions in either logger.mjs's list OR pino's
-  // redact semantics.
+  // most common usage — would write the credential verbatim. Using
+  // the exported list directly means a future change to
+  // logger.mjs's list propagates here automatically — no mirror
+  // to drift.
   const pino = (await import("pino")).default;
 
   /** @type {string[]} */
@@ -150,23 +149,7 @@ test("redaction: top-level + nested credentials scrub via REDACTED_PATHS", async
     {
       level: "trace",
       redact: {
-        paths: [
-          // Top-level (the case the bug missed).
-          "api_key",
-          "apiKey",
-          "authorization",
-          "Authorization",
-          "password",
-          "token",
-          "access_token",
-          "refresh_token",
-          "secret",
-          // One-level-nested (the original list).
-          "*.api_key",
-          "*.apiKey",
-          "*.password",
-          "*.secret"
-        ],
+        paths: REDACTED_PATHS,
         censor: "[redacted]"
       }
     },
