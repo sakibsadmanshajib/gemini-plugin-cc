@@ -363,6 +363,92 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     expect(events.at(-1).choices[0].finish_reason).toBe("stop");
   });
 
+  test("POST /v1/chat/completions stream:true + stream_options.include_usage → usage chunk before [DONE]", async () => {
+    // Per OpenAI's spec: when stream_options.include_usage is true,
+    // the server emits an extra final chunk with `choices: []` and
+    // a populated `usage` object after the final delta.
+    await facade.close();
+    facade = createOpenAiFacadeServer({
+      dispatch: async () => ({
+        text: "ok",
+        thoughtText: "",
+        chunkCount: 1,
+        chunkChars: 2,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: { input_tokens: 42, output_tokens: 7 },
+        reason: "stop",
+        updates: []
+      })
+    });
+    const { port, host } = await facade.listen();
+    const res = await fetch(`http://${host}:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }],
+        stream: true,
+        stream_options: { include_usage: true }
+      })
+    });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const lines = text.split("\n").filter((l) => l.startsWith("data:"));
+    expect(lines.at(-1)).toBe("data: [DONE]");
+
+    const events = lines.slice(0, -1).map((l) => JSON.parse(l.replace(/^data:\s*/, "")));
+    // The usage chunk should be the LAST data chunk before [DONE]
+    // and have empty choices + a populated usage object.
+    const usageChunk = events.at(-1);
+    expect(usageChunk.choices).toEqual([]);
+    expect(usageChunk.usage).toEqual({
+      prompt_tokens: 42,
+      completion_tokens: 7,
+      total_tokens: 49
+    });
+  });
+
+  test("POST /v1/chat/completions stream:true without include_usage → no usage chunk", async () => {
+    // Default behavior: usage is NOT emitted in the stream.
+    await facade.close();
+    facade = createOpenAiFacadeServer({
+      dispatch: async () => ({
+        text: "ok",
+        thoughtText: "",
+        chunkCount: 1,
+        chunkChars: 2,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: { input_tokens: 42, output_tokens: 7 },
+        reason: "stop",
+        updates: []
+      })
+    });
+    const { port, host } = await facade.listen();
+    const res = await fetch(`http://${host}:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }],
+        stream: true
+        // no stream_options
+      })
+    });
+    const text = await res.text();
+    const lines = text.split("\n").filter((l) => l.startsWith("data:"));
+    const events = lines.slice(0, -1).map((l) => JSON.parse(l.replace(/^data:\s*/, "")));
+    // None of the events should carry a top-level `usage` field.
+    for (const ev of events) {
+      expect(ev.usage).toBeUndefined();
+    }
+  });
+
   test("POST /v1/chat/completions: unknown model → 400 with hint", async () => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
