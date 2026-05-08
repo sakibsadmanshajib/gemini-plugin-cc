@@ -177,6 +177,7 @@ describe("summarizeCostRecords", () => {
       prompt_tokens: 0,
       completion_tokens: 0,
       total_duration_ms: 0,
+      estimated_usd: 0,
       per_backend: {},
       first_seen: null,
       last_seen: null
@@ -308,6 +309,7 @@ describe("formatCostSummaryText", () => {
     const text = formatCostSummaryText(s);
     expect(text).toMatch(/Total turns: 1/);
     expect(text).toMatch(/Total tokens: 150/);
+    expect(text).toMatch(/Estimated cost: \$/);
     expect(text).toMatch(/Per backend:/);
     expect(text).toMatch(/claude/);
     expect(text).toMatch(/Window:/);
