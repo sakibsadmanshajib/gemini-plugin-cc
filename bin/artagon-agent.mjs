@@ -88,13 +88,29 @@ if (!prompt) {
   process.exit(2);
 }
 
+// Plumb SIGINT/SIGTERM into an AbortController so a Ctrl-C cleanly
+// cancels the in-flight backend turn (each runner SIGTERMs its child
+// + rejects with the abort reason on signal.aborted). Without this,
+// cancellation relies entirely on shell process-group signal propagation,
+// which is fragile — e.g., if the backend CLI sets its own process group
+// or briefly ignores SIGINT during cleanup, the child can outlive the
+// parent.
+const ac = new AbortController();
+const abortOnSignal = (/** @type {string} */ sig) => {
+  process.stderr.write(`\nartagon-agent: ${sig} received, aborting backend turn...\n`);
+  ac.abort(new Error(`aborted (${sig})`));
+};
+process.on("SIGINT", () => abortOnSignal("SIGINT"));
+process.on("SIGTERM", () => abortOnSignal("SIGTERM"));
+
 try {
   const turn = await runStatelessTurn(backend, {
     prompt,
     cwd: opts.cwd ?? process.cwd(),
     env: process.env,
     model: opts.model,
-    timeoutMs: opts.timeoutMs ?? 5 * 60 * 1000
+    timeoutMs: opts.timeoutMs ?? 5 * 60 * 1000,
+    signal: ac.signal
   });
 
   if (opts.json) {
