@@ -1,13 +1,14 @@
-# Installing gemini-plugin-cc
+# Installing the `gemini` plugin (from artagon-agent-cli-plugin)
 
 This is a **dual-host plugin** — the same source tree installs into both Claude Code and Codex CLI. Each host has its own plugin manager and its own marketplace descriptor:
 
-| Host | Marketplace descriptor (in this repo) | Personal marketplace location | Plugin manager command |
-|---|---|---|---|
-| Claude Code | `.claude-plugin/marketplace.json` | (uses repo's marketplace.json directly) | `/plugin marketplace add` |
-| Codex CLI | `.agents/plugins/marketplace.json` (canonical Codex path per official docs) | `~/.agents/plugins/marketplace.json` | `codex plugin marketplace add` + `/plugins` |
+| Host        | Marketplace descriptor (in this repo)                                       | Personal marketplace location           | Plugin manager command                      |
+| ----------- | --------------------------------------------------------------------------- | --------------------------------------- | ------------------------------------------- |
+| Claude Code | `.claude-plugin/marketplace.json`                                           | (uses repo's marketplace.json directly) | `/plugin marketplace add`                   |
+| Codex CLI   | `.agents/plugins/marketplace.json` (canonical Codex path per official docs) | `~/.agents/plugins/marketplace.json`    | `codex plugin marketplace add` + `/plugins` |
 
 Both managers copy `plugins/gemini/` into their respective caches:
+
 - Claude Code → `~/.claude/plugins/cache/<MARKETPLACE>/<PLUGIN>/<VERSION>/`
 - Codex CLI → `~/.codex/plugins/cache/<MARKETPLACE>/<PLUGIN>/<VERSION>/`
 
@@ -22,23 +23,29 @@ Plugins install their own skills, commands, hooks, and MCP servers automatically
 ## Claude Code install
 
 1. **Add this repo's marketplace** to Claude Code:
+
    ```bash
-   /plugin marketplace add file:///path/to/gemini-plugin-cc
+   /plugin marketplace add file:///path/to/artagon-agent-cli-plugin
    ```
-   Or, if you've cloned upstream:
+
+   Or, directly from GitHub:
+
    ```bash
-   /plugin marketplace add sakibsadmanshajib/gemini-plugin-cc
+   /plugin marketplace add artagon/artagon-agent-cli-plugin
    ```
 
 2. **Install the plugin**:
+
    ```bash
    /plugin install gemini@google-gemini
    ```
 
 3. **Verify**:
+
    ```bash
    ls ~/.claude/plugins/cache/google-gemini/gemini/
    ```
+
    You should see a versioned directory (e.g. `1.0.1/`) containing the plugin tree.
 
 4. **Use it**: Claude Code auto-registers the plugin's slash commands as `/gemini:setup`, `/gemini:review`, `/gemini:adversarial-review`, `/gemini:rescue`, `/gemini:status`, `/gemini:result`, `/gemini:cancel`.
@@ -48,11 +55,13 @@ Plugins install their own skills, commands, hooks, and MCP servers automatically
 Codex's documented personal-marketplace path is `~/.agents/plugins/marketplace.json` (per the official OpenAI docs at https://developers.openai.com/codex/plugins/build).
 
 1. **Clone the plugin** somewhere stable:
+
    ```bash
-   git clone https://github.com/sakibsadmanshajib/gemini-plugin-cc.git ~/code/gemini-plugin-cc
+   git clone https://github.com/artagon/artagon-agent-cli-plugin.git ~/code/artagon-agent-cli-plugin
    ```
 
 2. **Add it to your personal marketplace** at `~/.agents/plugins/marketplace.json`. If the file does not exist, create it. If it does, add the entry to the existing `plugins[]` array.
+
    ```json
    {
      "name": "personal",
@@ -62,7 +71,7 @@ Codex's documented personal-marketplace path is `~/.agents/plugins/marketplace.j
          "name": "gemini",
          "source": {
            "source": "local",
-           "path": "~/code/gemini-plugin-cc/plugins/gemini"
+           "path": "~/code/artagon-agent-cli-plugin/plugins/gemini"
          },
          "policy": {
            "installation": "AVAILABLE",
@@ -76,15 +85,19 @@ Codex's documented personal-marketplace path is `~/.agents/plugins/marketplace.j
    ```
 
 3. **Install via Codex**:
+
    ```bash
    codex
    ```
+
    Inside Codex, run `/plugins`, switch to the "personal" tab, select "gemini", and choose "Install plugin". Codex copies the plugin into its cache and registers the plugin's skills, commands, hooks, and MCP servers automatically.
 
 4. **Verify the install landed**:
+
    ```bash
    ls ~/.codex/plugins/cache/personal/gemini/local/
    ```
+
    You should see the plugin tree (`.codex-plugin/`, `scripts/`, `commands/`, etc.). Codex installs use `<VERSION>=local` for local marketplace sources.
 
 5. **Use it**: invoke implicitly with `$gemini <task>` (Codex's auto-invocation reads `agents/openai.yaml` at the plugin source root).
@@ -92,7 +105,7 @@ Codex's documented personal-marketplace path is `~/.agents/plugins/marketplace.j
 ## Updating
 
 ```bash
-cd ~/code/gemini-plugin-cc && git pull
+cd ~/code/artagon-agent-cli-plugin && git pull
 ```
 
 Then in your host, reinstall the plugin to pick up changes — both Claude Code and Codex cache by `version` in `plugin.json`, so bumping the version invalidates the cache automatically.
@@ -110,7 +123,7 @@ Then in your host, reinstall the plugin to pick up changes — both Claude Code 
 - The plugin ships **two parallel manifest dirs**:
   - `.codex-plugin/plugin.json` (canonical Codex manifest path per the official spec)
   - `.claude-plugin/plugin.json` (Claude Code manifest path)
-  Both files are byte-identical and there is a CI gate (`tests/install.test.mjs`) enforcing parity.
+    Both files are byte-identical and there is a CI gate (`tests/install.test.mjs`) enforcing parity.
 - Each host has its own marketplace descriptor:
   - `.agents/plugins/marketplace.json` — canonical Codex path per the official OpenAI docs (Codex shape: structured `source: { source: "local", path: ... }` with `policy` and `interface.displayName`)
   - `.claude-plugin/marketplace.json` — Claude Code's path (string-form `source: "./plugins/gemini"`, no `policy` block)

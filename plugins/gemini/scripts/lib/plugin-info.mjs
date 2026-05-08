@@ -16,14 +16,14 @@
  * at module load.
  *
  * `package.json` is intentionally NOT in the fallback chain. Its `name`
- * field (`"gemini-plugin-cc"`, the npm package name) does NOT match the
- * plugin's `name` field (`"gemini"`, the plugin identifier used by Claude
- * Code/Codex marketplaces). Falling back to it would silently change the
- * ACP wire identity from `"gemini"` to `"gemini-plugin-cc"` — a regression
- * for any consumer matching on identity. Since the two manifest files are
- * byte-identical (verified by `tests/install.test.mjs`), losing both at
- * once would be a deeply broken install for which a sentinel is the right
- * signal.
+ * field (`"artagon-agent-cli-plugin"`, the npm package name) does NOT
+ * match the plugin's `name` field (`"gemini"`, the plugin identifier used
+ * by Claude Code/Codex marketplaces). Falling back to it would silently
+ * change the ACP wire identity from `"gemini"` to
+ * `"artagon-agent-cli-plugin"` — a regression for any consumer matching
+ * on identity. Since the two manifest files are byte-identical (verified
+ * by `tests/install.test.mjs`), losing both at once would be a deeply
+ * broken install for which a sentinel is the right signal.
  */
 
 import fs from "node:fs";

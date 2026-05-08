@@ -175,12 +175,12 @@ crosses into the CLI binary. That's a known limitation; see
 
 ### Env vars
 
-| Var                           | Effect                                                                                                                       |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Activates the SDK. Without it, tracing is a no-op throughout.                                                                |
-| `OTEL_SERVICE_NAME`           | Service identity in spans. Default `gemini-plugin-cc`.                                                                       |
-| `OTEL_RESOURCE_ATTRIBUTES`    | Standard OTel resource attribute string (`key=val,key=val`).                                                                 |
-| `OTEL_TRACES_SAMPLER`         | Standard OTel sampler (`always_on`, `always_off`, `parentbased_traceidratio`, etc.). Default sampling per OTel SDK defaults. |
+| Var                           | Effect                                                                                                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Activates the SDK. Without it, tracing is a no-op throughout.                                                                                                                                                                     |
+| `OTEL_SERVICE_NAME`           | Service identity in spans. No project-set default; OTel SDK falls through to `unknown_service:node` if unset. Set this in your deployment to a meaningful value (e.g. `artagon-agent-cli-plugin`, or a workload-scoped identity). |
+| `OTEL_RESOURCE_ATTRIBUTES`    | Standard OTel resource attribute string (`key=val,key=val`).                                                                                                                                                                      |
+| `OTEL_TRACES_SAMPLER`         | Standard OTel sampler (`always_on`, `always_off`, `parentbased_traceidratio`, etc.). Default sampling per OTel SDK defaults.                                                                                                      |
 
 ### Failure mode
 

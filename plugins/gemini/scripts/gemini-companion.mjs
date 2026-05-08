@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Gemini Companion — main CLI entry point for the gemini-plugin-cc Claude Code plugin.
+ * Gemini Companion — main CLI entry point for the artagon-agent-cli-plugin "gemini" plugin
+ * (the Claude Code-installed plugin that drives the Gemini backend).
  *
  * Subcommands:
  *   setup                Check Gemini CLI availability, auth, toggle review gate
