@@ -51,6 +51,11 @@ flags:
                  Comma-separated for multi-key allowlist. /health is
                  exempt. Off by default.
                  Env: ARTAGON_FACADE_API_KEY
+  --api-key-file <path>
+                 read the key(s) from a file (trimmed; one per line OR
+                 comma-separated). Safer than --api-key since the key
+                 isn't visible in ps output. Mutually exclusive with
+                 --api-key.
   --version      print version
   --help         print this message
 `;
@@ -60,7 +65,7 @@ function printUsage(stream = process.stderr) {
 }
 
 function parseArgs(/** @type {string[]} */ argv) {
-  /** @type {{ port?: number, host?: string, cors?: string, apiKey?: string, version?: boolean, help?: boolean }} */
+  /** @type {{ port?: number, host?: string, cors?: string, apiKey?: string, apiKeyFile?: string, version?: boolean, help?: boolean }} */
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
@@ -84,6 +89,10 @@ function parseArgs(/** @type {string[]} */ argv) {
       const k = argv[++i];
       if (k == null) throw new Error("--api-key requires a value");
       out.apiKey = k;
+    } else if (tok === "--api-key-file") {
+      const p = argv[++i];
+      if (p == null) throw new Error("--api-key-file requires a path");
+      out.apiKeyFile = p;
     } else {
       throw new Error(`unknown flag: ${tok}`);
     }
@@ -131,10 +140,50 @@ async function main() {
     }
   }
 
-  // CLI --api-key accepts either a single key or a comma-separated
-  // multi-key allowlist. Pre-parse to match the facade's option type.
+  // CLI --api-key / --api-key-file resolution. The file path wins
+  // when both are passed so users debugging can override their env
+  // setup; --api-key alone is supported but exposes the key in
+  // `ps` output, so it's documented as the less-secure path.
   let apiKey;
-  if (opts.apiKey !== undefined) {
+  if (opts.apiKey !== undefined && opts.apiKeyFile !== undefined) {
+    process.stderr.write(
+      "artagon-openai-server: --api-key and --api-key-file are mutually exclusive\n"
+    );
+    process.exit(2);
+  }
+  /** @type {string | undefined} */
+  let rawKeySource;
+  if (opts.apiKeyFile !== undefined) {
+    try {
+      // Read the file. Newline-separated keys (one per line) are split
+      // into an allowlist; a single line is treated as a single key
+      // (or comma-separated, same as --api-key).
+      rawKeySource = fs.readFileSync(opts.apiKeyFile, "utf8");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `artagon-openai-server: failed to read --api-key-file ${opts.apiKeyFile}: ${message}\n`
+      );
+      process.exit(2);
+    }
+    // Split on newlines first; fallback to comma if the file is one-line.
+    const lines = rawKeySource
+      .split("\n")
+      .map((s) => s.trim())
+      .filter((s) => s && !s.startsWith("#"));
+    if (lines.length > 1) {
+      apiKey = lines;
+    } else if (lines.length === 1) {
+      // Single line — accept either a comma-separated list or a bare key.
+      const single = lines[0];
+      apiKey = single.includes(",")
+        ? single
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : single;
+    }
+  } else if (opts.apiKey !== undefined) {
     const trimmed = opts.apiKey.trim();
     if (trimmed.includes(",")) {
       apiKey = trimmed

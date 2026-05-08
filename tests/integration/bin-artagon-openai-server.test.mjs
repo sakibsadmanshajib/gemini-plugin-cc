@@ -83,6 +83,24 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
     expect(r.stdout.toString()).toMatch(/--api-key/);
     expect(r.stdout.toString()).toMatch(/ARTAGON_FACADE_API_KEY/);
   });
+
+  test("--api-key-file without value: exits 2", () => {
+    const r = runBinSync(["--api-key-file"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/--api-key-file requires a path/);
+  });
+
+  test("--api-key-file with non-existent path: exits 2 with file error", () => {
+    const r = runBinSync(["--api-key-file", "/dev/null/does-not-exist"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/failed to read --api-key-file/);
+  });
+
+  test("--api-key + --api-key-file together → exits 2", () => {
+    const r = runBinSync(["--api-key", "sk-x", "--api-key-file", "/tmp/x"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/mutually exclusive/);
+  });
 });
 
 describe("bin/artagon-openai-server.mjs — --cors lifecycle", () => {
@@ -174,6 +192,63 @@ describe("bin/artagon-openai-server.mjs — --api-key lifecycle", () => {
       child.kill("SIGTERM");
       await new Promise((resolve) => child.on("exit", resolve));
       if (!child.killed) child.kill("SIGKILL");
+    }
+  });
+});
+
+describe("bin/artagon-openai-server.mjs — --api-key-file lifecycle", () => {
+  test("--api-key-file <path> reads key from file + enforces auth", async () => {
+    const os = await import("node:os");
+    const keyFile = path.join(os.tmpdir(), `artagon-key-${Date.now()}-${Math.random()}.txt`);
+    fs.writeFileSync(keyFile, "sk-from-file\n", { mode: 0o600 });
+
+    const child = spawn(process.execPath, [BIN, "--port", "0", "--api-key-file", keyFile], {
+      cwd: ROOT
+    });
+
+    let stdoutBuf = "";
+    /** @type {(value: number) => void} */
+    let resolvePort;
+    const portReady = new Promise((resolve) => {
+      resolvePort = resolve;
+    });
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuf += chunk;
+      const m = stdoutBuf.match(/listening at http:\/\/[^:]+:(\d+)/);
+      if (m) resolvePort(Number(m[1]));
+    });
+
+    try {
+      const port = /** @type {number} */ (
+        await Promise.race([
+          portReady,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("server didn't print port within 15s")), 15000)
+          )
+        ])
+      );
+
+      // Wrong key → 401.
+      const wrongRes = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+        headers: { Authorization: "Bearer sk-wrong" }
+      });
+      expect(wrongRes.status).toBe(401);
+
+      // Key from file → 200.
+      const rightRes = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+        headers: { Authorization: "Bearer sk-from-file" }
+      });
+      expect(rightRes.status).toBe(200);
+    } finally {
+      child.kill("SIGTERM");
+      await new Promise((resolve) => child.on("exit", resolve));
+      if (!child.killed) child.kill("SIGKILL");
+      try {
+        fs.unlinkSync(keyFile);
+      } catch {
+        // best-effort
+      }
     }
   });
 });
