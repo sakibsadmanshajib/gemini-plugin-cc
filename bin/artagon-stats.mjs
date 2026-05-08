@@ -55,6 +55,9 @@ flags:
   --since <iso>      only count records on/after this ISO timestamp
   --until <iso>      only count records on/before this ISO timestamp
   --recent <n>       additionally print the N most recent records
+  --budget <n>       exit non-zero (3) if total tokens exceed N
+                     (useful in CI: \`artagon-stats --budget 1000000 || alert\`)
+  --budget-usd <n>   exit non-zero (3) if estimated USD exceeds N
   --version          print version
   --help             print this message
 `;
@@ -64,7 +67,7 @@ function printUsage(stream = process.stderr) {
 }
 
 function parseArgs(/** @type {string[]} */ argv) {
-  /** @type {{ json?: boolean, since?: Date, until?: Date, recent?: number, version?: boolean, help?: boolean }} */
+  /** @type {{ json?: boolean, since?: Date, until?: Date, recent?: number, budget?: number, budgetUsd?: number, version?: boolean, help?: boolean }} */
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
@@ -83,6 +86,14 @@ function parseArgs(/** @type {string[]} */ argv) {
       const n = Number(argv[++i]);
       if (!Number.isInteger(n) || n < 0) throw new Error(`invalid --recent: ${argv[i]}`);
       out.recent = n;
+    } else if (tok === "--budget") {
+      const n = Number(argv[++i]);
+      if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid --budget: ${argv[i]}`);
+      out.budget = n;
+    } else if (tok === "--budget-usd") {
+      const n = Number(argv[++i]);
+      if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid --budget-usd: ${argv[i]}`);
+      out.budgetUsd = n;
     } else {
       throw new Error(`unknown flag: ${tok}`);
     }
@@ -111,14 +122,37 @@ if (opts.help) {
 const records = readCostRecords({ since: opts.since, until: opts.until });
 const summary = summarizeCostRecords(records);
 
+// Budget gate. Computed up-front so the exit code is set whether
+// we render text or JSON. Exit 3 distinguishes "over budget" from
+// usage error (2) and clean (0). The render still happens — users
+// see WHAT exceeded — and the gate fires after.
+let overBudget = false;
+let overBudgetMessage = "";
+if (typeof opts.budget === "number" && summary.total_tokens > opts.budget) {
+  overBudget = true;
+  overBudgetMessage = `tokens ${summary.total_tokens.toLocaleString()} exceed budget ${opts.budget.toLocaleString()}`;
+}
+if (typeof opts.budgetUsd === "number" && summary.estimated_usd > opts.budgetUsd) {
+  overBudget = true;
+  overBudgetMessage = `estimated $${summary.estimated_usd.toFixed(4)} exceeds budget $${opts.budgetUsd.toFixed(4)}`;
+}
+
 if (opts.json) {
   /** @type {any} */
   const out = { summary };
   if (typeof opts.recent === "number") {
     out.recent = recentCostRecords(records, opts.recent);
   }
+  if (typeof opts.budget === "number" || typeof opts.budgetUsd === "number") {
+    out.budget = {
+      tokens: opts.budget ?? null,
+      usd: opts.budgetUsd ?? null,
+      over: overBudget,
+      message: overBudget ? overBudgetMessage : null
+    };
+  }
   process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
-  process.exit(0);
+  process.exit(overBudget ? 3 : 0);
 }
 
 process.stdout.write(formatCostSummaryText(summary));
@@ -136,4 +170,9 @@ if (typeof opts.recent === "number" && opts.recent > 0) {
       );
     }
   }
+}
+
+if (overBudget) {
+  process.stderr.write(`\nOVER BUDGET: ${overBudgetMessage}\n`);
+  process.exit(3);
 }
