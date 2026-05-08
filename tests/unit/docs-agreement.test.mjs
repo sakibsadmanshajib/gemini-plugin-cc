@@ -11,7 +11,7 @@ const RESCUE_AGENT = fs.readFileSync(
   path.join(ROOT, "plugins/gemini/agents/gemini-rescue.md"),
   "utf8"
 );
-const README = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+const README = fs.readFileSync(path.join(ROOT, "docs/legacy-gemini-plugin.md"), "utf8");
 
 test("rescue.md advertises --thinking <off|low|medium|high>", () => {
   assert.match(RESCUE, /--thinking <off\|low\|medium\|high>/);
@@ -42,7 +42,7 @@ test("README documents --thinking levels and default", () => {
 
 test("docs explain --thinking is parsed but not delivered per invocation yet", () => {
   for (const [name, source] of [
-    ["README.md", README],
+    ["docs/legacy-gemini-plugin.md", README],
     ["commands/rescue.md", RESCUE],
     ["commands/review.md", REVIEW],
     ["agents/gemini-rescue.md", RESCUE_AGENT]

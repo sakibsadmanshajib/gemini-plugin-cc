@@ -56,7 +56,7 @@ test("command files match expected set", () => {
 test("rescue command uses inline execution without subagent delegation", () => {
   const rescue = read("commands/rescue.md");
   const agent = read("agents/gemini-rescue.md");
-  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const readme = fs.readFileSync(path.join(ROOT, "docs/legacy-gemini-plugin.md"), "utf8");
   const runtimeSkill = read("skills/gemini-cli-runtime/SKILL.md");
 
   assert.match(rescue, /allowed-tools:\s*Bash\(node:\*\),\s*AskUserQuestion/);
@@ -176,7 +176,7 @@ test("hooks keep session-end cleanup and stop gating enabled", () => {
 
 test("setup command can offer Gemini install and still points users to gemini auth", () => {
   const setup = read("commands/setup.md");
-  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const readme = fs.readFileSync(path.join(ROOT, "docs/legacy-gemini-plugin.md"), "utf8");
 
   assert.match(setup, /argument-hint:\s*'\[--enable-review-gate\|--disable-review-gate\]'/);
   assert.match(setup, /AskUserQuestion/);
@@ -204,7 +204,7 @@ test("status command preserves health and last-progress fields when rendering", 
 });
 
 test("README documents /gemini:status job health details and recommended actions", () => {
-  const readme = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
+  const readme = fs.readFileSync(path.join(ROOT, "docs/legacy-gemini-plugin.md"), "utf8");
 
   assert.match(readme, /Health/);
   assert.match(readme, /Last Progress/);
