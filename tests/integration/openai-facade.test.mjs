@@ -18,6 +18,7 @@ import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import {
   createOpenAiFacadeServer,
   flattenMessages,
+  mapFinishReason,
   resolveCorsPolicy,
   resolveModelToBackend,
   turnResultToOpenAiResponse
@@ -86,6 +87,41 @@ describe("resolveModelToBackend", () => {
   });
 });
 
+describe("mapFinishReason", () => {
+  test("Claude/Codex/OpenAI 'stop'-equivalents → 'stop'", () => {
+    // The default branch — anything not explicitly mapped lands here.
+    expect(mapFinishReason("end_turn")).toBe("stop"); // Claude
+    expect(mapFinishReason("stop")).toBe("stop"); // Codex / OpenAI
+    expect(mapFinishReason("STOP")).toBe("stop"); // Gemini (uppercase)
+    expect(mapFinishReason("stop_sequence")).toBe("stop"); // Claude
+    expect(mapFinishReason("anything_else")).toBe("stop");
+    expect(mapFinishReason(null)).toBe("stop");
+    expect(mapFinishReason(undefined)).toBe("stop");
+    expect(mapFinishReason("")).toBe("stop");
+  });
+
+  test("token-limit dialects → 'length'", () => {
+    expect(mapFinishReason("max_tokens")).toBe("length"); // Claude
+    expect(mapFinishReason("MAX_TOKENS")).toBe("length"); // Gemini
+    expect(mapFinishReason("length")).toBe("length"); // OpenAI / Codex
+    expect(mapFinishReason("error_max_turns")).toBe("length"); // Claude error variant
+  });
+
+  test("safety / content-filter dialects → 'content_filter'", () => {
+    expect(mapFinishReason("SAFETY")).toBe("content_filter"); // Gemini
+    expect(mapFinishReason("RECITATION")).toBe("content_filter"); // Gemini
+    expect(mapFinishReason("content_filter")).toBe("content_filter"); // OpenAI
+  });
+
+  test("tool-call dialects → 'tool_calls' / 'function_call'", () => {
+    expect(mapFinishReason("tool_use")).toBe("tool_calls"); // Claude
+    expect(mapFinishReason("tool_calls")).toBe("tool_calls"); // OpenAI
+    // function_call is preserved — OpenAI distinguishes legacy
+    // function_call from the newer tool_calls.
+    expect(mapFinishReason("function_call")).toBe("function_call");
+  });
+});
+
 describe("flattenMessages", () => {
   test("single user message", () => {
     expect(flattenMessages([{ role: "user", content: "hello" }])).toBe("User: hello");
@@ -141,12 +177,15 @@ describe("turnResultToOpenAiResponse", () => {
     expect(r.model).toBe("claude");
   });
 
-  test("turn.reason becomes finish_reason", () => {
+  test("turn.reason maps to OpenAI's canonical finish_reason set", () => {
+    // Claude's "end_turn" → OpenAI's "stop". Without the mapper,
+    // downstream OpenAI clients would receive a non-canonical
+    // finish_reason and miss user-code branches that expect "stop".
     const r = turnResultToOpenAiResponse("codex", {
       ...baseTurn,
       reason: "end_turn"
     });
-    expect(r.choices[0].finish_reason).toBe("end_turn");
+    expect(r.choices[0].finish_reason).toBe("stop");
   });
 
   test("Codex/Claude usage shape: input_tokens/output_tokens → prompt/completion", () => {
