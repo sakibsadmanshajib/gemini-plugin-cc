@@ -29,14 +29,14 @@ The major coding-agent CLIs (`claude`, `codex`, `gemini`) speak different protoc
 
 ### Pick whichever fits your context
 
-| Use case                                                     | Install                                                                                                                 |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| **Library / one-off CLI**                                    | `npm i -g artagon-agent-cli-plugin` (or `npx`)                                                                          |
-| **OpenAI-compatible HTTP server**                            | `npx artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                        |
-| **Claude Code plugin** (drive Codex+Gemini from Claude Code) | `claude plugin marketplace add artagon/artagon-agent-cli-plugin` then `/plugin install claude@artagon-agent-cli-plugin` |
-| **Codex CLI plugin** (drive Gemini+Claude from Codex CLI)    | Add to `~/.agents/plugins/marketplace.json` (see [`docs/plugins.md`](docs/plugins.md))                                  |
-| **Legacy gemini-driving plugin**                             | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                      |
-| **Homebrew**                                                 | _Pending — `brew install artagon/tap/artagon-agent-cli-plugin` once the tap is published._                              |
+| Use case                                                     | Install                                                                                                                                                                                       |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Library / one-off CLI**                                    | `npm i -g artagon-agent-cli-plugin` (or `npx`)                                                                                                                                                |
+| **OpenAI-compatible HTTP server**                            | `npx artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                                                                                              |
+| **Claude Code plugin** (drive Codex+Gemini from Claude Code) | `claude plugin marketplace add artagon/artagon-agent-cli-plugin` then `/plugin install claude@artagon-agent-cli-plugin`                                                                       |
+| **Codex CLI plugin** (drive Gemini+Claude from Codex CLI)    | Add to `~/.agents/plugins/marketplace.json` (see [`docs/plugins.md`](docs/plugins.md))                                                                                                        |
+| **Legacy gemini-driving plugin**                             | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                                                                                            |
+| **Homebrew**                                                 | _Pending — `brew install artagon/tap/artagon-agent-cli-plugin` once the tap is published. See [`docs/homebrew-tap.md`](docs/homebrew-tap.md) for the publish recipe + version-bump workflow._ |
 
 After global install, three binaries are on PATH:
 
