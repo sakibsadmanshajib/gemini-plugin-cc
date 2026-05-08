@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **HTTP body parsing in OpenAI facade migrated to `raw-body` 3.0.2**.
+  The hand-rolled `readJsonBody` was reimplementing chunk-buffering +
+  size-cap + drain-without-destroy. We already had to fix it once
+  (c238fa5 ECONNRESET race when destroying mid-write); raw-body
+  handles drain-vs-destroy correctly out of the box. Net -35 +9
+  lines. The 413 detection switched from string-matching err.message
+  to `err.statusCode === 413` — structural, not stringly-typed. 61/61
+  facade tests pass unchanged.
+
 - **Argv parsers across all entry points migrated to `commander` 14.0.3**.
   The four hand-rolled `parseArgs` functions in `bin/artagon-stats`,
   `bin/artagon-agent`, `bin/artagon-openai-server`, and
