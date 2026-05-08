@@ -502,6 +502,36 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     expect(body.error.message).toMatch(/Cannot resolve model "bedrock-titan"/);
   });
 
+  test("POST /v1/chat/completions: n != 1 → 400 (multiple completions unsupported)", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }],
+        n: 3
+      })
+    });
+    expect(res.status).toBe(400);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.type).toBe("invalid_request_error");
+    expect(body.error.param).toBe("n");
+    expect(body.error.message).toMatch(/n != 1/);
+  });
+
+  test("POST /v1/chat/completions: n=1 (explicit) is accepted", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }],
+        n: 1
+      })
+    });
+    expect(res.status).toBe(200);
+  });
+
   test("POST /v1/chat/completions: missing messages → 400", async () => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
