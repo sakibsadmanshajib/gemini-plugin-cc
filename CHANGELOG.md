@@ -9,6 +9,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **OpenAI compatibility hardening on the HTTP facade**:
+  - **Opt-in CORS** (`cors` option + `--cors` flag on
+    `bin/artagon-openai-server` + `$ARTAGON_FACADE_CORS` env). Browser
+    clients (Vercel AI SDK, in-browser openai SDK) couldn't reach
+    the local facade due to same-origin policy and missing OPTIONS
+    preflight handler. Default OFF for safety; supports wildcard,
+    single origin, or comma-separated allowlist.
+  - **`stream_options.include_usage`**: streaming clients can now
+    opt into a final usage chunk before `[DONE]`. Was returning
+    `response.usage = None` on streamed turns — broken token
+    accounting.
+  - **finish_reason mapping** to OpenAI's canonical set
+    (`stop` / `length` / `content_filter` / `tool_calls` /
+    `function_call`). Each backend's dialect (Claude `end_turn` /
+    `max_tokens` / `tool_use`, Gemini uppercase `STOP` / `SAFETY` /
+    `RECITATION`, Codex already-canonical) translates correctly.
+    Without mapping, downstream `if reason == "length"` retry
+    branches silently missed Claude/Gemini cases.
+  - **Body parse failures return 400/413** instead of 500. Bad JSON
+    - oversized bodies are CLIENT errors. `readJsonBody` no longer
+      races with `req.destroy()` (was producing ECONNRESET).
+  - **`n != 1` rejected with 400** + clear `param: "n"` pointer.
+    Was silently returning `choices[0]` and clients indexing
+    `choices[1..n-1]` got undefined.
+  - **`bin/artagon-openai-server --cors <spec>`** flag exposes the
+    facade's CORS option from the standalone CLI.
+
+- **Homebrew formula generator**
+  (`scripts/generate-homebrew-formula.mjs` / `pnpm gen:homebrew`).
+  Reads version + name from `package.json`, fetches the published
+  npm tarball, computes SHA-256, renders
+  `artagon-agent-cli-plugin.rb` with `depends_on "node"` +
+  `Language::Node.std_npm_install_args` install path + a smoke-test
+  block exercising all 3 bin scripts via `--version`. Replaces the
+  manual sed-loop SHA copy/paste described in the prior tap docs.
+
+- **`SECURITY.md`** disclosure policy. Reporting via private GitHub
+  Security Advisory (preferred) or `security@artagon.dev`. 3-day
+  ack / 7-day assessment / 90-day default coordinated disclosure
+  window. In-/out-of-scope sections + "hardening already in place"
+  reviewer index pointing at CodeQL, SHA-pinned actions, OIDC
+  provenance, SBOM, `crypto.randomBytes` IDs, mode-0o600 cost log,
+  no-stack-trace responses, PID-reuse hardening. Repoints the
+  security-report issue template's previously-placeholder email.
+
 - **Prompt-cache aware USD pricing.** `lib/cost/recorder.mjs` now
   extracts Claude's `cache_creation_input_tokens` /
   `cache_read_input_tokens` and OpenAI's
@@ -27,6 +72,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Per-backend totals also carry the cache fields.
 
 ### Fixed
+
+- **CI duplicate runs.** Every PR commit was firing each workflow
+  twice — once via the feature-branch `push` trigger
+  (`chore/**`/`feat/**`/`fix/**`) and once via
+  `pull_request: branches: [main]`. Visible as duplicate rows in
+  `gh pr checks`. Dropped feature-branch push triggers in `test.yml`
+  and `install.yml` (`pull_request` covers them; `push` only on
+  `main` for post-merge gating). Added `concurrency` blocks with
+  `cancel-in-progress: true` so rapid pushes cancel stale runs.
+
+- **Property test substring-vs-structural bug.** `tests/property/
+message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
+  no top-level `id` on JSON-RPC notifications. fast-check found a
+  counterexample where a nested `id` key inside `params` matched the
+  substring even though the outer message was a valid notification.
+  Switched to `Object.hasOwn(parsed, "id")` — only the top-level
+  shape matters per the JSON-RPC notification rule.
 
 - **CI install workflow was red on every commit since vitest tests
   were added.** Three steps in `.github/workflows/install.yml`
