@@ -271,6 +271,87 @@ checkout` needs in this workflow). Closes the OpenSSF Scorecard
   catches typecheck-class breakage before the env-shape steps
   spawn child processes.
 
+- **Test matrix dropped EOL Node 18.** `test.yml` continued running
+  against Node 18 (EOL'd 2025-04-30) burning ~50s of runner time
+  per PR validating a runtime no realistic downstream user runs
+  anymore. `install.yml` had already trimmed to `[20.x, 22.x]`;
+  this aligns `test.yml`. Floor now matches Node's actively-
+  maintained LTS lines (20 through 2026-04, 22 through 2027-04).
+  `package.json engines.node` left at `>=18.18.0` deliberately —
+  bumping engines warrants its own SemVer signal and its own
+  decision separately from a CI policy change.
+
+- **Bin SIGINT/SIGTERM handling.**
+  - `bin/artagon-agent` had no signal handler at all, so a Ctrl-C
+    during a long backend turn relied on shell process-group signal
+    propagation to kill the spawned claude/codex/gemini CLI — which
+    is fragile (backend sets its own pgrp / briefly ignores SIGINT
+    during cleanup / pipe through a process-group-changing tool).
+    Now plumbs SIGINT/SIGTERM into an `AbortController` that flows
+    through `runStatelessTurn({ signal })` to the runner's child-
+    kill path. Deterministic cancellation, no orphaned subprocess.
+  - `bin/artagon-openai-server`'s shutdown ignored the promise
+    returned by `shutdown()` — a `facade.close()` rejection would
+    print "unhandledRejection" at the worst possible moment (during
+    shutdown, when stderr is the operator's only signal). Now
+    wrapped in a `safeShutdown` boundary that catches and exits 1
+    with a clean message. Also added a 10s `.unref()`'d safety
+    timer that force-exits with code 1 + a clear message if
+    `close()` hangs (stuck keep-alive connection, runner subprocess
+    that won't yield). Without this, the operator was on
+    Ctrl-C-Ctrl-C force-kill duty.
+
+- **`bin/artagon-stats` clean error on cost-log read failure.**
+  `readCostRecords` swallows per-line JSON parse failures (line-
+  level corruption is recoverable) but throws on file-level errors
+  (EACCES from a wrong-mode log file, EISDIR from a path collision,
+  EROFS in some containers). The bin called it without a try/catch,
+  so any of those produced a raw Node stack trace including
+  internal `node:fs` frames at the user — operationally useless.
+  Now wrapped: prints `artagon-stats: failed to read cost log:
+<err.message>` and exits 1 (runtime error, not 2 / usage error
+  — args were fine, environment is misconfigured). Symmetric with
+  the existing `artagon-agent` and `artagon-openai-server` error
+  patterns.
+
+- **`bin/artagon-stats` text-mode default --recent 5.** README's
+  Quick Examples claimed `artagon-stats` (no flags) shows
+  "text summary + 5 most recent" but the actual behavior was: no
+  recent records unless `--recent N` was explicitly passed —
+  README drift since at least the 1.0 release. Defaulting `--recent
+5` for text mode aligns the behavior with the documented
+  contract. JSON output stays strictly opt-in (tooling parsing the
+  output shouldn't get an unexpected `recent` field). Explicit
+  `--recent N` (including `--recent 0` to suppress) takes
+  precedence. Three new test cases lock the contract in.
+
+### Tests added
+
+- **`tests/unit/tracing.test.mjs`** — 9 unit tests pinning the
+  no-op contract for `lib/tracing.mjs` (zero coverage prior).
+  Covers: `getTracer({})` → no-op tracer; `getTracerSyncOrNoop`
+  shape before async resolves; sync + async fn return passes
+  through `tracer.span`; rejection inside `span` propagates to
+  caller; `inject(carrier)` doesn't throw or mutate; `shutdown()`
+  resolves; cache returns same instance; bogus env (import fails)
+  → still a usable no-op (validates the silent-vs-warn
+  discrimination at the catch boundary).
+
+### Chore
+
+- **`pnpm lint:fix` flag refresh.** Was emitting a deprecation
+  warning on every run: `--apply` is deprecated, removed in next
+  major biome. Pre-commit hook had already migrated to `--write`;
+  aligned the npm script. Equivalent semantics in biome 1.9, just
+  no more warning noise per invocation.
+
+- **JSDoc-typed three IDE-visible noImplicitAny holdouts** in
+  `lib/middleware/audit.mjs`, `lib/middleware/compose.mjs`, and
+  `lib/tracing.mjs`. tsgo's full check accepted them but the
+  language server flagged them at edit time. No runtime change —
+  cleans up false-positive squiggles for authors working in these
+  files.
+
 ### Repository hygiene
 
 - **`.editorconfig`** already in place; added complementary
