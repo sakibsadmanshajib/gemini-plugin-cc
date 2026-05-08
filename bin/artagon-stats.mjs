@@ -164,8 +164,17 @@ if (opts.json) {
 
 process.stdout.write(formatCostSummaryText(summary));
 
-if (typeof opts.recent === "number" && opts.recent > 0) {
-  const recent = recentCostRecords(records, opts.recent);
+// In text mode, default --recent to 5 when not explicitly set so the
+// at-a-glance view shows the last few turns alongside totals (matches
+// README "text summary + 5 most recent" claim). JSON mode stays
+// strictly opt-in — tooling parsing the output shouldn't get an
+// unexpected `recent` field. Explicit --recent N (including 0) takes
+// precedence over the default.
+const TEXT_RECENT_DEFAULT = 5;
+const recentCount = typeof opts.recent === "number" ? opts.recent : TEXT_RECENT_DEFAULT;
+
+if (recentCount > 0) {
+  const recent = recentCostRecords(records, recentCount);
   if (recent.length > 0) {
     process.stdout.write(`\nRecent (${recent.length}):\n`);
     for (const r of recent) {

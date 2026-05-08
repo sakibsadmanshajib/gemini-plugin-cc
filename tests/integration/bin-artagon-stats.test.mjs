@@ -141,6 +141,45 @@ describe("bin/artagon-stats.mjs — populated log", () => {
     expect(out).toMatch(/claude/);
   });
 
+  test("text mode (no --recent): defaults to last 5 records (matches README)", () => {
+    // Seed 7 records — the default of 5 should clip to the most recent 5.
+    const records = Array.from({ length: 7 }, (_, i) => ({
+      ...sampleRecord,
+      timestamp: `2026-05-0${i + 1}T00:00:00.000Z`
+    }));
+    seedLog(records);
+    const r = runBin([]);
+    expect(r.status).toBe(0);
+    const out = r.stdout.toString();
+    // Header reflects the chosen size.
+    expect(out).toMatch(/Recent \(5\):/);
+    // Most recent 5 are 2026-05-03 .. 2026-05-07 (mtime descending).
+    expect(out).toMatch(/2026-05-07/);
+    expect(out).toMatch(/2026-05-03/);
+    // The two oldest don't appear in the Recent block.
+    const recentSection = out.slice(out.indexOf("Recent ("));
+    expect(recentSection).not.toMatch(/2026-05-01/);
+    expect(recentSection).not.toMatch(/2026-05-02/);
+  });
+
+  test("--json (no --recent): does NOT include recent block (default opt-in only)", () => {
+    seedLog([sampleRecord]);
+    const r = runBin(["--json"]);
+    expect(r.status).toBe(0);
+    const body = JSON.parse(r.stdout.toString());
+    // Defaulting --recent for text mode must NOT bleed into JSON —
+    // tooling parsing the output should see exactly { summary } here.
+    expect(body).not.toHaveProperty("recent");
+  });
+
+  test("--recent 0: explicit zero suppresses the default Recent block", () => {
+    seedLog([sampleRecord]);
+    const r = runBin(["--recent", "0"]);
+    expect(r.status).toBe(0);
+    const out = r.stdout.toString();
+    expect(out).not.toMatch(/Recent \(/);
+  });
+
   test("--json includes summary + budget block when --budget set", () => {
     seedLog([sampleRecord]);
     const r = runBin(["--json", "--budget", "10000"]);
