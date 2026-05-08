@@ -136,6 +136,92 @@ describe("estimateUsd", () => {
     // garbage→NaN→0 prompt; 100/1M*15 completion = 0.0015
     expect(cost).toBeCloseTo(0.0015, 6);
   });
+
+  test("Claude cache_creation tokens are charged at +25% input rate", () => {
+    // Sonnet input rate $3/M. 1000 cache_creation tokens at 1.25× =
+    // 1000/1M * 3 * 1.25 = 0.00375 USD.
+    const cost = estimateUsd(
+      BACKEND_NAMES.CLAUDE,
+      null,
+      { cache_creation_tokens: 1000 },
+      { table: DEFAULT_PRICING }
+    );
+    expect(cost).toBeCloseTo(0.00375, 6);
+  });
+
+  test("Claude cache_read tokens are charged at 10% of input rate", () => {
+    // 10_000 cache reads at 0.1× of $3/M = 10000/1M * 3 * 0.1 = 0.003.
+    const cost = estimateUsd(
+      BACKEND_NAMES.CLAUDE,
+      null,
+      { cache_read_tokens: 10_000 },
+      { table: DEFAULT_PRICING }
+    );
+    expect(cost).toBeCloseTo(0.003, 6);
+  });
+
+  test("Claude all-component pricing matches sum of parts", () => {
+    // Mix of regular + cache_create + cache_read + completion.
+    // Sonnet $3/M input, $15/M output.
+    //   regular:    1000/1M * 3            = 0.003
+    //   create:     1000/1M * 3 * 1.25     = 0.00375
+    //   read:      10000/1M * 3 * 0.10     = 0.003
+    //   output:     500/1M * 15            = 0.0075
+    //   total                              = 0.01725
+    const cost = estimateUsd(
+      BACKEND_NAMES.CLAUDE,
+      null,
+      {
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        cache_creation_tokens: 1000,
+        cache_read_tokens: 10_000
+      },
+      { table: DEFAULT_PRICING }
+    );
+    expect(cost).toBeCloseTo(0.01725, 6);
+  });
+
+  test("OpenAI cache_read is subtracted from prompt_tokens (subset semantics)", () => {
+    // For codex/GPT-4o+, cached_tokens is a SUBSET of prompt_tokens.
+    // Charge: regular = (prompt - cache_read), cache_read at 50% input.
+    // GPT-5 default: $1.25/M input, $10/M output.
+    //   prompt 1000 (incl 600 cached)
+    //     regular = 400/1M * 1.25     = 0.0005
+    //     cached  = 600/1M * 1.25 * 0.5 = 0.000375
+    //   completion 100 = 100/1M * 10  = 0.001
+    //   total                         = 0.001875
+    const cost = estimateUsd(
+      BACKEND_NAMES.CODEX,
+      null,
+      {
+        prompt_tokens: 1000,
+        completion_tokens: 100,
+        cache_read_tokens: 600
+      },
+      { table: DEFAULT_PRICING }
+    );
+    expect(cost).toBeCloseTo(0.001875, 6);
+  });
+
+  test("Cached input is cheaper than uncached for the same Claude turn", () => {
+    // Sanity: 100k input tokens, 0 cache vs 100k of cache reads.
+    const noCache = estimateUsd(
+      BACKEND_NAMES.CLAUDE,
+      null,
+      { prompt_tokens: 100_000, completion_tokens: 0 },
+      { table: DEFAULT_PRICING }
+    );
+    const allCache = estimateUsd(
+      BACKEND_NAMES.CLAUDE,
+      null,
+      { prompt_tokens: 0, cache_read_tokens: 100_000, completion_tokens: 0 },
+      { table: DEFAULT_PRICING }
+    );
+    // Claude cache reads are 10% of input; allCache should be exactly
+    // 1/10 of noCache.
+    expect(allCache).toBeCloseTo(noCache * 0.1, 6);
+  });
 });
 
 describe("resolvePricingTable", () => {

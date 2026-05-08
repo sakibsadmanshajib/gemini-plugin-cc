@@ -95,6 +95,52 @@ describe("normalizeUsage", () => {
     });
   });
 
+  test("Claude prompt-cache fields surface as cache_creation_tokens / cache_read_tokens", () => {
+    const out = normalizeUsage({
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation_input_tokens: 200,
+      cache_read_input_tokens: 300
+    });
+    expect(out.prompt_tokens).toBe(100);
+    expect(out.completion_tokens).toBe(50);
+    expect(out.cache_creation_tokens).toBe(200);
+    expect(out.cache_read_tokens).toBe(300);
+    // total is computed: 100 + 50 + 200 + 300 = 650 (cache fields are
+    // separate from input_tokens per Anthropic billing).
+    expect(out.total_tokens).toBe(650);
+  });
+
+  test("Cache fields omitted when zero (keeps record JSONL compact)", () => {
+    const out = normalizeUsage({
+      input_tokens: 100,
+      output_tokens: 50,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0
+    });
+    expect(out).toEqual({
+      prompt_tokens: 100,
+      completion_tokens: 50,
+      total_tokens: 150
+    });
+    expect("cache_creation_tokens" in out).toBe(false);
+    expect("cache_read_tokens" in out).toBe(false);
+  });
+
+  test("OpenAI shape: cached_tokens from prompt_tokens_details surfaces as cache_read_tokens", () => {
+    const out = normalizeUsage({
+      prompt_tokens: 1000,
+      completion_tokens: 100,
+      total_tokens: 1100,
+      prompt_tokens_details: { cached_tokens: 600 }
+    });
+    expect(out.prompt_tokens).toBe(1000);
+    expect(out.cache_read_tokens).toBe(600);
+    // total stays at 1100 (cache_read is a SUBSET of prompt_tokens for
+    // OpenAI; not double-counted).
+    expect(out.total_tokens).toBe(1100);
+  });
+
   test("Gemini shape: promptTokenCount / candidatesTokenCount / totalTokenCount", () => {
     expect(
       normalizeUsage({
