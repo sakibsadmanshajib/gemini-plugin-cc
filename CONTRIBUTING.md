@@ -103,3 +103,9 @@ Validation gate before review or archive:
 ```sh
 openspec validate <change-id> --strict
 ```
+
+## Code of Conduct + Security
+
+Project participation is governed by [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
+For vulnerability disclosure, follow [SECURITY.md](./SECURITY.md) — don't
+file conduct or security issues in the public issue tracker.
