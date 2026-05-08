@@ -113,7 +113,20 @@ program.exitOverride((err) => {
 program.parse(process.argv);
 const opts = program.opts();
 
-const records = readCostRecords({ since: opts.since, until: opts.until });
+// readCostRecords swallows per-line JSON parse failures (log
+// corruption is recoverable) but throws on file-level errors —
+// EACCES from wrong perms, EISDIR from a path collision, etc.
+// Catch those and print a one-liner instead of dumping a raw Node
+// stack at the user. Exit 1 (runtime error), not 2 (usage error)
+// — the args were fine, the environment is misconfigured.
+let records;
+try {
+  records = readCostRecords({ since: opts.since, until: opts.until });
+} catch (err) {
+  const message = err instanceof Error ? err.message : String(err);
+  process.stderr.write(`artagon-stats: failed to read cost log: ${message}\n`);
+  process.exit(1);
+}
 const summary = summarizeCostRecords(records);
 
 // Budget gate. Computed up-front so the exit code is set whether
