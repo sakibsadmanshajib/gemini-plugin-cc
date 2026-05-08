@@ -43,14 +43,17 @@ describe("bin/artagon-agent.mjs", () => {
   test("--help prints usage and exits 0", () => {
     const r = runBin(["--help"]);
     expect(r.status).toBe(0);
-    expect(r.stdout.toString()).toMatch(/artagon-agent <backend>/);
+    // commander format: "Usage: artagon-agent [options] <backend> <prompt...>"
+    expect(r.stdout.toString()).toMatch(/Usage: artagon-agent/);
+    expect(r.stdout.toString()).toMatch(/<backend>/);
     expect(r.stdout.toString()).toMatch(/claude, codex, gemini/);
   });
 
   test("no args: exits 2 + stderr usage", () => {
     const r = runBin([]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/artagon-agent <backend>/);
+    // commander: "error: missing required argument 'backend'"
+    expect(r.stderr.toString()).toMatch(/missing required argument 'backend'/);
     expect(r.stdout.toString()).toBe("");
   });
 
@@ -58,25 +61,31 @@ describe("bin/artagon-agent.mjs", () => {
     const r = runBin(["bedrock", "hi"]);
     expect(r.status).toBe(2);
     const err = r.stderr.toString();
-    expect(err).toMatch(/unknown backend "bedrock"/);
+    // Commander surfaces our InvalidArgumentError("must be one of …")
+    // wrapped in: "error: command-argument value 'bedrock' is invalid…"
+    expect(err).toMatch(/'bedrock'/);
     expect(err).toMatch(/claude, codex, gemini/);
   });
 
   test("backend without prompt: exits 2", () => {
     const r = runBin(["claude"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/prompt is required/);
+    // commander: "error: missing required argument 'prompt'"
+    expect(r.stderr.toString()).toMatch(/missing required argument 'prompt'/);
   });
 
   test("unknown flag: exits 2 with the flag named", () => {
     const r = runBin(["--bogus", "claude", "hi"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/unknown flag: --bogus/);
+    // commander: "error: unknown option '--bogus'"
+    expect(r.stderr.toString()).toMatch(/unknown option '--bogus'/);
   });
 
   test("invalid --timeout-ms: exits 2", () => {
     const r = runBin(["--timeout-ms", "not-a-number", "claude", "hi"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/invalid --timeout-ms/);
+    // commander surfaces our InvalidArgumentError("must be a positive integer")
+    expect(r.stderr.toString()).toMatch(/--timeout-ms/);
+    expect(r.stderr.toString()).toMatch(/positive integer/);
   });
 });
