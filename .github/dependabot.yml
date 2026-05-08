@@ -1,0 +1,63 @@
+version: 2
+
+# Dependabot config for artagon-agent-cli-plugin.
+# Tracks: pnpm dependencies, GitHub Actions, weekly schedule, PR limits
+# tuned to keep churn low without leaving CVE windows open.
+#
+# Security advisories (separately) are auto-tracked at
+# https://github.com/artagon/artagon-agent-cli-plugin/security/dependabot
+# and produce PRs regardless of the schedule below.
+
+updates:
+  # JavaScript dependencies (pnpm).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+      include: "scope"
+    groups:
+      # Group dev-only updates so test/lint bumps land together rather
+      # than one PR per package.
+      dev-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # Group runtime patch/minor updates similarly.
+      runtime-dependencies:
+        dependency-type: "production"
+        update-types:
+          - "patch"
+
+  # GitHub Actions used in .github/workflows/.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"
+    groups:
+      actions:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

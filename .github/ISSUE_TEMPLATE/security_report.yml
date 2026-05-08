@@ -1,0 +1,79 @@
+name: Security report
+description: Report a vulnerability publicly (only for low-severity / informational issues; use a private advisory for anything sensitive)
+title: "[security]: "
+labels: ["security", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Before filing publicly
+
+        For any sensitive vulnerability — credential exposure, RCE, auth
+        bypass, etc. — **do not file here**. Instead:
+
+        1. Open a [private security advisory](https://github.com/artagon/artagon-agent-cli-plugin/security/advisories/new) on the repo, **or**
+        2. Email [security contact — ARTAGON_SECURITY_EMAIL TBD] with the details.
+
+        Use this issue template only for low-severity or informational
+        reports (e.g. minor information disclosure, a hardening
+        suggestion, a CVE on a transitive dep that's already mitigated).
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      placeholder: "The wire log redacts most credential fields but misses `Authorization: Bearer ...` headers in nested SSE events."
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity (your assessment)
+      options:
+        - "Low (informational / hardening)"
+        - "Medium"
+        - "High (please use a private advisory instead)"
+        - "Critical (please use a private advisory instead)"
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Affected component(s)
+      placeholder: "lib/wire-log.mjs (redaction list), lib/middleware/redaction.mjs"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Concrete steps. Redact any real tokens.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      placeholder: "If a user enables ACP_WIRE_LOG_RAW=0 expecting redaction, this header still leaks to disk..."
+    validations:
+      required: true
+  - type: textarea
+    id: mitigation
+    attributes:
+      label: Suggested mitigation
+      placeholder: "Add `authorization` (case-insensitive header keys) to the redaction list in lib/wire-log.mjs."
+  - type: input
+    id: cve
+    attributes:
+      label: CVE / advisory ID (if any)
+      placeholder: "CVE-YYYY-NNNN, GHSA-xxxx-yyyy-zzzz"
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: "I confirm this is low-severity / informational and is appropriate for a public issue"
+          required: true
+        - label: "I have removed any tokens, API keys, or PII from the report"
+          required: true

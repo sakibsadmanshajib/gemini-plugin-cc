@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Private security advisory
+    url: https://github.com/artagon/artagon-agent-cli-plugin/security/advisories/new
+    about: Sensitive vulnerabilities (credential exposure, RCE, auth bypass) — DO NOT file as a public issue.
+  - name: 💬 Discussions
+    url: https://github.com/artagon/artagon-agent-cli-plugin/discussions
+    about: Open-ended questions, design ideas, "how do I…?" — community Q&A lives here.

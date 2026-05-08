@@ -5,7 +5,8 @@
   "type": "module",
   "bin": {
     "artagon-agent": "./bin/artagon-agent.mjs",
-    "artagon-openai-server": "./bin/artagon-openai-server.mjs"
+    "artagon-openai-server": "./bin/artagon-openai-server.mjs",
+    "artagon-stats": "./bin/artagon-stats.mjs"
   },
   "files": [
     "bin/",

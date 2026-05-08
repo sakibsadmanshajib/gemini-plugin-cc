@@ -1,0 +1,64 @@
+name: Feature request
+description: Suggest a new capability for the suite (new backend, new CLI flag, OpenAI facade extension, etc.)
+title: "[feat]: "
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion! Before filing, please:
+
+        1. Search [open issues](https://github.com/artagon/artagon-agent-cli-plugin/issues?q=is%3Aissue+label%3Aenhancement) for similar requests.
+        2. If this is a backend-CLI flag the upstream tool just shipped, link to its release notes.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: One paragraph on the user-visible problem. The "why" matters more than the "what".
+      placeholder: "I want to use the OpenAI facade with multi-turn conversations, but the runners are stateless one-shot today."
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should the suite expose this? Concrete API/CLI sketches help.
+      placeholder: |
+        Add a streaming-input variant of each runner that holds the
+        subprocess open across multiple `session/prompt` calls...
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      multiple: true
+      options:
+        - "Library (lib/runners/, lib/translate/, lib/server/, ...)"
+        - "bin/artagon-agent CLI"
+        - "bin/artagon-openai-server (facade daemon)"
+        - "bin/artagon-stats (cost stats)"
+        - "OpenAI facade endpoint (new method/path)"
+        - "Plugin slash command"
+        - "Cross-pollination invariants"
+        - "Documentation"
+        - "CI / release tooling"
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      placeholder: "Could shell out to LiteLLM... Could maintain conversation state in a separate cache..."
+  - type: textarea
+    id: backwards
+    attributes:
+      label: Backwards compatibility
+      placeholder: "Pure addition. Does not change any existing API."
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: References to similar features in other tools, related PRs/issues, etc.

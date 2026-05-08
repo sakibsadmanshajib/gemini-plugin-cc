@@ -1,0 +1,48 @@
+name: CodeQL
+
+# Static-analysis scan for JS/TS using GitHub's CodeQL. Runs on every
+# push/PR + a weekly cron so a new advisory in the JS query pack is
+# noticed within 7 days even on a quiet branch.
+#
+# Pairs with Dependabot (.github/dependabot.yml) for known-CVE coverage:
+#   - Dependabot watches dep manifests for known CVEs (database-side)
+#   - CodeQL watches our source for vulnerable patterns (analysis-side)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Mondays 03:14 UTC — off-peak; same window as Dependabot updates.
+    - cron: "14 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ["javascript-typescript"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{ matrix.language }}"

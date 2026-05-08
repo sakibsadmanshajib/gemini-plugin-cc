@@ -1,0 +1,124 @@
+name: Bug report
+description: Something is broken in the suite (runners, facade, plugins, CLI bins, etc.)
+title: "[bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report. Before filing, please:
+
+        1. Search [open issues](https://github.com/artagon/artagon-agent-cli-plugin/issues) to avoid duplicates.
+        2. Try the latest published version of the suite.
+        3. If the bug is in a CLI plugin (`/codex:prompt`, `/gemini:prompt`, etc.), confirm the underlying CLI works on its own first.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug in 1–3 sentences. What did you expect, and what did you see instead?
+      placeholder: "Calling /v1/chat/completions with stream:true returns an empty SSE event when ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      description: Which entry point did you hit?
+      multiple: true
+      options:
+        - "bin/artagon-agent (one-shot CLI)"
+        - "bin/artagon-openai-server (OpenAI facade daemon)"
+        - "bin/artagon-stats (cost stats CLI)"
+        - "lib/runners/* (programmatic library use)"
+        - "OpenAI facade /v1/chat/completions"
+        - "OpenAI facade /v1/models"
+        - "Plugin slash command (Claude Code / Codex CLI host)"
+        - "Other / unsure"
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend(s) involved
+      multiple: true
+      options:
+        - "claude (claude --print)"
+        - "codex (codex exec --json)"
+        - "gemini (gemini -p --acp / -p -o stream-json)"
+        - "Multiple"
+        - "N/A"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimal steps a maintainer can paste into a terminal to see the bug.
+      placeholder: |
+        1. `npm i -g artagon-agent-cli-plugin@1.0.1`
+        2. `artagon-openai-server --port 3000`
+        3. `curl -sN http://localhost:3000/v1/chat/completions ...`
+        4. ...
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual output / error
+      description: Paste exact CLI output, stack traces, log lines. Redact any tokens before submitting.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected output
+      placeholder: "I expected the SSE stream to include text chunks before [DONE]."
+    validations:
+      required: true
+  - type: input
+    id: package-version
+    attributes:
+      label: Package version
+      placeholder: "artagon-agent-cli-plugin@1.0.1"
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js version
+      description: Output of `node --version`
+      placeholder: "v22.10.5"
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 26.4 (arm64) | Ubuntu 24.04 | ..."
+    validations:
+      required: true
+  - type: input
+    id: cli-versions
+    attributes:
+      label: Backend CLI versions
+      description: Whichever backends you use. e.g. `claude --version`, `codex --version`, `gemini --version`.
+      placeholder: "claude 1.2.3, codex 0.42.0, gemini 0.38.1"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Wire log / debug output (optional)
+      description: |
+        If you can re-run with `ACP_WIRE_LOG=/tmp/wire.jsonl LOG_LEVEL=debug ...`,
+        attach the relevant excerpts here. Redact tokens.
+      render: jsonl
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Confirmation
+      options:
+        - label: "I have searched open issues and confirmed this isn't a duplicate"
+          required: true
+        - label: "I have removed any tokens, API keys, or PII from the report"
+          required: true

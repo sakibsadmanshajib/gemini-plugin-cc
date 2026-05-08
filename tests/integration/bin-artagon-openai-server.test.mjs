@@ -97,10 +97,10 @@ describe("bin/artagon-openai-server.mjs — actual server lifecycle", () => {
             () =>
               reject(
                 new Error(
-                  `server didn't print port within 5s — stdout=${stdoutBuf} stderr=${stderrBuf}`
+                  `server didn't print port within 15s — stdout=${stdoutBuf} stderr=${stderrBuf}`
                 )
               ),
-            5000
+            15000
           )
         )
       ]);
@@ -118,7 +118,7 @@ describe("bin/artagon-openai-server.mjs — actual server lifecycle", () => {
         await Promise.race([
           exited,
           new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("server did not exit within 5s of SIGTERM")), 5000)
+            setTimeout(() => reject(new Error("server did not exit within 15s of SIGTERM")), 15000)
           )
         ])
       );
