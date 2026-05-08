@@ -163,6 +163,24 @@ describe("appendCostRecord", () => {
     });
   });
 
+  test("model field is persisted when supplied", () => {
+    appendCostRecord(
+      {
+        backend: BACKEND_NAMES.CLAUDE,
+        model: "claude-opus-4-5-20250928",
+        promptChars: 42,
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        durationMs: 1000,
+        reason: "stop",
+        ok: true
+      },
+      { env }
+    );
+    const lines = fs.readFileSync(getCostLogPath(env), "utf8").trim().split("\n");
+    const rec = JSON.parse(lines[0]);
+    expect(rec.model).toBe("claude-opus-4-5-20250928");
+  });
+
   test("Multiple appends: each on its own line", () => {
     appendCostRecord(
       {

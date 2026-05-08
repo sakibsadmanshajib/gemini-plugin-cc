@@ -248,6 +248,60 @@ describe("summarizeCostRecords", () => {
     expect(s.total_tokens).toBe(0);
     expect(s.per_backend.claude.total_tokens).toBe(0);
   });
+
+  test("Recorded model id flows through pricing — opus charged ~5× sonnet", () => {
+    // Same prompt+completion tokens, two backends, different models.
+    // Default rates: sonnet $3+$15/M; opus $15+$75/M = exactly 5× sonnet.
+    const usage = {
+      prompt_tokens: 10_000,
+      completion_tokens: 5_000,
+      total_tokens: 15_000
+    };
+    const records = /** @type {any[]} */ ([
+      {
+        timestamp: "2026-01-01T00:00:00Z",
+        backend: BACKEND_NAMES.CLAUDE,
+        model: "claude-sonnet-4-6",
+        usage,
+        durationMs: 1000,
+        ok: true
+      },
+      {
+        timestamp: "2026-01-02T00:00:00Z",
+        backend: BACKEND_NAMES.CLAUDE,
+        model: "claude-opus-4-5",
+        usage,
+        durationMs: 1000,
+        ok: true
+      }
+    ]);
+    const s = summarizeCostRecords(records);
+    // sonnet: 10_000/1M*3 + 5_000/1M*15 = 0.03 + 0.075 = 0.105
+    // opus:   10_000/1M*15 + 5_000/1M*75 = 0.15 + 0.375 = 0.525
+    // total = 0.63
+    expect(s.estimated_usd).toBeCloseTo(0.63, 4);
+    expect(s.per_backend.claude.estimated_usd).toBeCloseTo(0.63, 4);
+  });
+
+  test("Records without a model fall back to per-backend default rate", () => {
+    const records = /** @type {any[]} */ ([
+      {
+        timestamp: "2026-01-01T00:00:00Z",
+        backend: BACKEND_NAMES.CLAUDE,
+        // no `model` field — pricing must fall back to default (Sonnet).
+        usage: {
+          prompt_tokens: 10_000,
+          completion_tokens: 5_000,
+          total_tokens: 15_000
+        },
+        durationMs: 1000,
+        ok: true
+      }
+    ]);
+    const s = summarizeCostRecords(records);
+    // Sonnet default: 0.03 + 0.075 = 0.105
+    expect(s.estimated_usd).toBeCloseTo(0.105, 4);
+  });
 });
 
 describe("recentCostRecords", () => {

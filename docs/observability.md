@@ -207,6 +207,55 @@ OTEL_SERVICE_NAME=gemini-plugin-staging \
 All three are independent — enabling tracing doesn't enable wire log,
 and disabling logger doesn't disable tracing. Mix as needed.
 
+## Cost log
+
+A fourth observability surface specific to the multi-backend runners:
+each completed turn appends one JSONL row to a cost log under
+`$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` (or
+`$ARTAGON_COST_LOG` override).
+
+Schema:
+
+```jsonc
+{
+  "timestamp":   "2026-05-08T19:00:00.000Z",
+  "backend":     "claude" | "codex" | "gemini",
+  "model":       "claude-sonnet-4-6" | "gpt-5-codex" | null,  // when CLI emits it
+  "promptChars": 42,
+  "usage":       { "prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150 },
+  "durationMs":  1234,
+  "reason":      "stop" | "end_turn" | "error_max_turns" | null,
+  "ok":          true
+}
+```
+
+The log is append-only and race-safe across concurrent runners (no
+shared registry; one process appends one line). Best-effort — failures
+to write warn once on stderr and silently proceed; cost recording
+must never block a turn.
+
+### Surfaces
+
+- **`bin/artagon-stats`** — shell-side aggregator. Prints global +
+  per-backend totals, time window, and the N most recent turns.
+  `--json` for tooling.
+- **`/<plugin>:stats`** — host-side slash command (Claude Code / Codex
+  CLI / Gemini host); same data via `lib/cost/aggregate.mjs` directly.
+- **`/<plugin>:budget`** — token or USD budget vs. used. `--limit` for
+  token budget; `--limit-usd` for dollar budget. `$ARTAGON_BUDGET_TOKENS`
+  / `$ARTAGON_BUDGET_USD` env counterparts. Always exit 0; downstream
+  gating reads `--json`.
+
+### USD pricing layer
+
+`lib/cost/pricing.mjs` translates tokens → USD using a per-backend +
+per-model rate table (Sonnet/Opus/Haiku, GPT-5/o-series, Gemini Pro/
+Flash). The recorded `model` field unlocks per-model rates; missing
+model falls back to the per-backend default (Sonnet, GPT-5, Pro).
+
+Override the rate table at runtime via `$ARTAGON_PRICING_OVERRIDE`
+(JSON) — useful when vendor pricing changes between releases.
+
 ## See also
 
 - `docs/architecture.md` — where these surfaces fit in the layered
@@ -215,5 +264,7 @@ and disabling logger doesn't disable tracing. Mix as needed.
 - `lib/middleware/audit.mjs` — separate concern (per-session JSONL
   audit log written to `~/.acp-plugins/audit/<sessionId>/audit.jsonl`,
   always on; no env-gating).
+- `lib/cost/{recorder,aggregate,pricing}.mjs` — cost log producer +
+  reader + dollar estimation.
 - `openspec/changes/add-testing-and-observability/proposal.md` —
   origin proposal for this layer.
