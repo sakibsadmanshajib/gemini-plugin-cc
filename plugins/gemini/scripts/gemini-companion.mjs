@@ -56,12 +56,7 @@ import {
 import { getConfig, loadState, readJobFile, saveState, setConfig } from "./lib/state.mjs";
 import { createStreamHandler } from "./lib/stream-output.mjs";
 import { THINKING_LEVELS } from "./lib/thinking.mjs";
-import {
-  SESSION_ID_ENV,
-  createTrackedJob,
-  runTrackedJob,
-  updateJobPhase
-} from "./lib/tracked-jobs.mjs";
+import { createTrackedJob, runTrackedJob, updateJobPhase } from "./lib/tracked-jobs.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));

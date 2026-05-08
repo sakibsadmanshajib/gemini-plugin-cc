@@ -2,7 +2,7 @@
  * Process spawning and management utilities.
  */
 
-import { execFileSync, spawn as nodeSpawn, spawnSync } from "node:child_process";
+import { spawn as nodeSpawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 /**
