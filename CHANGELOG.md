@@ -198,6 +198,119 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
     gemini-companion.mjs and `execFileSync` from
     plugins/gemini/scripts/lib/process.mjs.
 
+- **Silent-failure cleanup across observability paths.** Several
+  best-effort code paths swallowed errors so completely that
+  operators had no signal when the path stopped working. Each is
+  now visible without breaking the runtime:
+  - **`lib/middleware/compose.mjs`** — the redaction-first invariant
+    was downgraded from a hard throw to a stderr WARN under
+    `NODE_ENV=production`. That failed-open in exactly the
+    deployment where un-redacted secrets/PII flowing through audit
+    - observability middlewares is most damaging. Now always throws
+      regardless of environment; middleware composition happens once
+      at app startup with statically-imported middlewares, so a wrong
+      order is a programming bug, not a runtime condition. Test
+      coverage extended to assert the prod path (previously
+      untested — which is how the regression survived).
+  - **`lib/middleware/audit.mjs`** — `ensureFd` swallowed the open
+    failure's reason; "[audit] auditing disabled" gave operators
+    no way to distinguish EACCES from ENOSPC from EROFS. Now
+    appends `— <err.message>`. Separately, `record` silently
+    dropped failed writes — the worst place to fail invisibly for
+    a log whose entire purpose is integrity. First write failure
+    surfaces; subsequent silenced via one-shot flag.
+  - **`lib/middleware/cache.mjs`** — same one-shot pattern.
+    Cache is `_cache: true` opt-in; silent mkdir/write failure
+    meant a user explicitly enabling caching saw no perf benefit
+    and no error.
+  - **`lib/tracing.mjs`** — `getTracer()`'s catch comment claimed
+    "OTel SDK not installed; degrade silently" but the catch
+    covered the entire setup block (dynamic imports, NodeSDK
+    construction, exporter construction, sdk.start()). A user
+    with `OTEL_EXPORTER_OTLP_ENDPOINT` set + a malformed URL got
+    empty Jaeger boards and no signal. Now discriminates on
+    `err.code`: `ERR_MODULE_NOT_FOUND` keeps the silent no-op
+    (legit "not installed" path); anything else emits a one-shot
+    stderr warning.
+  - **`lib/test-utils/mock-backend.mjs`** — JSON-RPC notification
+    dispatcher swallowed handler exceptions. By spec a
+    notification has no caller to return errors to, so the
+    dispatcher can't re-throw — but silently swallowing meant a
+    buggy test handler showed up as a stalled assertion or a
+    flaky timeout, not a stack trace. Now writes the trace to
+    stderr; behavior unchanged for the caller.
+
+  All five preserve their best-effort semantics (audit/cache/
+  tracing failures still don't propagate up the chain, mock-backend
+  notifications still complete). Just no longer invisible.
+
+### CI
+
+- **`pnpm pack:check` script** for tarball verification before
+  release — wraps `npm pack --dry-run` so contributors can confirm
+  the tarball file list + size (~225 KB packed / ~750 KB unpacked /
+  147 files) before tagging. The `npm-publish.yml` workflow's
+  pre-publish "Verify tarball contents" step now routes through
+  this same script, replacing a broken `pnpm pack --dry-run`
+  invocation (pnpm 9.15 rejects --dry-run as an unknown option;
+  the workflow would have errored on its first `v*` tag push, but
+  no v\* tag has been pushed yet so the bug never surfaced).
+- **`.github/workflows/test.yml` permissions hardened** — was the
+  only workflow without an explicit top-level `permissions:` block.
+  Default GITHUB_TOKEN scope can be permissive under some org
+  policies. Pinned to `contents: read` (the only scope `actions/
+checkout` needs in this workflow). Closes the OpenSSF Scorecard
+  Token-Permissions gap for this file.
+- **`.github/workflows/install.yml` regression baseline trimmed**
+  from `pnpm test` (full ~600-test suite) to `pnpm test:unit`
+  (~478 tests). The full suite already runs on every PR via
+  `test.yml` (no paths: filter), and install.yml's subsequent
+  steps re-run install.test.mjs 3×, broker-reaper.test.mjs 2×, and
+  plugin-info.test.mjs 2× per node-version (matrix: 20.x + 22.x).
+  Trim removes ~150s of pure duplication per PR; unit gate still
+  catches typecheck-class breakage before the env-shape steps
+  spawn child processes.
+
+### Repository hygiene
+
+- **`.editorconfig`** already in place; added complementary
+  **`.nvmrc` → 22** so nvm/fnm/volta/asdf-vm/mise users
+  auto-switch to the project's Node version on `cd`. Matches
+  `test.yml`'s primary lane and stays above `engines.node:
+">=18.18.0"`.
+- **`.gitattributes`** — three things:
+  - `* text=auto eol=lf` plus explicit overrides on `*.sh`/`*.fish`
+    fixes CRLF drift on Windows/WSL where bash scripts silently
+    break with "bad interpreter".
+  - `tests/**` `scripts/**` `docs/**` tagged so GitHub Linguist's
+    front-page language stat reflects runtime code, not test +
+    config + doc bulk. Lockfile marked `linguist-generated`.
+  - `export-ignore` on `.github/`, `.husky/`, `tests/`, config
+    files so `git archive` (the engine behind GitHub's
+    "Download ZIP") emits a lean tarball. Doesn't affect the npm
+    tarball — that's controlled by `package.json files`.
+- **README "Security" section** — was no top-level pointer to
+  `SECURITY.md` from the front page. Added one with the
+  reporting channels, SLA, and an inline summary of in-repo
+  hardening. SECURITY.md hardening list updated in lockstep with
+  the constant-time API-key comparison entry so the two pages
+  agree.
+- **`CODE_OF_CONDUCT.md`** — Contributor Covenant 2.1 adapted
+  for this project with `conduct@artagon.dev` channel + 3-day
+  ack / 14-day response SLA. Linked from CONTRIBUTING.md.
+- **README binary list fix** — Install section claimed two bins
+  ship on PATH but `package.json` has had three since the
+  cost-tracking work landed. Added the `artagon-stats` one-liner.
+- **`docs/openai-facade.md`** — comprehensive HTTP facade
+  reference (251 lines): endpoint table with auth-required column,
+  backend routing pattern → backend map, SSE wire format with
+  finish_reason mapping, error response taxonomy, auth + CORS
+  configuration matrix, library vs CLI usage, limits.
+- **`scripts/generate-homebrew-formula.mjs` test suite** (4 cases)
+  covering `--help` output, unknown flag rejection, missing-value
+  rejection, and a fetch-failure path. Used `mkdtempSync` for
+  temp paths (CodeQL hygiene).
+
 ### Documentation
 
 - **README badges** — replaced the stale hardcoded
