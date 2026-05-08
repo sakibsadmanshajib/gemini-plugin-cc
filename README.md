@@ -3,7 +3,8 @@
 [![npm version](https://img.shields.io/npm/v/artagon-agent-cli-plugin.svg)](https://www.npmjs.com/package/artagon-agent-cli-plugin)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.18-brightgreen.svg)](#requirements)
-[![Tests](https://img.shields.io/badge/tests-587%20passing-brightgreen.svg)](#)
+[![CI](https://github.com/artagon/artagon-agent-cli-plugin/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/artagon/artagon-agent-cli-plugin/actions/workflows/test.yml)
+[![CodeQL](https://github.com/artagon/artagon-agent-cli-plugin/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/artagon/artagon-agent-cli-plugin/actions/workflows/codeql.yml)
 [![CycloneDX SBOM](https://img.shields.io/badge/SBOM-CycloneDX-orange.svg)](.github/workflows/npm-publish.yml)
 [![npm provenance](https://img.shields.io/badge/npm-provenance-blue.svg)](.github/workflows/npm-publish.yml)
 
