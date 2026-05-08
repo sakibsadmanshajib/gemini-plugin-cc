@@ -303,6 +303,53 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     }
   });
 
+  test("GET /v1/models/{id}: known canonical id → 200 with single-model OpenAI shape", async () => {
+    // OpenAI clients sometimes hit this to verify a model exists
+    // before posting a chat completion. The facade matches against
+    // the same alias set /v1/models exposes.
+    const res = await fetch(`${baseUrl}/v1/models/claude-sonnet-4-6`);
+    expect(res.status).toBe(200);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.id).toBe("claude-sonnet-4-6");
+    expect(body.object).toBe("model");
+    expect(body.owned_by).toMatch(/artagon-agent-cli-plugin \(claude\)/);
+  });
+
+  test("GET /v1/models/{id}: alias also resolves (sonnet → claude)", async () => {
+    const res = await fetch(`${baseUrl}/v1/models/sonnet`);
+    expect(res.status).toBe(200);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.id).toBe("sonnet");
+    expect(body.owned_by).toMatch(/\(claude\)/);
+  });
+
+  test("GET /v1/models/{id}: unknown id → 404 with actionable error", async () => {
+    const res = await fetch(`${baseUrl}/v1/models/does-not-exist`);
+    expect(res.status).toBe(404);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.message).toMatch(/does-not-exist/);
+    expect(body.error.message).toMatch(/\/v1\/models/);
+    expect(body.error.param).toBe("id");
+  });
+
+  test("GET /v1/models/{id}: URL-encoded id is decoded before lookup", async () => {
+    // Claude backend exposes "claude:opus-4-7" (explicit-backend form)
+    // — the colon must round-trip via percent-encoding.
+    const res = await fetch(`${baseUrl}/v1/models/${encodeURIComponent("claude:opus-4-7")}`);
+    // 404 is the right shape if the id isn't in the alias set; what
+    // matters here is that the error message contains the DECODED id
+    // (not the raw "%3A"), confirming the decode step ran.
+    if (res.status === 200) {
+      const body = /** @type {any} */ (await res.json());
+      expect(body.id).toBe("claude:opus-4-7");
+    } else {
+      expect(res.status).toBe(404);
+      const body = /** @type {any} */ (await res.json());
+      expect(body.error.message).toMatch(/claude:opus-4-7/);
+      expect(body.error.message).not.toMatch(/%3A/);
+    }
+  });
+
   test("POST /v1/chat/completions: claude routes to claude backend", async () => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
