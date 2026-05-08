@@ -200,6 +200,12 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
 
 ### Documentation
 
+- **`CODE_OF_CONDUCT.md`** adapted from Contributor Covenant 2.1 with
+  project-specific reporting channels (`conduct@artagon.dev`, separate
+  from `SECURITY.md`'s vuln channel). `CONTRIBUTING.md` gains a
+  cross-reference section so contributors don't conflate the two.
+  Closes the last missing community-standard file in the repo root.
+
 - **OpenAI facade docstring** moved SSE streaming from "Not supported
   (yet)" to "What IS supported"; the streaming surface has been live
   with AbortController threading + socket guards for several commits.
