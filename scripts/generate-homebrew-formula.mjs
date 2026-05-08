@@ -9,6 +9,8 @@
  * after each release of THIS repo and commit the result — no manual
  * sed loop, no human-in-the-loop SHA copy/paste.
  *
+ * Argv parsing uses commander — the canonical Node CLI library.
+ *
  * Usage:
  *   node scripts/generate-homebrew-formula.mjs              # write to stdout
  *   node scripts/generate-homebrew-formula.mjs > out.rb     # capture
@@ -35,39 +37,30 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { Command } from "commander";
+
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(HERE, "..");
 const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
 
-const USAGE = `generate-homebrew-formula [flags]
+const program = new Command();
 
-flags:
-  --version <ver>   formula version (default: package.json version)
-  --output <path>   write to this path (default: stdout)
-  --help            print this message
-`;
+program
+  .name("generate-homebrew-formula")
+  .description("Render the Homebrew formula for artagon-agent-cli-plugin from a published version")
+  // The script intentionally takes its package version from
+  // package.json by default, so commander's --version (which would
+  // print and exit) would be confusing here. Disable the auto-flag.
+  .option("-V, --pkg-version <ver>", "formula version (default: package.json's version field)")
+  .option("-o, --output <path>", "write to this path (default: stdout)");
 
-/** @param {string[]} argv */
-function parseArgs(argv) {
-  /** @type {{ version?: string, output?: string, help?: boolean }} */
-  const out = {};
-  for (let i = 0; i < argv.length; i++) {
-    const tok = argv[i];
-    if (tok === "--help" || tok === "-h") out.help = true;
-    else if (tok === "--version") {
-      const v = argv[++i];
-      if (!v) throw new Error("--version requires a value");
-      out.version = v;
-    } else if (tok === "--output") {
-      const o = argv[++i];
-      if (!o) throw new Error("--output requires a value");
-      out.output = o;
-    } else {
-      throw new Error(`unknown flag: ${tok}`);
-    }
-  }
-  return out;
-}
+program.exitOverride((err) => {
+  if (err.code === "commander.helpDisplayed") process.exit(0);
+  process.exit(2);
+});
+
+program.parse(process.argv);
+const opts = program.opts();
 
 /**
  * Fetch the npm tarball and compute SHA-256. Streaming would be more
@@ -121,44 +114,25 @@ end
 `;
 }
 
-async function main() {
-  let opts;
-  try {
-    opts = parseArgs(process.argv.slice(2));
-  } catch (err) {
-    process.stderr.write(
-      `generate-homebrew-formula: ${/** @type {Error} */ (err).message}\n\n${USAGE}`
-    );
-    process.exit(2);
-  }
+const version = opts.pkgVersion ?? PKG.version;
+const url = `https://registry.npmjs.org/${PKG.name}/-/${PKG.name}-${version}.tgz`;
 
-  if (opts.help) {
-    process.stdout.write(USAGE);
-    return;
-  }
-
-  const version = opts.version ?? PKG.version;
-  const url = `https://registry.npmjs.org/${PKG.name}/-/${PKG.name}-${version}.tgz`;
-
-  let sha256;
-  try {
-    sha256 = await fetchTarballSha256(url);
-  } catch (err) {
-    process.stderr.write(
-      `generate-homebrew-formula: ${/** @type {Error} */ (err).message}\n` +
-        `(version "${version}" may not yet be published; check npm registry)\n`
-    );
-    process.exit(1);
-  }
-
-  const formula = renderFormula({ name: PKG.name, version, sha256, url });
-
-  if (opts.output) {
-    fs.writeFileSync(opts.output, formula, { mode: 0o644 });
-    process.stderr.write(`generate-homebrew-formula: wrote ${opts.output}\n`);
-  } else {
-    process.stdout.write(formula);
-  }
+let sha256;
+try {
+  sha256 = await fetchTarballSha256(url);
+} catch (err) {
+  process.stderr.write(
+    `generate-homebrew-formula: ${/** @type {Error} */ (err).message}\n` +
+      `(version "${version}" may not yet be published; check npm registry)\n`
+  );
+  process.exit(1);
 }
 
-await main();
+const formula = renderFormula({ name: PKG.name, version, sha256, url });
+
+if (opts.output) {
+  fs.writeFileSync(opts.output, formula, { mode: 0o644 });
+  process.stderr.write(`generate-homebrew-formula: wrote ${opts.output}\n`);
+} else {
+  process.stdout.write(formula);
+}
