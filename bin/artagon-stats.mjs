@@ -7,19 +7,15 @@
  * `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` (default
  * `~/.local/state/artagon-agent-cli-plugin/cost.jsonl`).
  *
- * Usage:
- *   artagon-stats [flags]
- *
- *   --json             emit the full summary as JSON
- *   --since <iso>      only count records on/after this ISO timestamp
- *   --until <iso>      only count records on/before this ISO timestamp
- *   --recent <n>       additionally print the N most recent records
- *   --version          print version + exit
- *   --help             print this message
+ * Argv parsing uses `commander` — the canonical Node CLI library —
+ * rather than a hand-rolled parser. Standardizes --help, --version,
+ * unknown-flag rejection, and option validation, and means we don't
+ * own the argv-parsing edge cases.
  *
  * Output (default text):
  *   Total turns: 12 (10 ok, 2 failed)
  *   Total tokens: 12,345 (prompt 6,200 + completion 6,145)
+ *   Estimated cost: $0.18
  *   Wall-clock: 87.4s
  *   Window: 2026-05-08T... → 2026-05-08T...
  *
@@ -29,14 +25,17 @@
  *     gemini     2 turns (1 ok)    1,045 tokens   12.4s
  *
  * Exit codes:
- *   0  success
- *   2  usage error
+ *   0  success / under budget
+ *   2  usage error (commander auto-handles bad flags here)
+ *   3  over budget (--budget / --budget-usd)
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+
+import { Command, InvalidArgumentError } from "commander";
 
 import {
   formatCostSummaryText,
@@ -48,76 +47,71 @@ import {
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG = JSON.parse(fs.readFileSync(path.join(HERE, "..", "package.json"), "utf8"));
 
-const USAGE = `artagon-stats [flags]
+/**
+ * commander's argument-parser hooks: throw InvalidArgumentError to
+ * trigger the standard "<value>" not allowed for option message +
+ * exit code 1 (which we map to 2 to match the rest of the bin
+ * surface — see exitOverride below).
+ */
 
-flags:
-  --json             emit the full summary as JSON
-  --since <iso>      only count records on/after this ISO timestamp
-  --until <iso>      only count records on/before this ISO timestamp
-  --recent <n>       additionally print the N most recent records
-  --budget <n>       exit non-zero (3) if total tokens exceed N
-                     (useful in CI: \`artagon-stats --budget 1000000 || alert\`)
-  --budget-usd <n>   exit non-zero (3) if estimated USD exceeds N
-  --version          print version
-  --help             print this message
-`;
-
-function printUsage(stream = process.stderr) {
-  stream.write(USAGE);
-}
-
-function parseArgs(/** @type {string[]} */ argv) {
-  /** @type {{ json?: boolean, since?: Date, until?: Date, recent?: number, budget?: number, budgetUsd?: number, version?: boolean, help?: boolean }} */
-  const out = {};
-  for (let i = 0; i < argv.length; i++) {
-    const tok = argv[i];
-    if (tok === "--help" || tok === "-h") out.help = true;
-    else if (tok === "--version" || tok === "-v") out.version = true;
-    else if (tok === "--json") out.json = true;
-    else if (tok === "--since") {
-      const d = new Date(argv[++i]);
-      if (Number.isNaN(d.getTime())) throw new Error(`invalid --since: ${argv[i]}`);
-      out.since = d;
-    } else if (tok === "--until") {
-      const d = new Date(argv[++i]);
-      if (Number.isNaN(d.getTime())) throw new Error(`invalid --until: ${argv[i]}`);
-      out.until = d;
-    } else if (tok === "--recent") {
-      const n = Number(argv[++i]);
-      if (!Number.isInteger(n) || n < 0) throw new Error(`invalid --recent: ${argv[i]}`);
-      out.recent = n;
-    } else if (tok === "--budget") {
-      const n = Number(argv[++i]);
-      if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid --budget: ${argv[i]}`);
-      out.budget = n;
-    } else if (tok === "--budget-usd") {
-      const n = Number(argv[++i]);
-      if (!Number.isFinite(n) || n <= 0) throw new Error(`invalid --budget-usd: ${argv[i]}`);
-      out.budgetUsd = n;
-    } else {
-      throw new Error(`unknown flag: ${tok}`);
-    }
+/** @param {string} value */
+function parseIso(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    throw new InvalidArgumentError("must be a valid ISO 8601 timestamp");
   }
-  return out;
+  return d;
 }
 
-let opts;
-try {
-  opts = parseArgs(process.argv.slice(2));
-} catch (err) {
-  process.stderr.write(`artagon-stats: ${/** @type {Error} */ (err).message}\n\n`);
-  printUsage();
+/** @param {string} value */
+function parsePositiveInt(value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0) {
+    throw new InvalidArgumentError("must be a non-negative integer");
+  }
+  return n;
+}
+
+/** @param {string} value */
+function parsePositiveNumber(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    throw new InvalidArgumentError("must be a positive number");
+  }
+  return n;
+}
+
+const program = new Command();
+
+program
+  .name("artagon-stats")
+  .description("Print aggregate cost statistics from the local cost-record log")
+  .version(PKG.version, "-v, --version")
+  .option("--json", "emit the full summary as JSON")
+  .option("--since <iso>", "only count records on/after this ISO timestamp", parseIso)
+  .option("--until <iso>", "only count records on/before this ISO timestamp", parseIso)
+  .option("--recent <n>", "additionally print the N most recent records", parsePositiveInt)
+  .option(
+    "--budget <n>",
+    "exit non-zero (3) if total tokens exceed N (e.g. `artagon-stats --budget 1000000 || alert`)",
+    parsePositiveNumber
+  )
+  .option("--budget-usd <n>", "exit non-zero (3) if estimated USD exceeds N", parsePositiveNumber);
+
+// Use exit code 2 for argv errors instead of commander's default 1
+// — keeps the existing test contract (status 2 on bad flags).
+program.exitOverride((err) => {
+  // commander codes:
+  //   commander.unknownOption / commander.invalidArgument / commander.missingArgument → 2
+  //   commander.helpDisplayed / commander.version → 0 (already handled by commander)
+  if (err.code === "commander.helpDisplayed" || err.code === "commander.version") {
+    process.exit(0);
+  }
   process.exit(2);
-}
+});
 
-if (opts.version) {
-  process.stdout.write(`${PKG.version}\n`);
-  process.exit(0);
-}
-if (opts.help) {
-  printUsage(process.stdout);
-  process.exit(0);
-}
+program.parse(process.argv);
+const opts = program.opts();
 
 const records = readCostRecords({ since: opts.since, until: opts.until });
 const summary = summarizeCostRecords(records);

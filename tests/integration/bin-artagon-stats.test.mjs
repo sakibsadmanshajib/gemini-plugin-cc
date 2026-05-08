@@ -78,25 +78,30 @@ describe("bin/artagon-stats.mjs — argv", () => {
   test("unknown flag → exit 2", () => {
     const r = runBin(["--bogus"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/unknown flag/);
+    // commander format: "error: unknown option '--bogus'"
+    expect(r.stderr.toString()).toMatch(/unknown option '--bogus'/);
   });
 
   test("invalid --since → exit 2", () => {
     const r = runBin(["--since", "not-a-date"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/invalid --since/);
+    // commander surfaces our InvalidArgumentError("must be a valid ISO 8601 timestamp")
+    expect(r.stderr.toString()).toMatch(/--since/);
+    expect(r.stderr.toString()).toMatch(/ISO 8601/);
   });
 
   test("invalid --budget (non-numeric) → exit 2", () => {
     const r = runBin(["--budget", "abc"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/invalid --budget/);
+    expect(r.stderr.toString()).toMatch(/--budget/);
+    expect(r.stderr.toString()).toMatch(/positive number/);
   });
 
   test("invalid --budget-usd (zero) → exit 2", () => {
     const r = runBin(["--budget-usd", "0"]);
     expect(r.status).toBe(2);
-    expect(r.stderr.toString()).toMatch(/invalid --budget-usd/);
+    expect(r.stderr.toString()).toMatch(/--budget-usd/);
+    expect(r.stderr.toString()).toMatch(/positive number/);
   });
 });
 

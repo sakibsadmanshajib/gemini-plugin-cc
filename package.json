@@ -72,5 +72,8 @@
     "gemini-cli",
     "code-review",
     "ai-delegation"
-  ]
+  ],
+  "dependencies": {
+    "commander": "14.0.3"
+  }
 }
