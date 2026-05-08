@@ -75,7 +75,9 @@ pnpm gen:homebrew
 The generator (`scripts/generate-homebrew-formula.mjs`) reads
 `package.json` for the version + name, fetches the published tarball
 from registry.npmjs.org, computes the SHA-256, and renders the
-formula. `--version <v>` overrides if you need a different release.
+formula. `--pkg-version <v>` overrides if you need a different release
+(renamed from `--version` to avoid clobbering commander's
+auto-injected `--version` flag, which prints package version + exits).
 
 If you'd rather do it by hand:
 
