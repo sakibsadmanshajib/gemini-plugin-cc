@@ -4,7 +4,14 @@
  */
 
 /**
- * @typedef {{ options: Record<string, string | boolean>, positionals: string[] }} ParsedArgs
+ * @typedef {{ options: Record<string, any>, positionals: string[] }} ParsedArgs
+ *
+ * Option values are typed as `any` because each call site knows which flags
+ * are in `valueOptions` (string-bearing) vs `booleanOptions` (toggles). The
+ * `checkJs` config is `strict: false, noImplicitAny: false` (mirroring
+ * Codex's plugin) to keep this typedef from forcing per-call narrowing
+ * casts in every handler. The runtime guarantee is enforced by `parseArgs`
+ * below, not the type system.
  */
 
 /**

@@ -1,10 +1,10 @@
 {
-  "name": "google-gemini",
+  "name": "artagon-agent-cli-plugin",
   "interface": {
-    "displayName": "Google Gemini"
+    "displayName": "Artagon Agent CLI Plugin Suite"
   },
   "metadata": {
-    "description": "Gemini plugin to use in Codex CLI for delegation, code review, and large-context investigation.",
+    "description": "Multi-backend ACP plugin suite. Each plugin is named for its host and drives the OTHER two backends via stateless CLI runners.",
     "version": "1.0.1"
   },
   "plugins": [
@@ -21,6 +21,36 @@
       "category": "Productivity",
       "interface": {
         "displayName": "Gemini Integration"
+      }
+    },
+    {
+      "name": "claude",
+      "source": {
+        "source": "local",
+        "path": "./plugins/claude"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity",
+      "interface": {
+        "displayName": "Claude Cross-Driver (drives Codex + Gemini)"
+      }
+    },
+    {
+      "name": "codex",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity",
+      "interface": {
+        "displayName": "Codex Cross-Driver (drives Gemini + Claude)"
       }
     }
   ]

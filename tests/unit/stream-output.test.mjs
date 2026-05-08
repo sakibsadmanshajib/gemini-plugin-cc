@@ -1,11 +1,20 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { createStreamHandler, STREAM_MODES } from "../../plugins/gemini/scripts/lib/stream-output.mjs";
+import {
+  STREAM_MODES,
+  createStreamHandler
+} from "../../plugins/gemini/scripts/lib/stream-output.mjs";
 
 function captureWriter() {
   const out = [];
-  return { writer: (s) => { out.push(s); return true; }, out };
+  return {
+    writer: (s) => {
+      out.push(s);
+      return true;
+    },
+    out
+  };
 }
 
 test("STREAM_MODES enumerates the two accepted modes", () => {
@@ -79,7 +88,9 @@ test("passthrough mode under json=true still writes (user opted in)", () => {
 
 test("writer EPIPE does not throw out of handler", () => {
   const throwing = () => {
-    const err = new Error("EPIPE"); err.code = "EPIPE"; throw err;
+    const err = new Error("EPIPE");
+    err.code = "EPIPE";
+    throw err;
   };
   const handler = createStreamHandler({ mode: "markers", json: false, writer: throwing });
   assert.doesNotThrow(() => handler({ type: "tool_call", toolName: "x" }));
@@ -87,7 +98,9 @@ test("writer EPIPE does not throw out of handler", () => {
 
 test("writer ERR_STREAM_DESTROYED does not throw out of handler", () => {
   const throwing = () => {
-    const err = new Error("stream destroyed"); err.code = "ERR_STREAM_DESTROYED"; throw err;
+    const err = new Error("stream destroyed");
+    err.code = "ERR_STREAM_DESTROYED";
+    throw err;
   };
   const handler = createStreamHandler({ mode: "markers", json: false, writer: throwing });
   assert.doesNotThrow(() => handler({ type: "tool_call", toolName: "x" }));
@@ -129,5 +142,8 @@ test("non-session phase messages render with [phase] label, not [session]", () =
 });
 
 test("invalid mode throws", () => {
-  assert.throws(() => createStreamHandler({ mode: "nope", json: false, writer: () => {} }), /invalid stream mode/i);
+  assert.throws(
+    () => createStreamHandler({ mode: "nope", json: false, writer: () => {} }),
+    /invalid stream mode/i
+  );
 });

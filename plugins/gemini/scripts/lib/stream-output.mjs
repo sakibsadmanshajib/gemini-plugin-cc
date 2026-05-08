@@ -115,9 +115,13 @@ export function createStreamHandler({ mode, json, writer }) {
         safeWrite(writer, "[thinking]\n");
         return;
       case "file_change":
-        safeWrite(writer, `[file] ${markerField(event.action, "modify")} ${markerField(event.path)}\n`);
+        safeWrite(
+          writer,
+          `[file] ${markerField(event.action, "modify")} ${markerField(event.path)}\n`
+        );
         return;
       case "done": {
+        /** @type {{ elapsedMs?: number, tools?: number, files?: number, chunks?: number, thoughts?: number }} */
         const s = event.stats ?? {};
         const parts = [
           formatElapsed(s.elapsedMs ?? 0),

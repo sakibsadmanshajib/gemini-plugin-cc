@@ -1,10 +1,10 @@
 {
-  "name": "google-gemini",
+  "name": "artagon-agent-cli-plugin",
   "owner": {
-    "name": "Sakib Sadman Shajib"
+    "name": "Artagon & Giedrius Trumpickas"
   },
   "metadata": {
-    "description": "Gemini plugins to use in Claude Code for delegation and code review.",
+    "description": "Multi-backend ACP plugin suite. Each plugin is named for its host and drives the OTHER two backends via stateless CLI runners.",
     "version": "1.0.1"
   },
   "plugins": [
@@ -13,9 +13,27 @@
       "description": "Use Gemini from Claude Code to review code or delegate tasks.",
       "version": "1.0.1",
       "author": {
-        "name": "Sakib Sadman Shajib"
+        "name": "Artagon & Giedrius Trumpickas"
       },
       "source": "./plugins/gemini"
+    },
+    {
+      "name": "claude",
+      "description": "Installed in Claude Code; drives Codex and Gemini backends via stateless CLI runners.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Artagon & Giedrius Trumpickas"
+      },
+      "source": "./plugins/claude"
+    },
+    {
+      "name": "codex",
+      "description": "Installed in Codex CLI; drives Gemini and Claude backends via stateless CLI runners.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Artagon & Giedrius Trumpickas"
+      },
+      "source": "./plugins/codex"
     }
   ]
 }

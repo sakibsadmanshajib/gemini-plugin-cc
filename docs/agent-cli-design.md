@@ -1,10 +1,35 @@
 # acp-plugins-cc — OpenSpec Project
 
+> **STATUS: HISTORICAL.** This doc captures the original 22-29-week
+> staged roadmap as authored before the **2026-05-08 CLI-only pivot**.
+> Post-pivot:
+>
+> - `add-codex-sdk-backend` — OBSOLETE; see
+>   `openspec/changes/add-codex-sdk-backend/STATUS.md`. Replaced by
+>   `lib/backends/codex.mjs` (CLI-only) + `lib/runners/codex-exec.mjs`
+>   (stateless runner) + `buildCodexArgs` argv builder.
+> - `add-claude-sdk-adapter` — OBSOLETE; see
+>   `openspec/changes/add-claude-sdk-adapter/STATUS.md`. Replaced by
+>   `lib/backends/claude.mjs` (CLI-stub) + `lib/runners/claude-print.mjs`
+>   (stateless runner) + `buildClaudeArgs` argv builder.
+> - `add-app-server-transport-and-marketplace-split` — PARTIALLY
+>   OBSOLETE; the HTTP/SSE transport half is dead. The marketplace-split
+>   half (3 plugins) remains valid future work. See
+>   `openspec/changes/add-app-server-transport-and-marketplace-split/STATUS.md`.
+> - `transport-sdk` and `transport-http` capabilities — never shipped;
+>   `lib/transport/sdk.mjs` and `lib/transport/http.mjs` were created
+>   then deleted in the pivot.
+>
+> Read this file as a snapshot of intent at planning time, not as a
+> current execution plan. For the current architecture, start at
+> `docs/architecture.md`.
+
 This OpenSpec workspace tracks the modernization of `gemini-plugin-cc`
 into `acp-plugins-cc` — a multi-backend ACP plugin suite for Claude
 Code.
 
 For orientation:
+
 - [`openspec/architecture.md`](../openspec/architecture.md) — layered
   system overview
 - [`openspec/glossary.md`](../openspec/glossary.md) — definitions of
@@ -29,14 +54,15 @@ For orientation:
 
 **Stage 1 — Foundation modernization** (13-14 weeks buffered)
 
-| ID | Phase | Effort |
-|---|---|---|
-| `modernize-toolchain` | 1 | 1.5 weeks |
-| `add-testing-and-observability` | 2-3 | 3 weeks |
-| `add-transport-abstraction-with-gemini` | 4 | 3 weeks |
+| ID                                      | Phase | Effort    |
+| --------------------------------------- | ----- | --------- |
+| `modernize-toolchain`                   | 1     | 1.5 weeks |
+| `add-testing-and-observability`         | 2-3   | 3 weeks   |
+| `add-transport-abstraction-with-gemini` | 4     | 3 weeks   |
 
 **Stage gate** — go/no-go after the third change archives. Budgeted at
 0.5-1 week (was previously invisible per Round 5 review). Includes:
+
 - Implement `MockBedrockTransport` against existing `AcpSession`
   interface; pass conformance suite (architectural-fitness check)
 - Reproduce one real or synthetic bug via wire-log → fixture →
@@ -50,12 +76,12 @@ For orientation:
 
 **Stage 2 — Multi-backend expansion** (12-14 weeks buffered)
 
-| ID | Phase | Effort |
-|---|---|---|
-| `add-codex-sdk-backend` | 6 | 2-2.5 weeks |
-| `add-claude-sdk-adapter` | 7 | 3.5-4 weeks |
-| `add-app-server-transport-and-marketplace-split` | 8-9 | 3 weeks |
-| `add-middleware-and-release` | 10-11 | 3-3.5 weeks |
+| ID                                               | Phase | Effort      |
+| ------------------------------------------------ | ----- | ----------- |
+| `add-codex-sdk-backend`                          | 6     | 2-2.5 weeks |
+| `add-claude-sdk-adapter`                         | 7     | 3.5-4 weeks |
+| `add-app-server-transport-and-marketplace-split` | 8-9   | 3 weeks     |
+| `add-middleware-and-release`                     | 10-11 | 3-3.5 weeks |
 
 **Headline plan total**: 25-29 weeks buffered. Earlier 22-25w estimate
 held the right shape; per-proposal estimates were optimistic in the
@@ -91,29 +117,30 @@ before the downstream change starts implementation.
 
 ## Capability matrix
 
-| Capability | Introduced in | Modified by |
-|---|---|---|
-| `toolchain` | modernize-toolchain | — |
-| `monorepo-shape` | modernize-toolchain | add-app-server-transport-and-marketplace-split |
-| `feature-flags` | modernize-toolchain | add-app-server-transport-and-marketplace-split |
-| `testing` | add-testing-and-observability | — |
-| `observability` | add-testing-and-observability | — |
-| `acp-core` | add-transport-abstraction-with-gemini | — |
-| `transport-cli` | add-transport-abstraction-with-gemini | — |
-| `backend-gemini` | add-transport-abstraction-with-gemini | — |
-| `state-schema` | add-transport-abstraction-with-gemini | — |
-| `transport-sdk` | add-codex-sdk-backend | — |
-| `backend-codex` | add-codex-sdk-backend | add-app-server-transport-and-marketplace-split |
-| `backend-claude` | add-claude-sdk-adapter | — |
-| `transport-http` | add-app-server-transport-and-marketplace-split | — |
-| `plugin-shells` | add-app-server-transport-and-marketplace-split | — |
-| `marketplace` | add-app-server-transport-and-marketplace-split | — |
-| `middleware` | add-middleware-and-release | — |
-| `release-engineering` | add-middleware-and-release | — |
+| Capability            | Introduced in                                  | Modified by                                    |
+| --------------------- | ---------------------------------------------- | ---------------------------------------------- |
+| `toolchain`           | modernize-toolchain                            | —                                              |
+| `monorepo-shape`      | modernize-toolchain                            | add-app-server-transport-and-marketplace-split |
+| `feature-flags`       | modernize-toolchain                            | add-app-server-transport-and-marketplace-split |
+| `testing`             | add-testing-and-observability                  | —                                              |
+| `observability`       | add-testing-and-observability                  | —                                              |
+| `acp-core`            | add-transport-abstraction-with-gemini          | —                                              |
+| `transport-cli`       | add-transport-abstraction-with-gemini          | —                                              |
+| `backend-gemini`      | add-transport-abstraction-with-gemini          | —                                              |
+| `state-schema`        | add-transport-abstraction-with-gemini          | —                                              |
+| `transport-sdk`       | add-codex-sdk-backend                          | —                                              |
+| `backend-codex`       | add-codex-sdk-backend                          | add-app-server-transport-and-marketplace-split |
+| `backend-claude`      | add-claude-sdk-adapter                         | —                                              |
+| `transport-http`      | add-app-server-transport-and-marketplace-split | —                                              |
+| `plugin-shells`       | add-app-server-transport-and-marketplace-split | —                                              |
+| `marketplace`         | add-app-server-transport-and-marketplace-split | —                                              |
+| `middleware`          | add-middleware-and-release                     | —                                              |
+| `release-engineering` | add-middleware-and-release                     | —                                              |
 
 ## Conventions
 
 Every change MUST include:
+
 - `proposal.md` — Why, What changes, Impact, Validation, Rollback
 - `tasks.md` — checklist with task IDs (T1.1, T1.2, ...)
 - `specs/<capability>/spec.md` — at least one spec delta

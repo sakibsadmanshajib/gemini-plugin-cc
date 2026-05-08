@@ -15,11 +15,11 @@ import fs from "node:fs";
 import process from "node:process";
 
 import { getGeminiAvailability } from "./lib/gemini.mjs";
+import { runCommand } from "./lib/process.mjs";
+import { loadPrompt } from "./lib/prompts.mjs";
+import { VERDICT, parseVerdict } from "./lib/review-gate-verdict.mjs";
 import { getConfig, listJobs } from "./lib/state.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
-import { loadPrompt } from "./lib/prompts.mjs";
-import { runCommand } from "./lib/process.mjs";
-import { VERDICT, parseVerdict } from "./lib/review-gate-verdict.mjs";
 
 function readHookInput() {
   const raw = fs.readFileSync(0, "utf8").trim();
@@ -61,10 +61,14 @@ function runStopReview(cwd, input) {
   });
 
   // Run the review synchronously via headless mode (hooks must be synchronous).
-  const result = runCommand("gemini", ["-p", prompt, "--output-format", "text", "--approval-mode", "plan"], {
-    cwd,
-    maxBuffer: 5 * 1024 * 1024
-  });
+  const result = runCommand(
+    "gemini",
+    ["-p", prompt, "--output-format", "text", "--approval-mode", "plan"],
+    {
+      cwd,
+      maxBuffer: 5 * 1024 * 1024
+    }
+  );
 
   // Failure semantics:
   //
@@ -80,7 +84,7 @@ function runStopReview(cwd, input) {
   //   silently fail-open would disable a security-relevant gate on transient
   //   problems. Per round-1 swarm review: Copilot, Codex, and Gemini all
   //   converged on this fail-closed-for-non-ENOENT semantic.
-  if (result.error?.code === "ENOENT") {
+  if (/** @type {NodeJS.ErrnoException | undefined} */ (result.error)?.code === "ENOENT") {
     return {
       ok: true,
       reason: "Stop-review skipped: `gemini` CLI not on PATH for this hook environment."
@@ -106,7 +110,10 @@ function runStopReview(cwd, input) {
   }
 
   // If the output doesn't match expected format, allow by default.
-  return { ok: true, reason: `Gemini response did not match expected format. Allowing. First line: ${firstLine.slice(0, 100)}` };
+  return {
+    ok: true,
+    reason: `Gemini response did not match expected format. Allowing. First line: ${firstLine.slice(0, 100)}`
+  };
 }
 
 function main() {

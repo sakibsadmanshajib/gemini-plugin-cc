@@ -1,7 +1,11 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { runCommand, binaryAvailable, formatCommandFailure } from "../../plugins/gemini/scripts/lib/process.mjs";
+import {
+  binaryAvailable,
+  formatCommandFailure,
+  runCommand
+} from "../../plugins/gemini/scripts/lib/process.mjs";
 
 test("runCommand captures stdout and stderr", () => {
   const result = runCommand("node", ["-e", 'process.stdout.write("hello")']);

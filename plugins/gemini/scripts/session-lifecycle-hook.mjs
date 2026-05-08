@@ -12,16 +12,16 @@
 import fs from "node:fs";
 import process from "node:process";
 
-import { terminateProcessTree } from "./lib/process.mjs";
-import { BROKER_ENDPOINT_ENV } from "./lib/acp-client.mjs";
+import { BROKER_ENDPOINT_ENV } from "./lib/broker-constants.mjs";
 import {
-  clearBrokerSession,
   LOG_FILE_ENV,
-  loadBrokerSession,
   PID_FILE_ENV,
+  clearBrokerSession,
+  loadBrokerSession,
   sendBrokerShutdown,
   teardownBrokerSession
 } from "./lib/broker-lifecycle.mjs";
+import { terminateProcessTree } from "./lib/process.mjs";
 import { loadState, resolveStateFile, saveState } from "./lib/state.mjs";
 import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 

@@ -1,14 +1,14 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { makeTempDir } from "../helpers.mjs";
 import {
   withJobMutex,
   withWorkspaceMutex,
   writeJsonAtomic
 } from "../../plugins/gemini/scripts/lib/atomic-state.mjs";
+import { makeTempDir } from "../helpers.mjs";
 
 test("withJobMutex serializes same-jobId writers and parallelises different jobs", async () => {
   const ws = makeTempDir();
@@ -54,9 +54,7 @@ test("writeJsonAtomic writes a complete file atomically", () => {
   writeJsonAtomic(target, { jobs: [{ id: "a" }] });
   const read = JSON.parse(fs.readFileSync(target, "utf8"));
   assert.deepEqual(read.jobs, [{ id: "a" }]);
-  const siblings = fs
-    .readdirSync(ws)
-    .filter((f) => f.startsWith("state.json."));
+  const siblings = fs.readdirSync(ws).filter((f) => f.startsWith("state.json."));
   assert.equal(siblings.length, 0, "no tmp files should remain");
 });
 
@@ -67,13 +65,7 @@ test("writeJsonAtomic does not leave a partial file on write failure", () => {
   // Force failure: a value containing a BigInt makes JSON.stringify throw.
   assert.throws(() => writeJsonAtomic(target, { bad: 1n }));
   const read = JSON.parse(fs.readFileSync(target, "utf8"));
-  assert.deepEqual(
-    read.jobs,
-    [{ id: "prev" }],
-    "target file must be unchanged on failure"
-  );
-  const siblings = fs
-    .readdirSync(ws)
-    .filter((f) => f.startsWith("state.json."));
+  assert.deepEqual(read.jobs, [{ id: "prev" }], "target file must be unchanged on failure");
+  const siblings = fs.readdirSync(ws).filter((f) => f.startsWith("state.json."));
   assert.equal(siblings.length, 0, "tmp file should not remain after failure");
 });

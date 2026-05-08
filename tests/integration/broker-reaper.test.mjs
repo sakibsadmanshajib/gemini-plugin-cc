@@ -16,30 +16,30 @@
  *   3. old mtime + dead endpoint → reaped (the actual orphan case)
  */
 
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "vitest";
 
 import {
-  PLUGIN_ROOT,
-  PLUGIN_SOURCE_DIR_RELATIVE,
+  ACP_SESSION_DIR_NAME,
+  BROKER_LOG_FILENAME,
+  BROKER_PID_FILENAME,
+  BROKER_SESSION_FILENAME,
   CLAUDE_HOST_SIGNAL_ENV,
   CLAUDE_PLUGIN_DATA_ENV,
-  ACP_SESSION_DIR_NAME,
-  BROKER_PID_FILENAME,
-  BROKER_LOG_FILENAME,
-  BROKER_SESSION_FILENAME
+  PLUGIN_ROOT,
+  PLUGIN_SOURCE_DIR_RELATIVE
 } from "../install-paths.mjs";
 
 const LIB_DIR = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, "scripts", "lib");
 const REAPER_TMPDIR_PREFIX_WORKSPACE = "gemini-reaper-ws-";
 const REAPER_TMPDIR_PREFIX_EMPTY = "gemini-reaper-empty-";
-const REAPER_SHORT_SOCKET_PREFIX = "gem-rs-";  // very short; macOS Unix socket path ≤ 104 chars
-const FAKE_PID_PLACEHOLDER = 99999;            // never the real broker; only fed to killProcess
+const REAPER_SHORT_SOCKET_PREFIX = "gem-rs-"; // very short; macOS Unix socket path ≤ 104 chars
+const FAKE_PID_PLACEHOLDER = 99999; // never the real broker; only fed to killProcess
 
 function initGitRepo(cwd) {
   spawnSync("git", ["init", "-b", "main"], { cwd, stdio: "ignore" });
@@ -116,7 +116,7 @@ async function setupFakeBroker(opts = {}) {
     pidFile,
     logFile,
     sessionDir,
-    pid: FAKE_PID_PLACEHOLDER  // intentionally fake; only fed to killProcess
+    pid: FAKE_PID_PLACEHOLDER // intentionally fake; only fed to killProcess
   };
   const sessionFile = path.join(stateDir, BROKER_SESSION_FILENAME);
   fs.writeFileSync(sessionFile, JSON.stringify(session, null, 2), "utf8");
@@ -147,11 +147,15 @@ test("reaper: fresh session-file mtime → broker survives even if endpoint is d
   const fixture = await setupFakeBroker({ withLiveListener: false, mtimeOffsetMs: 0 });
 
   let killCalled = false;
-  await reapStaleBroker(fixture.workspace, () => { killCalled = true; });
+  await reapStaleBroker(fixture.workspace, () => {
+    killCalled = true;
+  });
 
   // Session file must still be on disk; reaper bailed early due to fresh mtime.
-  assert.ok(fs.existsSync(fixture.sessionFile),
-    "fresh broker must NOT be reaped (mtime check is the first gate)");
+  assert.ok(
+    fs.existsSync(fixture.sessionFile),
+    "fresh broker must NOT be reaped (mtime check is the first gate)"
+  );
   assert.equal(killCalled, false, "killProcess must not be invoked on a fresh broker");
 
   await fixture.cleanup();
@@ -163,16 +167,23 @@ test("reaper: old session-file mtime + LIVE endpoint → broker survives (the ro
   );
   const fixture = await setupFakeBroker({
     withLiveListener: true,
-    mtimeOffsetMs: STALE_BROKER_AGE_MS + 60_000  // 1h + 1min old
+    mtimeOffsetMs: STALE_BROKER_AGE_MS + 60_000 // 1h + 1min old
   });
 
   let killCalled = false;
-  await reapStaleBroker(fixture.workspace, () => { killCalled = true; });
+  await reapStaleBroker(fixture.workspace, () => {
+    killCalled = true;
+  });
 
-  assert.ok(fs.existsSync(fixture.sessionFile),
-    "broker with old mtime BUT live endpoint must NOT be reaped — it's healthy");
-  assert.equal(killCalled, false,
-    "killProcess must not fire when endpoint accepts connections, regardless of mtime");
+  assert.ok(
+    fs.existsSync(fixture.sessionFile),
+    "broker with old mtime BUT live endpoint must NOT be reaped — it's healthy"
+  );
+  assert.equal(
+    killCalled,
+    false,
+    "killProcess must not fire when endpoint accepts connections, regardless of mtime"
+  );
 
   await fixture.cleanup();
 });
@@ -187,12 +198,15 @@ test("reaper: old session-file mtime + DEAD endpoint → broker is reaped", asyn
   });
 
   let killCalled = false;
-  await reapStaleBroker(fixture.workspace, () => { killCalled = true; });
+  await reapStaleBroker(fixture.workspace, () => {
+    killCalled = true;
+  });
 
-  assert.ok(!fs.existsSync(fixture.sessionFile),
-    "stale broker (old + dead) must be reaped — its session file is removed");
-  assert.equal(killCalled, true,
-    "killProcess must fire on a confirmed-orphan broker");
+  assert.ok(
+    !fs.existsSync(fixture.sessionFile),
+    "stale broker (old + dead) must be reaped — its session file is removed"
+  );
+  assert.equal(killCalled, true, "killProcess must fire on a confirmed-orphan broker");
 
   await fixture.cleanup();
 });
@@ -209,7 +223,9 @@ test("reaper: no session file → no-op (nothing to reap)", async () => {
 
   let killCalled = false;
   // Must not throw, must not call killProcess.
-  await reapStaleBroker(workspace, () => { killCalled = true; });
+  await reapStaleBroker(workspace, () => {
+    killCalled = true;
+  });
 
   assert.equal(killCalled, false, "no session file means no broker to reap");
 

@@ -1,5 +1,5 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
 // Task 10: runAcpPrompt emits a one-shot stderr warning when --thinking is
 // requested, since upstream Gemini CLI (0.38.x) does not expose a runtime

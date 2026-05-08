@@ -1,18 +1,22 @@
-import fs from "node:fs";
-import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import { test } from "vitest";
 
-import { initGitRepo, makeTempDir } from "../helpers.mjs";
 import {
+  POSSIBLY_STALLED_AFTER_MS,
+  QUIET_AFTER_MS,
   buildSingleJobSnapshot,
   buildStatusSnapshot,
-  defaultIsProcessAlive,
-  POSSIBLY_STALLED_AFTER_MS,
-  QUIET_AFTER_MS
+  defaultIsProcessAlive
 } from "../../plugins/gemini/scripts/lib/job-control.mjs";
 import { recordJobEvent } from "../../plugins/gemini/scripts/lib/job-observability.mjs";
+import {
+  readJobFile,
+  resolveJobLogFile,
+  writeJobFile
+} from "../../plugins/gemini/scripts/lib/state.mjs";
 import { createTrackedJob } from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
-import { readJobFile, resolveJobLogFile, writeJobFile } from "../../plugins/gemini/scripts/lib/state.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 
 function iso(ms) {
   return new Date(ms).toISOString();
@@ -33,13 +37,20 @@ async function setRunningJob(workspace, job, patch = {}) {
     message: "running",
     timestamp: stored.lastProgressAt ?? "2026-01-01T00:00:01.000Z"
   });
-  await writeJobFile(workspace, job.id, { ...readJobFile(workspace, job.id), ...patch });
+  await writeJobFile(workspace, job.id, {
+    ...readJobFile(workspace, job.id),
+    ...patch
+  });
 }
 
 test("buildStatusSnapshot enriches active jobs with health, timestamps, events, and runtime", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "active health" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "active health"
+  });
   await setRunningJob(workspace, job, {
     healthStatus: "active",
     healthMessage: "processing",
@@ -66,7 +77,11 @@ test("buildStatusSnapshot enriches active jobs with health, timestamps, events, 
 test("buildSingleJobSnapshot includes recent events and bounded progress log tail", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "detail" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "detail"
+  });
   const logFile = resolveJobLogFile(workspace, job.id);
   fs.writeFileSync(logFile, "one\ntwo\nthree\n", "utf8");
 
@@ -85,13 +100,20 @@ test("buildSingleJobSnapshot includes recent events and bounded progress log tai
   });
 
   assert.deepEqual(snapshot.job.recentProgress, ["two", "three"]);
-  assert.deepEqual(snapshot.job.events.map((event) => event.message), ["event 3", "event 4", "event 5"]);
+  assert.deepEqual(
+    snapshot.job.events.map((event) => event.message),
+    ["event 3", "event 4", "event 5"]
+  );
 });
 
 test("buildStatusSnapshot classifies running jobs with missing workers", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "missing worker" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "missing worker"
+  });
   await setRunningJob(workspace, job, {
     pid: 98765,
     lastProgressAt: "2026-01-01T00:00:05.000Z",
@@ -111,7 +133,11 @@ test("buildStatusSnapshot keeps recent progress active", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "recent progress" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "recent progress"
+  });
   await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - QUIET_AFTER_MS + 1000),
     lastHeartbeatAt: iso(now - QUIET_AFTER_MS + 1000)
@@ -129,7 +155,11 @@ test("buildStatusSnapshot classifies missing recent progress with heartbeat as q
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "quiet" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "quiet"
+  });
   await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - QUIET_AFTER_MS - 1000),
     lastHeartbeatAt: iso(now - POSSIBLY_STALLED_AFTER_MS + 1000)
@@ -147,7 +177,11 @@ test("buildStatusSnapshot classifies stale heartbeat and progress as possibly st
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:10:00.000Z");
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "stalled" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "stalled"
+  });
   await setRunningJob(workspace, job, {
     lastProgressAt: iso(now - POSSIBLY_STALLED_AFTER_MS - 1000),
     lastHeartbeatAt: iso(now - POSSIBLY_STALLED_AFTER_MS - 1000)
@@ -165,7 +199,11 @@ test("buildStatusSnapshot preserves persisted rate_limited health even with rece
   const workspace = makeTempDir();
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:00:00.000Z");
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "sticky" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "sticky"
+  });
   await setRunningJob(workspace, job, {
     healthStatus: "rate_limited",
     healthMessage: "quota exceeded",
@@ -189,13 +227,21 @@ test("buildStatusSnapshot preserves persisted auth_required and broker_unhealthy
   initGitRepo(workspace);
   const now = Date.parse("2026-01-01T00:00:00.000Z");
 
-  const authJob = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "auth" });
+  const authJob = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "auth"
+  });
   await setRunningJob(workspace, authJob, {
     healthStatus: "auth_required",
     lastProgressAt: iso(now - 500),
     lastHeartbeatAt: iso(now - 500)
   });
-  const brokerJob = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "broker" });
+  const brokerJob = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "broker"
+  });
   await setRunningJob(workspace, brokerJob, {
     healthStatus: "broker_unhealthy",
     lastProgressAt: iso(now - 500),
@@ -212,43 +258,46 @@ test("buildStatusSnapshot preserves persisted auth_required and broker_unhealthy
   assert.equal(byId.get(brokerJob.id).healthStatus, "broker_unhealthy");
 });
 
-test("defaultIsProcessAlive returns false when process.kill throws EPERM", (t) => {
+test("defaultIsProcessAlive returns false when process.kill throws EPERM", () => {
   const originalKill = process.kill;
-  t.after(() => {
-    process.kill = originalKill;
-  });
   process.kill = () => {
     const err = new Error("operation not permitted");
     err.code = "EPERM";
     throw err;
   };
-  // EPERM means the PID exists but is owned by another user — since
-  // workers are spawned as the current user, the worker is gone and
-  // the PID was recycled. Must report as dead so jobs can transition
-  // to worker_missing instead of being pinned to running forever.
-  assert.equal(defaultIsProcessAlive(999999), false);
+  try {
+    // EPERM means the PID exists but is owned by another user — since
+    // workers are spawned as the current user, the worker is gone and
+    // the PID was recycled. Must report as dead so jobs can transition
+    // to worker_missing instead of being pinned to running forever.
+    assert.equal(defaultIsProcessAlive(999999), false);
+  } finally {
+    process.kill = originalKill;
+  }
 });
 
-test("defaultIsProcessAlive returns false when process.kill throws ESRCH", (t) => {
+test("defaultIsProcessAlive returns false when process.kill throws ESRCH", () => {
   const originalKill = process.kill;
-  t.after(() => {
-    process.kill = originalKill;
-  });
   process.kill = () => {
     const err = new Error("no such process");
     err.code = "ESRCH";
     throw err;
   };
-  assert.equal(defaultIsProcessAlive(999999), false);
+  try {
+    assert.equal(defaultIsProcessAlive(999999), false);
+  } finally {
+    process.kill = originalKill;
+  }
 });
 
-test("defaultIsProcessAlive returns true when process.kill succeeds", (t) => {
+test("defaultIsProcessAlive returns true when process.kill succeeds", () => {
   const originalKill = process.kill;
-  t.after(() => {
-    process.kill = originalKill;
-  });
   process.kill = () => true;
-  assert.equal(defaultIsProcessAlive(1234), true);
+  try {
+    assert.equal(defaultIsProcessAlive(1234), true);
+  } finally {
+    process.kill = originalKill;
+  }
 });
 
 test("defaultIsProcessAlive returns true when no pid is provided", () => {
@@ -275,10 +324,16 @@ const FILTER_SAMPLE_JOBS = [
 
 test("filterJobsForCurrentSession: empty env returns all jobs (no filter)", () => {
   const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, {});
-  assert.equal(result.length, FILTER_SAMPLE_JOBS.length,
-    "empty env (no SESSION_ID) must return all jobs unfiltered");
-  assert.deepStrictEqual(result, FILTER_SAMPLE_JOBS,
-    "all jobs returned unmodified when no SESSION_ID set");
+  assert.equal(
+    result.length,
+    FILTER_SAMPLE_JOBS.length,
+    "empty env (no SESSION_ID) must return all jobs unfiltered"
+  );
+  assert.deepStrictEqual(
+    result,
+    FILTER_SAMPLE_JOBS,
+    "all jobs returned unmodified when no SESSION_ID set"
+  );
 });
 
 test("filterJobsForCurrentSession: env with SESSION_ID returns only matching jobs", () => {
@@ -286,8 +341,10 @@ test("filterJobsForCurrentSession: env with SESSION_ID returns only matching job
   const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
 
   assert.equal(result.length, 2, "session-A should match exactly 2 jobs");
-  assert.ok(result.every((j) => j.sessionId === "session-A"),
-    "every returned job must have matching sessionId");
+  assert.ok(
+    result.every((j) => j.sessionId === "session-A"),
+    "every returned job must have matching sessionId"
+  );
   assert.deepStrictEqual(
     result.map((j) => j.id).sort(),
     ["job-1", "job-2"],
@@ -299,8 +356,7 @@ test("filterJobsForCurrentSession: env with non-matching SESSION_ID returns empt
   const env = { [SESSION_ID_ENV_VAR]: "session-NONEXISTENT" };
   const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
 
-  assert.equal(result.length, 0,
-    "no jobs match the unknown SESSION_ID; result must be empty");
+  assert.equal(result.length, 0, "no jobs match the unknown SESSION_ID; result must be empty");
   assert.deepStrictEqual(result, [], "result is empty array, not undefined/null");
 });
 
@@ -310,8 +366,11 @@ test("filterJobsForCurrentSession: env arg omitted falls back to process.env", (
 
   try {
     const unfiltered = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS);
-    assert.equal(unfiltered.length, FILTER_SAMPLE_JOBS.length,
-      "default env=process.env with no SESSION_ID returns all jobs");
+    assert.equal(
+      unfiltered.length,
+      FILTER_SAMPLE_JOBS.length,
+      "default env=process.env with no SESSION_ID returns all jobs"
+    );
 
     process.env[SESSION_ID_ENV_VAR] = "session-B";
     const filtered = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS);
@@ -333,6 +392,8 @@ test("filterJobsForCurrentSession: jobs with null sessionId excluded under speci
   const env = { [SESSION_ID_ENV_VAR]: "session-A" };
   const result = filterJobsForCurrentSession(FILTER_SAMPLE_JOBS, env);
 
-  assert.ok(result.every((j) => j.sessionId !== null),
-    "null-sessionId (unscoped) jobs must NOT match a specific session filter");
+  assert.ok(
+    result.every((j) => j.sessionId !== null),
+    "null-sessionId (unscoped) jobs must NOT match a specific session filter"
+  );
 });

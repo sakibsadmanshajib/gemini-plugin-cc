@@ -1,9 +1,9 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
 import {
-  renderReviewResult,
   renderResultOutput,
+  renderReviewResult,
   renderSingleJobStatus,
   renderStatusSnapshot
 } from "../../plugins/gemini/scripts/lib/render.mjs";
@@ -93,7 +93,8 @@ test("renderResultOutput uses pre-rendered output when no rawOutput is present",
     },
     {
       threadId: "sess-def-456",
-      rendered: "# Gemini Adversarial Review\n\nTarget: working tree diff\nVerdict: needs-attention\n",
+      rendered:
+        "# Gemini Adversarial Review\n\nTarget: working tree diff\nVerdict: needs-attention\n",
       result: {}
     }
   );
@@ -126,7 +127,10 @@ test("renderStatusSnapshot includes health and last progress for active jobs", (
     ]
   });
 
-  assert.match(output, /\| Job ID \| Kind \| Status \| Phase \| Health \| Last Progress \| Elapsed \| Summary \|/);
+  assert.match(
+    output,
+    /\| Job ID \| Kind \| Status \| Phase \| Health \| Last Progress \| Elapsed \| Summary \|/
+  );
   assert.match(output, /quiet/);
   assert.match(output, /2026-01-01T00:01:00.000Z/);
 });
@@ -171,7 +175,10 @@ test("renderSingleJobStatus includes observability details without raw event pay
   assert.match(output, /## Health/);
   assert.match(output, /- \*\*Health:\*\* quiet/);
   assert.match(output, /- \*\*Diagnostic:\*\* No model output recently\./);
-  assert.match(output, /- \*\*Recommended Action:\*\* Check status again or retry if it remains quiet\./);
+  assert.match(
+    output,
+    /- \*\*Recommended Action:\*\* Check status again or retry if it remains quiet\./
+  );
   assert.match(output, /## Runtime/);
   assert.match(output, /- \*\*PID:\*\* 123/);
   assert.match(output, /- \*\*Started:\*\* 2026-01-01T00:00:00.000Z/);
@@ -214,7 +221,12 @@ test("renderSingleJobStatus includes tail of recent events and counters", () => 
       { type: "model_text_chunk", chars: 140, timestamp: "2026-04-18T12:00:03.000Z" },
       { type: "model_thought_chunk", chars: 62, timestamp: "2026-04-18T12:00:04.000Z" },
       { type: "model_text_chunk", chars: 85, timestamp: "2026-04-18T12:00:05.000Z" },
-      { type: "file_change", path: "a.mjs", action: "write", timestamp: "2026-04-18T12:00:06.000Z" },
+      {
+        type: "file_change",
+        path: "a.mjs",
+        action: "write",
+        timestamp: "2026-04-18T12:00:06.000Z"
+      },
       { type: "tool_call", toolName: "write_file", timestamp: "2026-04-18T12:00:07.000Z" },
       { type: "model_text_chunk", chars: 22, timestamp: "2026-04-18T12:00:08.000Z" }
     ]
@@ -236,20 +248,28 @@ test("renderSingleJobStatus includes tail of recent events and counters", () => 
 
 test("renderSingleJobStatus keeps event-tail details for phase changes and diagnostics", () => {
   const now = Date.parse("2026-04-18T12:00:10.000Z");
-  const rendered = renderSingleJobStatus({
-    id: "job_events",
-    kind: "task",
-    status: "running",
-    title: "event formatting",
-    startedAt: "2026-04-18T12:00:00.000Z",
-    events: [
-      { type: "phase_changed", phase: "running", timestamp: "2026-04-18T12:00:06.000Z" },
-      { type: "diagnostic", message: "rate limit near", timestamp: "2026-04-18T12:00:07.000Z" },
-      { type: "diagnostic", source: "broker", message: "connected", timestamp: "2026-04-18T12:00:08.000Z" },
-      { type: "stderr", message: "warning text", timestamp: "2026-04-18T12:00:09.000Z" },
-      { type: "error", source: "gemini", message: "boom", timestamp: "2026-04-18T12:00:10.000Z" }
-    ]
-  }, { now });
+  const rendered = renderSingleJobStatus(
+    {
+      id: "job_events",
+      kind: "task",
+      status: "running",
+      title: "event formatting",
+      startedAt: "2026-04-18T12:00:00.000Z",
+      events: [
+        { type: "phase_changed", phase: "running", timestamp: "2026-04-18T12:00:06.000Z" },
+        { type: "diagnostic", message: "rate limit near", timestamp: "2026-04-18T12:00:07.000Z" },
+        {
+          type: "diagnostic",
+          source: "broker",
+          message: "connected",
+          timestamp: "2026-04-18T12:00:08.000Z"
+        },
+        { type: "stderr", message: "warning text", timestamp: "2026-04-18T12:00:09.000Z" },
+        { type: "error", source: "gemini", message: "boom", timestamp: "2026-04-18T12:00:10.000Z" }
+      ]
+    },
+    { now }
+  );
 
   assert.match(rendered, /\[phase_changed\] running/);
   assert.match(rendered, /\[diagnostic\] rate limit near/);

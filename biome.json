@@ -1,0 +1,59 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "include": ["**/*.mjs", "**/*.js", "**/*.json", "**/*.ts", "**/*.d.ts"],
+    "ignore": [
+      "node_modules",
+      ".generated",
+      "**/.generated/**",
+      "openspec/changes/archive/**",
+      ".stryker-tmp/**",
+      "reports/**"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100,
+    "lineEnding": "lf"
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noConsole": "off",
+        "noControlCharactersInRegex": "off",
+        "noEmptyInterface": "off",
+        "noAssignInExpressions": "off",
+        "noExplicitAny": "off"
+      },
+      "style": {
+        "useNamingConvention": "off",
+        "useTemplate": "off"
+      },
+      "complexity": {
+        "noUselessEmptyExport": "off",
+        "noStaticOnlyClass": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double",
+      "trailingCommas": "none",
+      "semicolons": "always"
+    }
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  }
+}

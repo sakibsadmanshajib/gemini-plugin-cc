@@ -1,0 +1,6 @@
+# SHAs of formatting-only commits to ignore in `git blame`.
+# Add new entries with `git blame --ignore-revs-file .git-blame-ignore-revs`.
+# Configure once globally: `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
+
+# Initial Biome formatter pass (modernize-toolchain T3.3).
+# SHA recorded after the formatting commit lands.

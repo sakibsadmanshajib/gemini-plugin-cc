@@ -43,10 +43,21 @@ export interface InitializeParams {
 
 export interface InitializeResult {
   capabilities: Record<string, unknown>;
-  serverInfo: {
+  serverInfo?: {
     name: string;
     version: string;
   };
+  /**
+   * Server-advertised authentication methods. Each entry has at minimum an `id`;
+   * additional fields (`name`, `description`) are optional per upstream ACP.
+   */
+  authMethods?: Array<{
+    id: string;
+    name?: string;
+    description?: string;
+  }>;
+  agentCapabilities?: Record<string, unknown>;
+  protocolVersion?: number;
 }
 
 export interface McpServerConfig {
@@ -216,7 +227,16 @@ export interface AcpMethodMap {
   "session/load": { params: LoadSessionParams; result: LoadSessionResult };
   "session/prompt": { params: PromptParams; result: PromptResult };
   "session/cancel": { params: CancelParams; result: CancelResult };
-  "session/set_mode": { params: SetSessionModeParams; result: SetSessionModeResult };
-  "session/set_model": { params: SetSessionModelParams; result: SetSessionModelResult };
-  "broker/shutdown": { params: BrokerShutdownParams; result: BrokerShutdownResult };
+  "session/set_mode": {
+    params: SetSessionModeParams;
+    result: SetSessionModeResult;
+  };
+  "session/set_model": {
+    params: SetSessionModelParams;
+    result: SetSessionModelResult;
+  };
+  "broker/shutdown": {
+    params: BrokerShutdownParams;
+    result: BrokerShutdownResult;
+  };
 }

@@ -1,13 +1,16 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { test } from "vitest";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const RESCUE = fs.readFileSync(path.join(ROOT, "plugins/gemini/commands/rescue.md"), "utf8");
 const REVIEW = fs.readFileSync(path.join(ROOT, "plugins/gemini/commands/review.md"), "utf8");
-const RESCUE_AGENT = fs.readFileSync(path.join(ROOT, "plugins/gemini/agents/gemini-rescue.md"), "utf8");
+const RESCUE_AGENT = fs.readFileSync(
+  path.join(ROOT, "plugins/gemini/agents/gemini-rescue.md"),
+  "utf8"
+);
 const README = fs.readFileSync(path.join(ROOT, "README.md"), "utf8");
 
 test("rescue.md advertises --thinking <off|low|medium|high>", () => {
@@ -44,7 +47,11 @@ test("docs explain --thinking is parsed but not delivered per invocation yet", (
     ["commands/review.md", REVIEW],
     ["agents/gemini-rescue.md", RESCUE_AGENT]
   ]) {
-    assert.match(source, /per-invocation thinking override/i, `${name} should mention the runtime limitation`);
+    assert.match(
+      source,
+      /per-invocation thinking override/i,
+      `${name} should mention the runtime limitation`
+    );
     assert.match(source, /one-?shot|one-?time/i, `${name} should mention the warning`);
     assert.match(source, /settings\.json/i, `${name} should point at persistent settings`);
   }

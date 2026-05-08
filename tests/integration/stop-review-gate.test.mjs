@@ -28,18 +28,18 @@
  *     (asserts silent allow).
  */
 
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "vitest";
 
 import {
-  PLUGIN_ROOT,
-  PLUGIN_SOURCE_DIR_RELATIVE,
   CLAUDE_HOST_SIGNAL_ENV,
-  CLAUDE_PLUGIN_DATA_ENV
+  CLAUDE_PLUGIN_DATA_ENV,
+  PLUGIN_ROOT,
+  PLUGIN_SOURCE_DIR_RELATIVE
 } from "../install-paths.mjs";
 
 const HOOK_SCRIPT = path.join(
@@ -137,8 +137,8 @@ function stageMalformedGeminiShim(stdoutLine = "WEIRD: not a verdict") {
   // text --approval-mode plan`, so we match on absence of `--version`.
   const shimSource = [
     "#!/bin/sh",
-    "for arg in \"$@\"; do",
-    "  if [ \"$arg\" = \"--version\" ]; then",
+    'for arg in "$@"; do',
+    '  if [ "$arg" = "--version" ]; then',
     "    echo '0.0.0-shim'",
     "    exit 0",
     "  fi",
@@ -167,9 +167,7 @@ function stageMalformedGeminiShim(stdoutLine = "WEIRD: not a verdict") {
  */
 function pathWithoutGemini() {
   const inherited = (process.env.PATH ?? "").split(":").filter(Boolean);
-  return inherited
-    .filter((dir) => !fs.existsSync(path.join(dir, "gemini")))
-    .join(":");
+  return inherited.filter((dir) => !fs.existsSync(path.join(dir, "gemini"))).join(":");
 }
 
 test("stop-review-gate-hook: fails CLOSED on non-zero gemini exit (emits block decision)", async () => {
@@ -196,13 +194,18 @@ test("stop-review-gate-hook: fails CLOSED on non-zero gemini exit (emits block d
   });
 
   // The hook itself should exit cleanly (hooks must not crash Claude).
-  assert.equal(result.status, 0,
-    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`);
+  assert.equal(
+    result.status,
+    0,
+    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`
+  );
 
   // stdout should contain a JSON decision with `decision: "block"`.
   const stdout = (result.stdout ?? "").trim();
-  assert.ok(stdout.length > 0,
-    `expected hook to emit a block decision JSON to stdout when gemini fails; got empty stdout. stderr=${result.stderr}`);
+  assert.ok(
+    stdout.length > 0,
+    `expected hook to emit a block decision JSON to stdout when gemini fails; got empty stdout. stderr=${result.stderr}`
+  );
 
   let decision;
   try {
@@ -211,10 +214,16 @@ test("stop-review-gate-hook: fails CLOSED on non-zero gemini exit (emits block d
     assert.fail(`hook stdout was not valid JSON: ${stdout} (${err.message})`);
   }
 
-  assert.equal(decision.decision, "block",
-    `expected fail-CLOSED on non-zero gemini exit; got decision=${JSON.stringify(decision)}`);
-  assert.match(decision.reason, /Gemini review failed/i,
-    `block reason should surface the failure cause; got: ${decision.reason}`);
+  assert.equal(
+    decision.decision,
+    "block",
+    `expected fail-CLOSED on non-zero gemini exit; got decision=${JSON.stringify(decision)}`
+  );
+  assert.match(
+    decision.reason,
+    /Gemini review failed/i,
+    `block reason should surface the failure cause; got: ${decision.reason}`
+  );
 
   fixture.cleanup();
   shim.cleanup();
@@ -242,8 +251,11 @@ test("stop-review-gate-hook: fails OPEN on ENOENT (gemini binary missing)", asyn
     timeout: 15_000
   });
 
-  assert.equal(result.status, 0,
-    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`);
+  assert.equal(
+    result.status,
+    0,
+    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`
+  );
 
   // ENOENT path: hook should NOT emit a block decision. stdout is either
   // empty or contains no `"decision":"block"` payload.
@@ -257,8 +269,11 @@ test("stop-review-gate-hook: fails OPEN on ENOENT (gemini binary missing)", asyn
       decision = null;
     }
     if (decision) {
-      assert.notEqual(decision.decision, "block",
-        `expected fail-OPEN on ENOENT (binary missing); got block decision: ${JSON.stringify(decision)}`);
+      assert.notEqual(
+        decision.decision,
+        "block",
+        `expected fail-OPEN on ENOENT (binary missing); got block decision: ${JSON.stringify(decision)}`
+      );
     }
   }
 
@@ -274,8 +289,11 @@ test("stop-review-gate-hook: fails OPEN on ENOENT (gemini binary missing)", asyn
   // In real environments missing-from-PATH lands on path 1; the runStopReview
   // ENOENT branch is a defensive safety net for the racy case.
   const stderr = result.stderr ?? "";
-  assert.match(stderr, /(Gemini CLI is not installed|Stop-review skipped.*gemini.*PATH)/i,
-    `Missing-binary skip reason must surface on stderr (either via setupNote or runStopReview ENOENT branch); got stderr=${JSON.stringify(stderr)}`);
+  assert.match(
+    stderr,
+    /(Gemini CLI is not installed|Stop-review skipped.*gemini.*PATH)/i,
+    `Missing-binary skip reason must surface on stderr (either via setupNote or runStopReview ENOENT branch); got stderr=${JSON.stringify(stderr)}`
+  );
 
   fixture.cleanup();
 });
@@ -320,8 +338,11 @@ test("stop-review-gate-hook: surfaces 'did not match expected format' reason on 
     timeout: 15_000
   });
 
-  assert.equal(result.status, 0,
-    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`);
+  assert.equal(
+    result.status,
+    0,
+    `hook exited non-zero: stderr=${result.stderr} stdout=${result.stdout}`
+  );
 
   // Must NOT be a block decision — gate is fail-OPEN on unknown-format
   // (per the existing comment at hook line 106-107).
@@ -334,8 +355,11 @@ test("stop-review-gate-hook: surfaces 'did not match expected format' reason on 
       decision = null;
     }
     if (decision) {
-      assert.notEqual(decision.decision, "block",
-        `unknown-format response must NOT block; got block decision: ${JSON.stringify(decision)}`);
+      assert.notEqual(
+        decision.decision,
+        "block",
+        `unknown-format response must NOT block; got block decision: ${JSON.stringify(decision)}`
+      );
     }
   }
 
@@ -344,9 +368,12 @@ test("stop-review-gate-hook: surfaces 'did not match expected format' reason on 
   // reason string is set at hook line 107 and starts with "Gemini
   // response did not match expected format. Allowing.".
   const stderr = result.stderr ?? "";
-  assert.match(stderr, /Gemini response did not match expected format/i,
-    `Copilot #4 fix at hook lines 160-169 must surface unknown-format reason ` +
-    `on stderr via logNote(review.reason); got stderr=${JSON.stringify(stderr)}`);
+  assert.match(
+    stderr,
+    /Gemini response did not match expected format/i,
+    "Copilot #4 fix at hook lines 160-169 must surface unknown-format reason " +
+      `on stderr via logNote(review.reason); got stderr=${JSON.stringify(stderr)}`
+  );
 
   fixture.cleanup();
   shim.cleanup();

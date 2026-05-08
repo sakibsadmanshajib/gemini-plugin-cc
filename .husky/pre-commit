@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+# Run Biome over staged files and re-stage any formatter fixes.
+# Skipped on CI via HUSKY=0 (see .github/workflows/*).
+
+# Find staged files Biome handles (.mjs, .js, .json, .ts, .d.ts).
+# If none, exit silently — Biome's own --staged mode treats "no files" as
+# exit-non-zero, which would block legitimate commits that only touch
+# .md / .yaml / etc.
+staged="$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(mjs|js|json|ts|d\.ts)$' || true)"
+[ -z "$staged" ] && exit 0
+
+# --write applies formatter + safe lint autofixes (replaces deprecated --apply).
+pnpm exec biome check --write --staged
+
+# Re-stage anything Biome rewrote so the commit reflects the formatted state.
+git update-index --again

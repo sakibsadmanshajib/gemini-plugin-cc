@@ -17,24 +17,30 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 
+import { openWireLog } from "#lib/wire-log.mjs";
 import { parseArgs } from "./lib/args.mjs";
-import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/acp-client.mjs";
+import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/broker-constants.mjs";
 import { getPluginInfo } from "./lib/plugin-info.mjs";
+
+// Wire log captures every JSON-RPC frame the broker proxies (in either
+// direction) when ACP_WIRE_LOG is set. No-op singleton when the env var
+// is absent; cost is one closure call per frame.
+const wireLog = openWireLog();
 
 // Broker advertises itself as "<plugin-name>-broker" so peers can distinguish
 // the broker layer from the direct ACP client. Version follows the plugin's.
 const _info = getPluginInfo();
 const BROKER_INFO = { name: `${_info.name}-broker`, version: _info.version };
+import { spawn } from "node:child_process";
+import readline from "node:readline";
 import {
-  attachStderrDiagnosticCollector,
   BROKER_DIAGNOSTIC_METHOD,
+  attachStderrDiagnosticCollector,
   buildBrokerDiagnosticNotification,
   sanitizeDiagnosticMessage
 } from "./lib/acp-diagnostics.mjs";
 import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
-import { spawn } from "node:child_process";
-import readline from "node:readline";
 
 const SHUTDOWN_GRACE_MS = 500;
 const MAX_DIAGNOSTIC_RING = 25;
@@ -154,6 +160,8 @@ function sendToAcp(message) {
   if (!acpProcess?.stdin) {
     return;
   }
+  // Wire log: client→server frame.
+  wireLog.record("out", message);
   acpProcess.stdin.write(`${JSON.stringify(message)}\n`);
 }
 
@@ -169,6 +177,8 @@ function handleAcpLine(line) {
   } catch {
     return;
   }
+  // Wire log: server→client frame (after successful parse).
+  wireLog.record("in", message);
 
   // Handle response (has id).
   if ("id" in message && message.id !== null) {
@@ -356,9 +366,7 @@ function sendClientLineBufferOverflowDiagnostic(socket, dropped) {
     socket,
     buildBrokerDiagnosticNotification({
       source: "acp-transport",
-      message: sanitizeDiagnosticMessage(
-        `[client line buffer overflow: dropped ${dropped} bytes]`
-      )
+      message: sanitizeDiagnosticMessage(`[client line buffer overflow: dropped ${dropped} bytes]`)
     })
   );
 }
@@ -368,7 +376,10 @@ function writePidFile(pidFile) {
     return;
   }
   fs.mkdirSync(path.dirname(pidFile), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(pidFile, `${process.pid}\n`, { encoding: "utf8", mode: 0o600 });
+  fs.writeFileSync(pidFile, `${process.pid}\n`, {
+    encoding: "utf8",
+    mode: 0o600
+  });
 }
 
 let server = null;

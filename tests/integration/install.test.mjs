@@ -29,46 +29,52 @@
  *   - We never assume specific paths; everything is computed.
  */
 
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { test } from "vitest";
 
 import {
+  AGENTS_DIR_NAME,
+  BROKER_SCRIPT_RELATIVE,
+  CLAUDE_HOST_SIGNAL_ENV,
+  CLAUDE_MARKETPLACE_DIR_RELATIVE,
+  CLAUDE_PLUGIN_DATA_ENV,
+  CLAUDE_PLUGIN_DIR_NAME,
+  CODEX_MARKETPLACE_DIR_RELATIVE,
+  CODEX_PLUGIN_DIR_NAME,
+  FALLBACK_STATE_ROOT_NAME,
+  HOOKS_FILE_RELATIVE,
+  INSTALL_DOC_RELATIVE,
+  MARKETPLACE_MANIFEST_FILENAME,
+  OPENAI_AGENT_FILENAME,
+  PLUGIN_MANIFEST_FILENAME,
   PLUGIN_ROOT,
   PLUGIN_SOURCE_DIR_RELATIVE,
-  CODEX_PLUGIN_DIR_NAME,
-  CLAUDE_PLUGIN_DIR_NAME,
-  PLUGIN_MANIFEST_FILENAME,
-  MARKETPLACE_MANIFEST_FILENAME,
-  CODEX_MARKETPLACE_DIR_RELATIVE,
-  CLAUDE_MARKETPLACE_DIR_RELATIVE,
-  INSTALL_DOC_RELATIVE,
-  AGENTS_DIR_NAME,
-  OPENAI_AGENT_FILENAME,
-  SKILL_MANIFEST_FILENAME,
   RUNTIME_SCRIPT_RELATIVE,
-  BROKER_SCRIPT_RELATIVE,
-  HOOKS_FILE_RELATIVE,
-  CLAUDE_HOST_SIGNAL_ENV,
-  CLAUDE_PLUGIN_DATA_ENV,
-  SESSION_ID_ENV,
   SESSION_ENV_FILENAME,
+  SESSION_ID_ENV,
+  SKILL_MANIFEST_FILENAME,
   STATE_DIR_NAME,
-  FALLBACK_STATE_ROOT_NAME,
   TEMP_PREFIX_CLAUDE_ENV,
-  TEMP_PREFIX_WORKSPACE,
   TEMP_PREFIX_PLUGIN_DATA,
   TEMP_PREFIX_REALPATH,
   TEMP_PREFIX_SYMPARENT,
-  pluginSourcePath,
-  manifestPath
+  TEMP_PREFIX_WORKSPACE,
+  manifestPath,
+  pluginSourcePath
 } from "../install-paths.mjs";
 
 const RUNTIME = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, RUNTIME_SCRIPT_RELATIVE);
-const STATE_LIB_PATH = path.join(PLUGIN_ROOT, PLUGIN_SOURCE_DIR_RELATIVE, "scripts", "lib", "state.mjs");
+const STATE_LIB_PATH = path.join(
+  PLUGIN_ROOT,
+  PLUGIN_SOURCE_DIR_RELATIVE,
+  "scripts",
+  "lib",
+  "state.mjs"
+);
 const SESSION_ENV_PLACEHOLDER = "# Claude session env\n";
 
 function runNode(args, options = {}) {
@@ -111,11 +117,17 @@ test("install: SKILL.md exists in plugin source dir with valid frontmatter", () 
   // reaches the Codex install when the marketplace.json source path points at
   // that subtree. (Round-1 swarm fix: moved from fork root to subtree.)
   const skillMd = pluginSourcePath(SKILL_MANIFEST_FILENAME);
-  assert.ok(fs.existsSync(skillMd), `${SKILL_MANIFEST_FILENAME} must exist in plugin source dir: ${skillMd}`);
+  assert.ok(
+    fs.existsSync(skillMd),
+    `${SKILL_MANIFEST_FILENAME} must exist in plugin source dir: ${skillMd}`
+  );
 
   const content = fs.readFileSync(skillMd, "utf8");
   const match = content.match(/^---\n([\s\S]*?)\n---/);
-  assert.ok(match, `${SKILL_MANIFEST_FILENAME} must start with a YAML frontmatter block fenced by ---`);
+  assert.ok(
+    match,
+    `${SKILL_MANIFEST_FILENAME} must start with a YAML frontmatter block fenced by ---`
+  );
 
   const fm = match[1];
   // Required fields per agentskills.io spec
@@ -145,8 +157,14 @@ test(`install: canonical Codex ${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENA
   assert.ok(fs.existsSync(codexManifest), `canonical Codex manifest must exist: ${codexManifest}`);
 
   const codexParsed = JSON.parse(fs.readFileSync(codexManifest, "utf8"));
-  assert.ok(codexParsed.name, `${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must have a name`);
-  assert.ok(codexParsed.version, `${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must have a version`);
+  assert.ok(
+    codexParsed.name,
+    `${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must have a name`
+  );
+  assert.ok(
+    codexParsed.version,
+    `${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must have a version`
+  );
 
   // Byte-identity gate. plugin-info.mjs's "single source of truth" claim relies on
   // both manifests being indistinguishable; without this assertion the two files
@@ -155,14 +173,20 @@ test(`install: canonical Codex ${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENA
   // change that JSON.parse normalises away.
   const codexBytes = fs.readFileSync(codexManifest, "utf8");
   const claudeBytes = fs.readFileSync(claudeManifest, "utf8");
-  assert.equal(codexBytes, claudeBytes,
+  assert.equal(
+    codexBytes,
+    claudeBytes,
     `${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} and ${CLAUDE_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must be byte-identical ` +
-    "(both files are the canonical plugin manifest; drift between them silently breaks " +
-    "either Claude Code or Codex). If you intentionally edited one, mirror the change to the other.");
+      "(both files are the canonical plugin manifest; drift between them silently breaks " +
+      "either Claude Code or Codex). If you intentionally edited one, mirror the change to the other."
+  );
 
   const claudeParsed = JSON.parse(claudeBytes);
-  assert.deepStrictEqual(codexParsed, claudeParsed,
-    "parsed manifests must be deep-equal across both host directories");
+  assert.deepStrictEqual(
+    codexParsed,
+    claudeParsed,
+    "parsed manifests must be deep-equal across both host directories"
+  );
 });
 
 test(`install: ${AGENTS_DIR_NAME}/${OPENAI_AGENT_FILENAME} exists in plugin source dir with valid Codex schema`, () => {
@@ -171,7 +195,10 @@ test(`install: ${AGENTS_DIR_NAME}/${OPENAI_AGENT_FILENAME} exists in plugin sour
   // root for implicit invocation ($gemini). (Round-1 swarm fix: moved from
   // fork root to subtree.)
   const yamlPath = pluginSourcePath(AGENTS_DIR_NAME, OPENAI_AGENT_FILENAME);
-  assert.ok(fs.existsSync(yamlPath), `${AGENTS_DIR_NAME}/${OPENAI_AGENT_FILENAME} must exist in plugin source dir: ${yamlPath}`);
+  assert.ok(
+    fs.existsSync(yamlPath),
+    `${AGENTS_DIR_NAME}/${OPENAI_AGENT_FILENAME} must exist in plugin source dir: ${yamlPath}`
+  );
 
   const content = fs.readFileSync(yamlPath, "utf8");
   // Lightweight schema check via regex — avoids a yaml dep, mirrors upstream's
@@ -182,7 +209,11 @@ test(`install: ${AGENTS_DIR_NAME}/${OPENAI_AGENT_FILENAME} exists in plugin sour
   assert.match(content, /^\s+short_description:/m, "interface must have 'short_description'");
   assert.match(content, /^\s+default_prompt:/m, "interface must have 'default_prompt'");
   assert.match(content, /^policy:/m, "must have top-level 'policy:' key");
-  assert.match(content, /^\s+allow_implicit_invocation:/m, "policy must specify 'allow_implicit_invocation'");
+  assert.match(
+    content,
+    /^\s+allow_implicit_invocation:/m,
+    "policy must specify 'allow_implicit_invocation'"
+  );
 });
 
 test(`install: Claude Code's ${CLAUDE_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} still parses (existing surface preserved)`, () => {
@@ -219,7 +250,11 @@ test(`install: 'setup --json' succeeds under Claude env shape (${CLAUDE_HOST_SIG
     });
     assert.equal(result.status, 0, `setup must exit 0 under Claude env; stderr: ${result.stderr}`);
     const report = JSON.parse(result.stdout);
-    assert.equal(typeof report.geminiAvailable, "boolean", "setup must return geminiAvailable boolean");
+    assert.equal(
+      typeof report.geminiAvailable,
+      "boolean",
+      "setup must return geminiAvailable boolean"
+    );
     assert.equal(typeof report.npmAvailable, "boolean", "setup must return npmAvailable boolean");
   } finally {
     fs.rmSync(pluginDataDir, { recursive: true, force: true });
@@ -235,7 +270,11 @@ test(`install: 'setup --json' succeeds under Codex env shape (${CLAUDE_HOST_SIGN
   const result = runNode(["setup", "--json"], { env });
   assert.equal(result.status, 0, `setup must exit 0 under Codex env; stderr: ${result.stderr}`);
   const report = JSON.parse(result.stdout);
-  assert.equal(typeof report.geminiAvailable, "boolean", "setup must return geminiAvailable boolean");
+  assert.equal(
+    typeof report.geminiAvailable,
+    "boolean",
+    "setup must return geminiAvailable boolean"
+  );
 });
 
 // ─── 3. State paths don't collide between hosts ───────────────────────────
@@ -323,8 +362,8 @@ test("install: state dir is identical when accessed via symlink vs realpath", as
       stateFromReal,
       stateFromSymlink,
       "state dir resolved via symlink must match state dir resolved via realpath — " +
-      "otherwise two hosts running in the same repo via different paths would " +
-      "silently bifurcate jobs"
+        "otherwise two hosts running in the same repo via different paths would " +
+        "silently bifurcate jobs"
     );
   } finally {
     fs.rmSync(realRepo, { recursive: true, force: true });
@@ -343,9 +382,11 @@ test(`install: ${INSTALL_DOC_RELATIVE} exists at fork root for both-host install
   // plugin subtree separately. The INSTALL doc covers the wiring between
   // those two descriptors.
   const abs = path.join(PLUGIN_ROOT, INSTALL_DOC_RELATIVE);
-  assert.ok(fs.existsSync(abs),
+  assert.ok(
+    fs.existsSync(abs),
     `${INSTALL_DOC_RELATIVE} must exist at fork root — both SKILL.md and ` +
-    `marketplace descriptors reference it for cross-host install instructions`);
+      "marketplace descriptors reference it for cross-host install instructions"
+  );
 });
 
 test("install: plugin source dir contains all files Codex's marketplace install requires", () => {
@@ -356,10 +397,10 @@ test("install: plugin source dir contains all files Codex's marketplace install 
   // usable, the source dir must contain the canonical Codex manifest plus
   // the runtime entry points the manifest implicitly references.
   const requiredFiles = [
-    path.join(CODEX_PLUGIN_DIR_NAME, PLUGIN_MANIFEST_FILENAME),   // canonical Codex manifest
-    path.join(CLAUDE_PLUGIN_DIR_NAME, PLUGIN_MANIFEST_FILENAME),  // Claude Code manifest (parity)
-    SKILL_MANIFEST_FILENAME,                                      // Codex skill discovery (must be in installed subtree)
-    path.join(AGENTS_DIR_NAME, OPENAI_AGENT_FILENAME),            // Codex implicit-invocation interface ($gemini)
+    path.join(CODEX_PLUGIN_DIR_NAME, PLUGIN_MANIFEST_FILENAME), // canonical Codex manifest
+    path.join(CLAUDE_PLUGIN_DIR_NAME, PLUGIN_MANIFEST_FILENAME), // Claude Code manifest (parity)
+    SKILL_MANIFEST_FILENAME, // Codex skill discovery (must be in installed subtree)
+    path.join(AGENTS_DIR_NAME, OPENAI_AGENT_FILENAME), // Codex implicit-invocation interface ($gemini)
     RUNTIME_SCRIPT_RELATIVE,
     BROKER_SCRIPT_RELATIVE,
     HOOKS_FILE_RELATIVE
@@ -367,10 +408,12 @@ test("install: plugin source dir contains all files Codex's marketplace install 
 
   for (const rel of requiredFiles) {
     const abs = pluginSourcePath(rel);
-    assert.ok(fs.existsSync(abs),
+    assert.ok(
+      fs.existsSync(abs),
       `plugin source dir is missing required file for Codex install: ${rel} ` +
-      `(Codex's plugin manager copies the source dir into ~/.codex/plugins/cache/...; ` +
-      `every file referenced by ${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must be present here)`);
+        `(Codex's plugin manager copies the source dir into ~/.codex/plugins/cache/...; ` +
+        `every file referenced by ${CODEX_PLUGIN_DIR_NAME}/${PLUGIN_MANIFEST_FILENAME} must be present here)`
+    );
   }
 });
 
@@ -380,8 +423,16 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
   // Codex shape uses structured `source: { source: "local", path: "./..." }`;
   // Claude shape uses string `source: "./..."`. Test branches on shape per file
   // location, then asserts post-normalization the plugin identity matches.
-  const codexMarketplacePath = path.join(PLUGIN_ROOT, CODEX_MARKETPLACE_DIR_RELATIVE, MARKETPLACE_MANIFEST_FILENAME);
-  const claudeMarketplacePath = path.join(PLUGIN_ROOT, CLAUDE_MARKETPLACE_DIR_RELATIVE, MARKETPLACE_MANIFEST_FILENAME);
+  const codexMarketplacePath = path.join(
+    PLUGIN_ROOT,
+    CODEX_MARKETPLACE_DIR_RELATIVE,
+    MARKETPLACE_MANIFEST_FILENAME
+  );
+  const claudeMarketplacePath = path.join(
+    PLUGIN_ROOT,
+    CLAUDE_MARKETPLACE_DIR_RELATIVE,
+    MARKETPLACE_MANIFEST_FILENAME
+  );
 
   function readMarketplace(label, filePath) {
     assert.ok(fs.existsSync(filePath), `${label} marketplace file must exist: ${filePath}`);
@@ -405,19 +456,33 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
    */
   function assertSourceShape(host, src) {
     if (host === "Codex") {
-      assert.equal(typeof src, "object",
-        `Codex marketplace source MUST be object form per OpenAI Codex plugin spec ` +
-        `(https://developers.openai.com/codex/plugins/build); got ${typeof src}`);
-      assert.ok(src !== null,
-        `Codex marketplace source must not be null; entry: ${JSON.stringify(src)}`);
-      assert.equal(src.source, "local",
-        `Codex marketplace source.source MUST be "local" for local plugins; got '${src.source}'`);
-      assert.equal(typeof src.path, "string",
-        `Codex marketplace source.path MUST be string; got ${typeof src.path}`);
+      assert.equal(
+        typeof src,
+        "object",
+        "Codex marketplace source MUST be object form per OpenAI Codex plugin spec " +
+          `(https://developers.openai.com/codex/plugins/build); got ${typeof src}`
+      );
+      assert.ok(
+        src !== null,
+        `Codex marketplace source must not be null; entry: ${JSON.stringify(src)}`
+      );
+      assert.equal(
+        src.source,
+        "local",
+        `Codex marketplace source.source MUST be "local" for local plugins; got '${src.source}'`
+      );
+      assert.equal(
+        typeof src.path,
+        "string",
+        `Codex marketplace source.path MUST be string; got ${typeof src.path}`
+      );
     } else if (host === "Claude") {
-      assert.equal(typeof src, "string",
-        `Claude marketplace source MUST be bare string per Claude Code plugin spec; ` +
-        `got ${typeof src} (entry: ${JSON.stringify(src)})`);
+      assert.equal(
+        typeof src,
+        "string",
+        "Claude marketplace source MUST be bare string per Claude Code plugin spec; " +
+          `got ${typeof src} (entry: ${JSON.stringify(src)})`
+      );
     } else {
       assert.fail(`unknown host label: ${host}`);
     }
@@ -429,18 +494,27 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
     // Claude: `"./..."` (bare string). Shape was already enforced by
     // assertSourceShape above; this normalizer just unifies the path.
     const srcPath = typeof src === "string" ? src : src?.path;
-    assert.ok(srcPath, `${label} plugin entry must have source path; entry: ${JSON.stringify(plugin)}`);
-    assert.ok(srcPath.startsWith("./"),
-      `${label} source path must be relative with ./ prefix per spec; got '${srcPath}'`);
+    assert.ok(
+      srcPath,
+      `${label} plugin entry must have source path; entry: ${JSON.stringify(plugin)}`
+    );
+    assert.ok(
+      srcPath.startsWith("./"),
+      `${label} source path must be relative with ./ prefix per spec; got '${srcPath}'`
+    );
     return srcPath;
   }
 
   function assertSourceDirExists(label, srcPath) {
     const resolvedDir = path.join(PLUGIN_ROOT, srcPath);
-    assert.ok(fs.existsSync(resolvedDir),
-      `${label} marketplace points at non-existent plugin source: ${resolvedDir}`);
-    assert.ok(fs.statSync(resolvedDir).isDirectory(),
-      `${label} marketplace source.path must be a directory: ${resolvedDir}`);
+    assert.ok(
+      fs.existsSync(resolvedDir),
+      `${label} marketplace points at non-existent plugin source: ${resolvedDir}`
+    );
+    assert.ok(
+      fs.statSync(resolvedDir).isDirectory(),
+      `${label} marketplace source.path must be a directory: ${resolvedDir}`
+    );
   }
 
   const codex = readMarketplace("Codex (.agents/plugins/)", codexMarketplacePath);
@@ -468,16 +542,22 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
   const claudeByName = indexByName(claude.plugins);
   const codexNames = Object.keys(codexByName).sort();
   const claudeNames = Object.keys(claudeByName).sort();
-  assert.deepStrictEqual(codexNames, claudeNames,
+  assert.deepStrictEqual(
+    codexNames,
+    claudeNames,
     "Codex and Claude marketplaces must list the same plugin names " +
-    `(Codex: [${codexNames}]; Claude: [${claudeNames}])`);
+      `(Codex: [${codexNames}]; Claude: [${claudeNames}])`
+  );
 
   for (const name of codexNames) {
     const codexSrc = extractSourcePath(codexByName[name], "Codex");
     const claudeSrc = extractSourcePath(claudeByName[name], "Claude");
-    assert.equal(codexSrc, claudeSrc,
+    assert.equal(
+      codexSrc,
+      claudeSrc,
       `Codex and Claude marketplace entries for "${name}" must point at the same source path ` +
-      `(Codex: '${codexSrc}'; Claude: '${claudeSrc}'). Drift between hosts is silently broken installs.`);
+        `(Codex: '${codexSrc}'; Claude: '${claudeSrc}'). Drift between hosts is silently broken installs.`
+    );
   }
 });
 

@@ -1,7 +1,7 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "vitest";
 
 import { collectReviewContext } from "../../plugins/gemini/scripts/lib/git.mjs";
 import { initGitRepo, makeTempDir, run } from "../helpers.mjs";
@@ -111,9 +111,7 @@ test("collectReviewContext includes untracked files when workspace resolves to f
 
   const result = collectReviewContext(cwd, { scope: "working-tree", realpathSync });
 
-  assert.deepEqual(result.context.untrackedContents, [
-    { path: file, content: "review me\n" }
-  ]);
+  assert.deepEqual(result.context.untrackedContents, [{ path: file, content: "review me\n" }]);
   assert.deepEqual(realpathCalls, [path.resolve(fullPath), path.resolve(cwd)]);
 });
 

@@ -7,16 +7,8 @@ import fs from "node:fs";
 import process from "node:process";
 
 import { withJobMutex } from "./atomic-state.mjs";
-import {
-  readJobFile,
-  resolveJobLogFile,
-  writeJobFile,
-  writeJobFileUnlocked
-} from "./state.mjs";
-import {
-  normalizeAndAppendEvent,
-  upsertCompactJobIndexEntry
-} from "./job-observability.mjs";
+import { normalizeAndAppendEvent, upsertCompactJobIndexEntry } from "./job-observability.mjs";
+import { readJobFile, resolveJobLogFile, writeJobFile, writeJobFileUnlocked } from "./state.mjs";
 
 export const SESSION_ID_ENV = "GEMINI_COMPANION_SESSION_ID";
 
@@ -79,7 +71,7 @@ export async function persistJobStateAndEvent(workspaceRoot, jobId, patch, event
  * Create a tracked job record.
  *
  * @param {{ workspaceRoot: string, kind: string, title: string, request?: any }} params
- * @returns {object}
+ * @returns {Promise<object>}
  */
 export async function createTrackedJob({ workspaceRoot, kind, title, request }) {
   const id = `gemini-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -234,17 +226,13 @@ export async function markTrackedJobCancelled(workspaceRoot, jobId, patch = {}) 
     updatedAt: completedAt,
     healthStatus: "cancelled",
     healthMessage: message,
-    recommendedAction: "Check /gemini:status or /gemini:result, then retry if the result is incomplete."
+    recommendedAction:
+      "Check /gemini:status or /gemini:result, then retry if the result is incomplete."
   };
-  return persistJobStateAndEvent(
-    workspaceRoot,
-    jobId,
-    mergedPatch,
-    {
-      type: "worker_cancelled",
-      message,
-      source: patch.source,
-      timestamp: completedAt
-    }
-  );
+  return persistJobStateAndEvent(workspaceRoot, jobId, mergedPatch, {
+    type: "worker_cancelled",
+    message,
+    source: patch.source,
+    timestamp: completedAt
+  });
 }

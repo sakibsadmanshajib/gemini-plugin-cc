@@ -1,8 +1,8 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "vitest";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LIB_DIR = path.resolve(__dirname, "..", "..", "plugins", "gemini", "scripts", "lib");
@@ -76,5 +76,8 @@ test("acp-protocol.d.ts shares text chunk content type across message and though
 });
 
 test("FileChangeUpdate action matches FileChangeRecord action literals", () => {
-  assert.match(ACP_PROTOCOL_DTS, /interface FileChangeUpdate[\s\S]*action:\s*"create"\s*\|\s*"modify"\s*\|\s*"delete"/);
+  assert.match(
+    ACP_PROTOCOL_DTS,
+    /interface FileChangeUpdate[\s\S]*action:\s*"create"\s*\|\s*"modify"\s*\|\s*"delete"/
+  );
 });

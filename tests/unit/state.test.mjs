@@ -1,10 +1,10 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { initGitRepo, makeTempDir } from "../helpers.mjs";
+import { withWorkspaceMutex } from "../../plugins/gemini/scripts/lib/atomic-state.mjs";
 import {
   loadState,
   resolveJobFile,
@@ -16,8 +16,8 @@ import {
   setConfig,
   upsertJob
 } from "../../plugins/gemini/scripts/lib/state.mjs";
-import { withWorkspaceMutex } from "../../plugins/gemini/scripts/lib/atomic-state.mjs";
 import { createTrackedJob } from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 
 test("resolveStateDir produces a deterministic per-workspace directory", () => {
   const workspace = makeTempDir();
@@ -54,12 +54,12 @@ test("resolveStateDir uses CLAUDE_PLUGIN_DATA when CLAUDE_ENV_FILE is also set (
     assert.match(path.basename(stateDir), /.+-[a-f0-9]{12}$/);
   } finally {
     if (previousPluginDataDir == null) {
-      delete process.env.CLAUDE_PLUGIN_DATA;
+      process.env.CLAUDE_PLUGIN_DATA = undefined;
     } else {
       process.env.CLAUDE_PLUGIN_DATA = previousPluginDataDir;
     }
     if (previousEnvFile == null) {
-      delete process.env.CLAUDE_ENV_FILE;
+      process.env.CLAUDE_ENV_FILE = undefined;
     } else {
       process.env.CLAUDE_ENV_FILE = previousEnvFile;
     }
@@ -169,7 +169,11 @@ test("concurrent saveState writers do not unlink each other's job artifacts", as
 test("setConfig reads state inside the workspace mutex", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "config race" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "config race"
+  });
   let pendingSetConfig;
 
   await withWorkspaceMutex(workspace, async () => {
@@ -193,7 +197,11 @@ test("setConfig reads state inside the workspace mutex", async () => {
 test("upsertJob reads state inside the workspace mutex", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "upsert race" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "upsert race"
+  });
   let pendingUpsert;
 
   await withWorkspaceMutex(workspace, async () => {

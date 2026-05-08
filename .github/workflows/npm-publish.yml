@@ -1,0 +1,104 @@
+name: npm publish (signed + provenance)
+
+# Triggered by pushing a `v*` tag (e.g. `git tag -s v1.0.2 -m '...' && git push --tags`).
+# Publishes the package to npm with provenance attestation via OIDC + Sigstore.
+# The published tarball carries:
+#   - npm provenance (https://docs.npmjs.com/generating-provenance-statements)
+#     verifiable with `npm audit signatures` and via Sigstore's transparency log
+#   - SBOM in CycloneDX format attached as a release artifact (separate workflow)
+#
+# Required repo configuration:
+#   - npm token in NPM_TOKEN secret (with publish access to the package scope)
+#   - id-token: write permission for OIDC-based provenance
+#   - "trusted publisher" relationship registered on npmjs.com between this repo
+#     and the package name `artagon-agent-cli-plugin`
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v1.0.2). Leave blank to use the current ref."
+        required: false
+
+permissions:
+  contents: read
+  # OIDC token for npm provenance attestation.
+  id-token: write
+  # For attaching SBOM/signature artifacts to a GitHub release.
+  attestations: write
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+          cache: pnpm
+
+      - name: Install dependencies (frozen)
+        run: pnpm install --frozen-lockfile
+        env:
+          HUSKY: "0"
+
+      - name: Run gates (typecheck, lint, tests)
+        run: |
+          pnpm typecheck
+          pnpm exec biome check .
+          pnpm test
+
+      - name: Verify tarball contents
+        run: |
+          # `npm pack --dry-run --json` lists what would ship without actually
+          # creating the tarball. Catches accidental inclusion of secrets,
+          # tests, or stryker artifacts BEFORE publish.
+          pnpm pack --dry-run
+
+      - name: Publish to npm with provenance
+        run: pnpm publish --access public --no-git-checks --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          npx @cyclonedx/cyclonedx-npm \
+            --output-format JSON \
+            --output-file artagon-agent-cli-plugin.cdx.json
+          npx @cyclonedx/cyclonedx-npm \
+            --output-format XML \
+            --output-file artagon-agent-cli-plugin.cdx.xml
+
+      - name: Attest SBOM
+        uses: actions/attest-sbom@v1
+        with:
+          subject-path: "*.tgz"
+          sbom-path: "artagon-agent-cli-plugin.cdx.json"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: "*.tgz"
+
+      - name: Upload SBOM as release artifact
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artagon-agent-cli-plugin.cdx.json
+            artagon-agent-cli-plugin.cdx.xml
+            *.tgz
+          generate_release_notes: true

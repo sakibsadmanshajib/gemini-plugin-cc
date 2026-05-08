@@ -1,0 +1,132 @@
+/**
+ * Smoke tests for `bin/artagon-openai-server.mjs`.
+ *
+ * Tests:
+ *   - --version + --help exits and outputs
+ *   - argv parsing rejection paths (unknown flag, invalid port)
+ *   - actual server start: spawn the bin, parse the printed port, hit /health,
+ *     send SIGTERM, verify clean exit.
+ */
+
+import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+
+import { describe, expect, test } from "vitest";
+
+const ROOT = path.resolve(new URL("../..", import.meta.url).pathname);
+const BIN = path.join(ROOT, "bin/artagon-openai-server.mjs");
+const PKG = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+
+/** @param {string[]} args */
+function runBinSync(args) {
+  return spawnSync(process.execPath, [BIN, ...args], {
+    cwd: ROOT,
+    timeout: 10000
+  });
+}
+
+describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
+  test("--version prints PKG.version", () => {
+    const r = runBinSync(["--version"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.toString().trim()).toBe(PKG.version);
+  });
+
+  test("--help prints usage", () => {
+    const r = runBinSync(["--help"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.toString()).toMatch(/artagon-openai-server \[flags\]/);
+    expect(r.stdout.toString()).toMatch(/--port/);
+  });
+
+  test("unknown flag: exits 2 with the flag named", () => {
+    const r = runBinSync(["--bogus"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/unknown flag: --bogus/);
+  });
+
+  test("invalid --port: exits 2", () => {
+    const r = runBinSync(["--port", "99999"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/invalid --port/);
+  });
+
+  test("--host without value: exits 2", () => {
+    const r = runBinSync(["--host"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/--host requires a value/);
+  });
+});
+
+describe("bin/artagon-openai-server.mjs — actual server lifecycle", () => {
+  test("listens on a random port, serves /health, shuts down cleanly on SIGTERM", async () => {
+    // Start the server with --port 0 (OS-assigned); parse the printed
+    // port from stdout; hit /health; SIGTERM; verify clean exit.
+    const child = spawn(process.execPath, [BIN, "--port", "0"], { cwd: ROOT });
+
+    let stdoutBuf = "";
+    /** @type {(value: number) => void} */
+    let resolvePort;
+    const portReady = new Promise((resolve) => {
+      resolvePort = resolve;
+    });
+
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuf += chunk;
+      const m = stdoutBuf.match(/listening at http:\/\/[^:]+:(\d+)/);
+      if (m) resolvePort(Number(m[1]));
+    });
+
+    let stderrBuf = "";
+    child.stderr?.setEncoding("utf8");
+    child.stderr?.on("data", (chunk) => {
+      stderrBuf += chunk;
+    });
+
+    const exited = new Promise((resolve) => {
+      child.on("exit", (code, signal) => resolve({ code, signal }));
+    });
+
+    try {
+      const port = await Promise.race([
+        portReady,
+        new Promise((_, reject) =>
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `server didn't print port within 5s — stdout=${stdoutBuf} stderr=${stderrBuf}`
+                )
+              ),
+            5000
+          )
+        )
+      ]);
+      expect(typeof port).toBe("number");
+      expect(/** @type {number} */ (port)).toBeGreaterThan(0);
+
+      // Hit /health to prove the facade composition actually works.
+      const res = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({ ok: true });
+
+      // SIGTERM and confirm clean exit.
+      child.kill("SIGTERM");
+      const result = /** @type {{code: number | null, signal: string | null}} */ (
+        await Promise.race([
+          exited,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("server did not exit within 5s of SIGTERM")), 5000)
+          )
+        ])
+      );
+      expect(result.code).toBe(0);
+      expect(stderrBuf).toMatch(/SIGTERM received/);
+    } finally {
+      // Defensive: if anything threw, make sure the child is gone.
+      if (!child.killed) child.kill("SIGKILL");
+    }
+  });
+});

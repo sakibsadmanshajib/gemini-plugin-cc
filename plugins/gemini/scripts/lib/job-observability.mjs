@@ -1,6 +1,6 @@
+import { MAX_DIAGNOSTIC_LENGTH } from "./acp-diagnostics.mjs";
 import { withJobMutex } from "./atomic-state.mjs";
 import { loadState, readJobFile, saveState, writeJobFile, writeJobFileUnlocked } from "./state.mjs";
-import { MAX_DIAGNOSTIC_LENGTH } from "./acp-diagnostics.mjs";
 
 export { MAX_DIAGNOSTIC_LENGTH };
 export const MAX_JOB_EVENTS = 50;
@@ -54,7 +54,11 @@ function sanitizeEvent(event, timestamp) {
     }
     if (typeof value === "string") {
       normalized[key] = sanitizeText(value);
-    } else if (NUMERIC_EVENT_FIELDS.has(key) && typeof value === "number" && Number.isFinite(value)) {
+    } else if (
+      NUMERIC_EVENT_FIELDS.has(key) &&
+      typeof value === "number" &&
+      Number.isFinite(value)
+    ) {
       normalized[key] = value;
     }
     // Any other type (object, function, symbol, undefined, non-finite number)
@@ -138,10 +142,9 @@ export function normalizeAndAppendEvent(job, event) {
     (TERMINAL_HEALTH_STATUSES.has(String(job?.healthStatus ?? "")) ||
       TERMINAL_HEALTH_STATUSES.has(String(job?.status ?? ""))) &&
     !TERMINAL_EVENT_TYPES.has(eventType);
-  const events = [
-    ...(Array.isArray(job?.events) ? job.events : []),
-    normalizedEvent
-  ].slice(-MAX_JOB_EVENTS);
+  const events = [...(Array.isArray(job?.events) ? job.events : []), normalizedEvent].slice(
+    -MAX_JOB_EVENTS
+  );
   const patch = {
     events,
     lastHeartbeatAt: persistedTimestamp,
@@ -156,7 +159,8 @@ export function normalizeAndAppendEvent(job, event) {
   }
 
   if (
-    (normalizedEvent.type === "model_text_chunk" || normalizedEvent.type === "model_thought_chunk") &&
+    (normalizedEvent.type === "model_text_chunk" ||
+      normalizedEvent.type === "model_thought_chunk") &&
     !preserveTerminalHealth
   ) {
     patch.lastModelOutputAt = persistedTimestamp;
@@ -193,7 +197,8 @@ export function normalizeAndAppendEvent(job, event) {
   if (normalizedEvent.type === "worker_cancelled" || normalizedEvent.type === "cancelled") {
     patch.healthStatus = "cancelled";
     patch.healthMessage = sanitizeText(normalizedEvent.message);
-    patch.recommendedAction = "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
+    patch.recommendedAction =
+      "Check /gemini:status or /gemini:result, then retry if the result is incomplete.";
   }
 
   return patch;
@@ -221,13 +226,20 @@ export function classifyDiagnostic(text) {
   if (/(auth|credential|login|unauthorized|401|permission denied)/.test(lower)) {
     return { kind: "auth", healthStatus: "auth_required" };
   }
-  if (mentionsBroker && /(broker|socket|endpoint|busy|disconnected|not ready|connection)/.test(lower)) {
+  if (
+    mentionsBroker &&
+    /(broker|socket|endpoint|busy|disconnected|not ready|connection)/.test(lower)
+  ) {
     return { kind: "broker", healthStatus: "broker_unhealthy" };
   }
   if (/(model.*unavailable|unavailable.*model|not found.*model)/.test(lower)) {
     return { kind: "model", healthStatus: "possibly_stalled" };
   }
-  if (/(econnreset|etimedout|network|dns|api error|connection|socket|endpoint|disconnected|hang up)/.test(lower)) {
+  if (
+    /(econnreset|etimedout|network|dns|api error|connection|socket|endpoint|disconnected|hang up)/.test(
+      lower
+    )
+  ) {
     return { kind: "network", healthStatus: "possibly_stalled" };
   }
   return { kind: "unknown", healthStatus: "quiet" };

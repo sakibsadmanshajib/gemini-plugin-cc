@@ -1,7 +1,10 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { resolveThinkingConfig, THINKING_LEVELS } from "../../plugins/gemini/scripts/lib/thinking.mjs";
+import {
+  THINKING_LEVELS,
+  resolveThinkingConfig
+} from "../../plugins/gemini/scripts/lib/thinking.mjs";
 
 test("THINKING_LEVELS enumerates the four accepted levels in order", () => {
   assert.deepEqual(THINKING_LEVELS, ["off", "low", "medium", "high"]);
@@ -110,5 +113,9 @@ test("resolveThinkingConfig throws on invalid level", () => {
 
 test("resolveThinkingConfig accepts null modelId as unknown", () => {
   const result = resolveThinkingConfig("medium", null);
-  assert.deepEqual(result, { thinkingLevel: undefined, thinkingBudget: undefined, notes: ["unknown model family; thinking config not delivered"] });
+  assert.deepEqual(result, {
+    thinkingLevel: undefined,
+    thinkingBudget: undefined,
+    notes: ["unknown model family; thinking config not delivered"]
+  });
 });

@@ -1,8 +1,8 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { test } from "vitest";
 import { initGitRepo, makeTempDir, run } from "../helpers.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -39,6 +39,12 @@ test("command files match expected set", () => {
   assert.deepEqual(commandFiles, [
     "adversarial-review.md",
     "cancel.md",
+    // Cross-pollination commands per docs/plugins.md — alongside the
+    // legacy gemini-driving commands, plugins/gemini/ now ships
+    // /claude:prompt and /codex:prompt for when the host platform
+    // (a future Gemini host) installs the plugin.
+    "claude-prompt.md",
+    "codex-prompt.md",
     "rescue.md",
     "result.md",
     "review.md",
@@ -65,7 +71,10 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /Start a new Gemini thread/);
   assert.match(rescue, /default to foreground/i);
   assert.match(rescue, /Do not forward them to `task`/i);
-  assert.match(rescue, /`--model`, `--thinking`, and `--stream-output` are runtime-selection flags/i);
+  assert.match(
+    rescue,
+    /`--model`, `--thinking`, and `--stream-output` are runtime-selection flags/i
+  );
   assert.match(rescue, /Leave `--thinking` unset unless the user explicitly asks/i);
   assert.match(rescue, /The default model is `auto-gemini-3`/i);
   assert.match(rescue, /auto-gemini-2\.5/i);
@@ -73,7 +82,10 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(rescue, /If the request includes `--fresh`, do not ask whether to continue/i);
   assert.match(rescue, /thin forwarding wrapper/i);
   assert.match(rescue, /Return the Gemini companion stdout verbatim to the user/i);
-  assert.match(rescue, /Do not paraphrase, summarize, rewrite, or add commentary before or after it/i);
+  assert.match(
+    rescue,
+    /Do not paraphrase, summarize, rewrite, or add commentary before or after it/i
+  );
   assert.match(rescue, /return that command's stdout as-is/i);
   assert.match(rescue, /Do not spawn subagents, do not invoke skills/i);
   assert.match(rescue, /Default to a write-capable Gemini run by adding `--write`/i);
@@ -82,18 +94,33 @@ test("rescue command uses inline execution without subagent delegation", () => {
   assert.match(agent, /thin forwarding wrapper/i);
   assert.match(agent, /prefer foreground for a small, clearly bounded rescue request/i);
   assert.match(agent, /Use exactly one `Bash` call/i);
-  assert.match(agent, /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i);
-  assert.match(agent, /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i);
-  assert.match(agent, /Leave `--thinking` unset unless the user explicitly requests a specific thinking level/i);
+  assert.match(
+    agent,
+    /Do not inspect the repository, read files, grep, monitor progress, poll status, fetch results, cancel jobs, summarize output, or do any follow-up work of your own/i
+  );
+  assert.match(
+    agent,
+    /Do not call `review`, `adversarial-review`, `status`, `result`, or `cancel`/i
+  );
+  assert.match(
+    agent,
+    /Leave `--thinking` unset unless the user explicitly requests a specific thinking level/i
+  );
   assert.match(agent, /The default model is `auto-gemini-3`/i);
   assert.match(agent, /auto-gemini-2\.5/i);
   assert.match(agent, /\bpro\b/i);
-  assert.match(agent, /If the user asks for `flash`, map that to `--model gemini-3-flash-preview`/i);
+  assert.match(
+    agent,
+    /If the user asks for `flash`, map that to `--model gemini-3-flash-preview`/i
+  );
   assert.match(agent, /Return the stdout of the `gemini-companion` command exactly as-is/i);
   assert.match(agent, /If the Bash call fails or Gemini cannot be invoked, return nothing/i);
   assert.match(agent, /gemini-prompting/);
   assert.match(agent, /only to tighten the user's request into a better Gemini prompt/i);
-  assert.match(agent, /Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work/i);
+  assert.match(
+    agent,
+    /Do not use that skill to inspect the repository, reason through the problem yourself, draft a solution, or do any independent work/i
+  );
   assert.match(runtimeSkill, /gemini-companion\.mjs" task/);
   assert.match(runtimeSkill, /--resume-last/);
   assert.match(readme, /`gemini:gemini-rescue` subagent/i);
@@ -118,8 +145,14 @@ test("result and cancel commands are exposed as deterministic runtime entrypoint
   assert.match(result, /gemini-companion\.mjs" result "\$ARGUMENTS"/);
   assert.match(cancel, /disable-model-invocation:\s*true/);
   assert.match(cancel, /gemini-companion\.mjs" cancel "\$ARGUMENTS"/);
-  assert.match(resultHandling, /do not turn a failed or incomplete Gemini run into a Claude-side implementation attempt/i);
-  assert.match(resultHandling, /if Gemini was never successfully invoked, do not generate a substitute answer at all/i);
+  assert.match(
+    resultHandling,
+    /do not turn a failed or incomplete Gemini run into a Claude-side implementation attempt/i
+  );
+  assert.match(
+    resultHandling,
+    /if Gemini was never successfully invoked, do not generate a substitute answer at all/i
+  );
 });
 
 test("internal docs use task terminology for rescue runs", () => {
@@ -203,7 +236,11 @@ test("gemini-cli-runtime skill documents every job health label and recommended 
     "cancelled"
   ];
   for (const label of labels) {
-    assert.match(runtimeSkill, new RegExp(label), `expected health label ${label} documented in runtime skill`);
+    assert.match(
+      runtimeSkill,
+      new RegExp(label),
+      `expected health label ${label} documented in runtime skill`
+    );
   }
   assert.match(runtimeSkill, /health/i);
 });
@@ -219,10 +256,14 @@ test("gemini-result-handling skill forbids fabricating results for incomplete jo
 test("companion task rejects an invalid --thinking value with exit 1 and usage", () => {
   const cwd = makeTempDir();
   initGitRepo(cwd);
-  const result = run(process.execPath, [COMPANION_SCRIPT, "task", "--thinking", "purple", "--", "noop"], {
-    cwd,
-    env: { ...process.env, PATH: process.env.PATH }
-  });
+  const result = run(
+    process.execPath,
+    [COMPANION_SCRIPT, "task", "--thinking", "purple", "--", "noop"],
+    {
+      cwd,
+      env: { ...process.env, PATH: process.env.PATH }
+    }
+  );
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /invalid --thinking value/i);
   assert.match(result.stderr, /off.*low.*medium.*high/);

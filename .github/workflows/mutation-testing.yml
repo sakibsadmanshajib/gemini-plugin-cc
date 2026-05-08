@@ -1,0 +1,46 @@
+name: mutation-testing
+
+# Nightly mutation testing via Stryker. Not gating on PRs (mutation runs
+# are slow and noisy; we track score over time, not per-PR). The job runs
+# once a day at 04:00 UTC and uploads the HTML report as an artifact.
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: "pnpm"
+
+      - name: Install dependencies
+        env:
+          HUSKY: 0
+        run: pnpm install --frozen-lockfile
+
+      - name: Run mutation tests
+        run: pnpm run test:mutation
+        continue-on-error: true
+
+      - name: Upload Stryker HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-report
+          path: reports/mutation/
+          retention-days: 14

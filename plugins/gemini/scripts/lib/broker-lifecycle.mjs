@@ -3,12 +3,12 @@
  * down the persistent ACP broker process.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createBrokerEndpoint, parseBrokerEndpoint } from "./broker-endpoint.mjs";
 import { resolveStateDir } from "./state.mjs";
@@ -16,9 +16,7 @@ import { resolveStateDir } from "./state.mjs";
 export const PID_FILE_ENV = "GEMINI_COMPANION_ACP_PID_FILE";
 export const LOG_FILE_ENV = "GEMINI_COMPANION_ACP_LOG_FILE";
 
-const BROKER_SCRIPT = path.resolve(
-  fileURLToPath(new URL("../acp-broker.mjs", import.meta.url))
-);
+const BROKER_SCRIPT = path.resolve(fileURLToPath(new URL("../acp-broker.mjs", import.meta.url)));
 
 const SESSION_DIR_NAME = "acp-session";
 // Brokers older than this AND not accepting connections are reaped.
@@ -163,7 +161,7 @@ export async function reapStaleBroker(cwd, killProcess) {
     logFile: session.logFile ?? null,
     sessionDir: session.sessionDir ?? null,
     pid: session.pid ?? null,
-    killProcess: null  // already killed above
+    killProcess: null // already killed above
   });
   clearBrokerSession(cwd);
 }
@@ -217,22 +215,20 @@ export async function ensureBrokerSession(cwd, options = {}) {
   const pidFile = path.join(sessionDir, "broker.pid");
   const logFile = path.join(sessionDir, "broker.log");
 
-  const child = spawn("node", [
-    BROKER_SCRIPT,
-    "serve",
-    "--endpoint", endpoint,
-    "--cwd", cwd,
-    "--pid-file", pidFile
-  ], {
-    cwd,
-    detached: true,
-    stdio: ["ignore", "ignore", "ignore"],
-    env: {
-      ...options.env ?? process.env,
-      [PID_FILE_ENV]: pidFile,
-      [LOG_FILE_ENV]: logFile
+  const child = spawn(
+    "node",
+    [BROKER_SCRIPT, "serve", "--endpoint", endpoint, "--cwd", cwd, "--pid-file", pidFile],
+    {
+      cwd,
+      detached: true,
+      stdio: ["ignore", "ignore", "ignore"],
+      env: {
+        ...(options.env ?? process.env),
+        [PID_FILE_ENV]: pidFile,
+        [LOG_FILE_ENV]: logFile
+      }
     }
-  });
+  );
 
   child.unref();
 
@@ -265,7 +261,14 @@ export async function ensureBrokerSession(cwd, options = {}) {
  *
  * @param {{ endpoint?: string | null, pidFile?: string | null, logFile?: string | null, sessionDir?: string | null, pid?: number | null, killProcess?: ((pid: number) => void) | null }} params
  */
-export function teardownBrokerSession({ endpoint = null, pidFile, logFile, sessionDir = null, pid = null, killProcess = null }) {
+export function teardownBrokerSession({
+  endpoint = null,
+  pidFile,
+  logFile,
+  sessionDir = null,
+  pid = null,
+  killProcess = null
+}) {
   if (Number.isFinite(pid) && killProcess) {
     try {
       killProcess(pid);

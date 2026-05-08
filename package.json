@@ -1,20 +1,65 @@
 {
-  "name": "gemini-plugin-cc",
+  "name": "artagon-agent-cli-plugin",
   "version": "1.0.1",
-  "description": "Claude Code plugin for Gemini CLI delegation and code review.",
+  "description": "Multi-backend ACP plugin suite for Claude Code, Codex CLI, and Gemini hosts. Each plugin drives the OTHER backends via stateless CLI runners.",
   "type": "module",
+  "bin": {
+    "artagon-agent": "./bin/artagon-agent.mjs",
+    "artagon-openai-server": "./bin/artagon-openai-server.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "plugins/",
+    ".claude-plugin/",
+    ".agents/",
+    "agents/",
+    "docs/",
+    "SKILL.md",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
-    "test": "node --test tests/unit/*.test.mjs tests/integration/*.test.mjs",
-    "test:unit": "node --test tests/unit/*.test.mjs",
-    "test:int": "node --test tests/integration/*.test.mjs"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run tests/unit",
+    "test:int": "vitest run tests/integration",
+    "test:property": "vitest run tests/property",
+    "test:cov": "vitest run --coverage",
+    "test:mutation": "stryker run",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:fallback": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --apply .",
+    "format": "biome format --write .",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "@stryker-mutator/core": "9.6.1",
+    "@stryker-mutator/vitest-runner": "9.6.1",
+    "@types/node": "22.10.5",
+    "@typescript/native-preview": "7.0.0-dev.20260508.1",
+    "@vitest/coverage-v8": "2",
+    "fast-check": "3",
+    "husky": "9.1.7",
+    "pino": "9",
+    "typescript": "5.7.3",
+    "vitest": "2"
   },
   "engines": {
-    "node": ">=18.18.0"
+    "node": ">=18.18.0",
+    "pnpm": ">=9.0.0"
   },
+  "imports": {
+    "#lib/*": "./lib/*"
+  },
+  "packageManager": "pnpm@9.15.0",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/sakibsadmanshajib/gemini-plugin-cc.git"
+    "url": "https://github.com/artagon/artagon-agent-cli-plugin.git"
   },
   "keywords": [
     "claude-code",

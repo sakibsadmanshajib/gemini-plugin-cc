@@ -2,7 +2,7 @@
  * Process spawning and management utilities.
  */
 
-import { execFileSync, spawnSync, spawn as nodeSpawn } from "node:child_process";
+import { execFileSync, spawn as nodeSpawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 /**
@@ -81,7 +81,10 @@ export function formatCommandFailure(result) {
 export function binaryAvailable(name) {
   try {
     const command = process.platform === "win32" ? "where" : "which";
-    const result = spawnSync(command, [name], { encoding: "utf8", stdio: "pipe" });
+    const result = spawnSync(command, [name], {
+      encoding: "utf8",
+      stdio: "pipe"
+    });
     return result.status === 0;
   } catch {
     return false;
@@ -100,7 +103,9 @@ export function terminateProcessTree(pid) {
 
   try {
     if (process.platform === "win32") {
-      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], {
+        stdio: "ignore"
+      });
     } else {
       // Try SIGTERM on the process group first.
       try {
@@ -132,9 +137,8 @@ export function terminateProcessTree(pid) {
  * @returns {import("node:child_process").ChildProcess}
  */
 export function spawnDetached(command, args, options = {}) {
-  const stdio = options.logFile
-    ? ["ignore", "ignore", "ignore"]
-    : ["ignore", "ignore", "ignore"];
+  /** @type {("ignore" | "pipe" | "inherit")[]} */
+  const stdio = ["ignore", "ignore", "ignore"];
 
   const child = nodeSpawn(command, args, {
     cwd: options.cwd,

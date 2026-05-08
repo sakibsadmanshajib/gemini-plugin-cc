@@ -21,10 +21,11 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { getPluginVersion } from "#lib/feature-flags.mjs";
 import { parseCommandInput } from "./lib/args.mjs";
 import {
-  buildPersistentTaskThreadName,
   DEFAULT_CONTINUE_PROMPT,
+  buildPersistentTaskThreadName,
   findLatestTaskThread,
   getGeminiAuthStatus,
   getGeminiAvailability,
@@ -36,20 +37,12 @@ import {
   runAcpPrompt,
   runAcpReview
 } from "./lib/gemini.mjs";
-import { getConfig, loadState, readJobFile, saveState, setConfig } from "./lib/state.mjs";
-import {
-  createTrackedJob,
-  runTrackedJob,
-  SESSION_ID_ENV,
-  updateJobPhase
-} from "./lib/tracked-jobs.mjs";
 import {
   buildSingleJobSnapshot,
   buildStatusSnapshot,
   resolveCancelableJob,
   resolveResultJob
 } from "./lib/job-control.mjs";
-import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 import { binaryAvailable, terminateProcessTree } from "./lib/process.mjs";
 import {
   outputCommandResult,
@@ -60,8 +53,16 @@ import {
   renderSingleJobStatus,
   renderStatusSnapshot
 } from "./lib/render.mjs";
-import { THINKING_LEVELS } from "./lib/thinking.mjs";
+import { getConfig, loadState, readJobFile, saveState, setConfig } from "./lib/state.mjs";
 import { createStreamHandler } from "./lib/stream-output.mjs";
+import { THINKING_LEVELS } from "./lib/thinking.mjs";
+import {
+  SESSION_ID_ENV,
+  createTrackedJob,
+  runTrackedJob,
+  updateJobPhase
+} from "./lib/tracked-jobs.mjs";
+import { resolveWorkspaceRoot } from "./lib/workspace.mjs";
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REVIEW_SCHEMA = path.join(ROOT_DIR, "schemas", "review-output.schema.json");
@@ -72,7 +73,9 @@ const MIN_GEMINI_VERSION_FOR_V3_MODELS = [0, 33, 0];
 
 function parseVersionTuple(versionString) {
   const m = String(versionString ?? "").match(/^(\d+)\.(\d+)\.(\d+)/);
-  return m ? [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)] : null;
+  return m
+    ? [Number.parseInt(m[1], 10), Number.parseInt(m[2], 10), Number.parseInt(m[3], 10)]
+    : null;
 }
 
 function versionMeetsMinimum(tuple, minimum) {
@@ -95,17 +98,17 @@ function assertGemini3ModelVersionCompatibility(requestedModel) {
   if (tuple && !versionMeetsMinimum(tuple, MIN_GEMINI_VERSION_FOR_V3_MODELS)) {
     throw new Error(
       `Model "${key}" (→ "${resolved}") requires @google/gemini-cli >= 0.33.0 but ${version} is installed.\n` +
-      `Upgrade with: npm install -g @google/gemini-cli\n` +
-      `Or use a Gemini 2.5 model: --model auto-gemini-2.5`
+        "Upgrade with: npm install -g @google/gemini-cli\n" +
+        "Or use a Gemini 2.5 model: --model auto-gemini-2.5"
     );
   }
 }
 
 const MODEL_ALIASES = new Map([
   // Auto-routing aliases (recommended — CLI routes to best available model in tier)
-  ["auto-gemini-3", "auto-gemini-3"],           // Routes to Gemini 3.1 or 3 models
-  ["auto-gemini-2.5", "auto-gemini-2.5"],       // Routes to Gemini 2.5 models
-  ["pro", "gemini-3.1-pro-preview"],             // "pro" maps to Gemini 3.1 Pro
+  ["auto-gemini-3", "auto-gemini-3"], // Routes to Gemini 3.1 or 3 models
+  ["auto-gemini-2.5", "auto-gemini-2.5"], // Routes to Gemini 2.5 models
+  ["pro", "gemini-3.1-pro-preview"], // "pro" maps to Gemini 3.1 Pro
   ["flash", "gemini-3-flash-preview"],
   ["flash-lite", "gemini-3.1-flash-lite-preview"],
   // Gemini 3.x concrete model IDs
@@ -138,7 +141,9 @@ function printUsage() {
 }
 
 function resolveCommandCwd(options) {
-  return options.cwd ? path.resolve(options.cwd) : (process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
+  return options.cwd
+    ? path.resolve(options.cwd)
+    : (process.env.CLAUDE_PROJECT_DIR ?? process.cwd());
 }
 
 function resolveModel(value) {
@@ -151,7 +156,9 @@ function resolveThinkingOption(options) {
     return undefined;
   }
   if (!THINKING_LEVELS.includes(options.thinking)) {
-    process.stderr.write(`Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`);
+    process.stderr.write(
+      `Error: invalid --thinking value: ${options.thinking}. Expected one of ${THINKING_LEVELS.join(", ")}.\n`
+    );
     printUsage();
     process.exit(1);
   }
@@ -242,7 +249,8 @@ async function handleReview(argv) {
   });
 
   if (result.error) {
-    process.stderr.write(`Review failed: ${result.error?.message ?? result.error}\n`);
+    const message = result.error instanceof Error ? result.error.message : String(result.error);
+    process.stderr.write(`Review failed: ${message}\n`);
     process.exit(1);
   }
 
@@ -272,7 +280,11 @@ async function handleReviewCommand(argv, { reviewName }) {
   const focus = positionals.join(" ").trim() || undefined;
 
   if (options.background) {
-    return runReviewInBackground(workspaceRoot, { ...options, focus, thinking }, "adversarial-review");
+    return runReviewInBackground(
+      workspaceRoot,
+      { ...options, focus, thinking },
+      "adversarial-review"
+    );
   }
 
   assertGemini3ModelVersionCompatibility(options.model);
@@ -288,7 +300,8 @@ async function handleReviewCommand(argv, { reviewName }) {
   });
 
   if (result.error) {
-    process.stderr.write(`${reviewName} failed: ${result.error?.message ?? result.error}\n`);
+    const message = result.error instanceof Error ? result.error.message : String(result.error);
+    process.stderr.write(`${reviewName} failed: ${message}\n`);
     process.exit(1);
   }
 
@@ -326,7 +339,7 @@ async function handleTask(argv) {
   const approvalMode = options.write ? "auto_edit" : (options["approval-mode"] ?? "default");
 
   // Handle resume.
-  let prompt = taskText || DEFAULT_CONTINUE_PROMPT;
+  const prompt = taskText || DEFAULT_CONTINUE_PROMPT;
   let sessionId = null;
   if (options["resume-last"]) {
     const candidate = await findLatestTaskThread(cwd);
@@ -714,6 +727,14 @@ async function main() {
   if (!subcommand || subcommand === "help" || subcommand === "--help") {
     printUsage();
     return;
+  }
+
+  // Resolve plugin version (inert at this baseline; v2 behavior gates on it
+  // in subsequent changes). Logged at debug level only — production callers
+  // suppress this via DEBUG="" or by ignoring stderr lines beginning with `[debug]`.
+  if (process.env.DEBUG) {
+    const version = getPluginVersion();
+    process.stderr.write(`[debug] ACP_PLUGIN_VERSION=${version}\n`);
   }
 
   switch (subcommand) {

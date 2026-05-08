@@ -24,7 +24,8 @@ const workspaceMutexes = new Map();
 
 async function runWithMutex(map, key, fn) {
   const prev = map.get(key) ?? Promise.resolve();
-  let release;
+  /** @type {(value?: any) => void} */
+  let release = () => {};
   const next = new Promise((resolve) => {
     release = resolve;
   });
@@ -39,7 +40,7 @@ async function runWithMutex(map, key, fn) {
     return await fn();
   } finally {
     const tail = map.get(key);
-    release();
+    release?.();
     // Drop the entry only when the most recently queued promise resolves with
     // no later waiters queued, so the map does not grow unbounded.
     if (tail) {
@@ -63,10 +64,7 @@ export function withWorkspaceMutex(workspaceRoot, fn) {
 export function writeJsonAtomic(targetPath, value) {
   const dir = path.dirname(targetPath);
   const base = path.basename(targetPath);
-  const tmp = path.join(
-    dir,
-    `${base}.tmp.${crypto.randomBytes(6).toString("hex")}`
-  );
+  const tmp = path.join(dir, `${base}.tmp.${crypto.randomBytes(6).toString("hex")}`);
 
   // Serialize BEFORE opening the temp file so a BigInt / circular value
   // failure does not leave an empty sibling.

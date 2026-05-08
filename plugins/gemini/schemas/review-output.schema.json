@@ -17,7 +17,16 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["severity", "title", "body", "file", "line_start", "line_end", "confidence", "recommendation"],
+        "required": [
+          "severity",
+          "title",
+          "body",
+          "file",
+          "line_start",
+          "line_end",
+          "confidence",
+          "recommendation"
+        ],
         "properties": {
           "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
           "title": { "type": "string", "minLength": 1 },

@@ -1,0 +1,12 @@
+# Canonical happy-path fixture: gemini rescue task that completes cleanly.
+# initialize → session/new → session/prompt → session/update notifications → done.
+{"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gemini","version":"1.0.1"}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"capabilities":{},"serverInfo":{"name":"gemini","version":"0.0.0-mock"}}}}
+{"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp/repo","mcpServers":[]}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s-rescue-1"}}}
+{"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s-rescue-1","prompt":[{"type":"text","text":"Investigate failing test in lib/foo.mjs"}]}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-rescue-1","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"Reading "}}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-rescue-1","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"the test...\n"}}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-rescue-1","update":{"sessionUpdate":"tool_call","toolName":"read_file","name":"read_file"}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-rescue-1","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"Found the issue: missing null check.\n"}}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","id":3,"result":{"sessionId":"s-rescue-1","model":"gemini-3.1-pro-preview"}}}

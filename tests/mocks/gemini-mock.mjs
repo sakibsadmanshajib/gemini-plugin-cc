@@ -77,17 +77,22 @@ const C = Object.freeze({
  * @param {number | string} id
  * @returns {JsonRpcSuccess}
  */
-const replyInitialize = (id) => Object.freeze({
-  jsonrpc: C.JSONRPC,
-  id,
-  result: {
-    protocolVersion: C.PROTOCOL_VERSION,
-    authMethods: [
-      { id: C.AUTH_METHOD_OAUTH, name: "OAuth (Personal)", description: "mock oauth method" }
-    ],
-    agentCapabilities: {}
-  }
-});
+const replyInitialize = (id) =>
+  Object.freeze({
+    jsonrpc: C.JSONRPC,
+    id,
+    result: {
+      protocolVersion: C.PROTOCOL_VERSION,
+      authMethods: [
+        {
+          id: C.AUTH_METHOD_OAUTH,
+          name: "OAuth (Personal)",
+          description: "mock oauth method"
+        }
+      ],
+      agentCapabilities: {}
+    }
+  });
 
 /**
  * Build the canned `authenticate` reply. By default reports authenticated:true
@@ -98,17 +103,18 @@ const replyInitialize = (id) => Object.freeze({
  * @param {boolean} ok
  * @returns {JsonRpcResponse}
  */
-const replyAuthenticate = (id, ok) => ok
-  ? Object.freeze({
-    jsonrpc: C.JSONRPC,
-    id,
-    result: { authenticated: true }
-  })
-  : Object.freeze({
-    jsonrpc: C.JSONRPC,
-    id,
-    error: { code: -32000, message: "mock: not authenticated" }
-  });
+const replyAuthenticate = (id, ok) =>
+  ok
+    ? Object.freeze({
+        jsonrpc: C.JSONRPC,
+        id,
+        result: { authenticated: true }
+      })
+    : Object.freeze({
+        jsonrpc: C.JSONRPC,
+        id,
+        error: { code: -32000, message: "mock: not authenticated" }
+      });
 
 /**
  * Pure dispatch: given a parsed request, return the canned response.
@@ -123,11 +129,26 @@ const dispatch = (req, cfg) => {
       return replyInitialize(req.id);
     case "authenticate":
       return replyAuthenticate(req.id, !cfg.authShouldFail);
+    case "ping":
+      // Used by the AcpSession conformance suite's request→response round-trip
+      // test. Echoes a canned `{pong: true}` so any transport can prove the
+      // request/response correlation works end-to-end.
+      return Object.freeze({
+        jsonrpc: C.JSONRPC,
+        id: req.id,
+        result: { pong: true }
+      });
     default:
       return Object.freeze({
         jsonrpc: C.JSONRPC,
         id: req.id,
-        error: { code: -32601, message: `mock: unknown method ${String(req.method)}` }
+        error: {
+          code: -32601,
+          // Standard JSON-RPC 2.0 "Method not found" wording so consumers
+          // (incl. the AcpSession conformance suite) can rely on a single
+          // error-message regex across transports.
+          message: `Method not found: ${String(req.method)}`
+        }
       });
   }
 };

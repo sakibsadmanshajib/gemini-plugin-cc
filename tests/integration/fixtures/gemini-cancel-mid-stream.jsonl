@@ -1,0 +1,9 @@
+# Cancellation path: client emits session/cancel mid-stream after partial output.
+# initialize → session/new → session/prompt → partial session/update → session/cancel.
+{"dir":"out","msg":{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"gemini","version":"1.0.1"}}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"capabilities":{},"serverInfo":{"name":"gemini","version":"0.0.0-mock"}}}}
+{"dir":"out","msg":{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp/repo","mcpServers":[]}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","id":2,"result":{"sessionId":"s-cancel-1"}}}
+{"dir":"out","msg":{"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"s-cancel-1","prompt":[{"type":"text","text":"Long-running analysis"}]}}}
+{"dir":"in","msg":{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s-cancel-1","update":{"sessionUpdate":"agent_message_chunk","content":{"text":"Starting analysis"}}}}}
+{"dir":"out","msg":{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"s-cancel-1"}}}

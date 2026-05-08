@@ -1,10 +1,10 @@
-import test from "node:test";
 import assert from "node:assert/strict";
-import net from "node:net";
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { test } from "vitest";
 
 import { listenOnRestrictedUnixSocket } from "../../plugins/gemini/scripts/lib/socket-permissions.mjs";
 
@@ -41,11 +41,10 @@ test("listenOnRestrictedUnixSocket creates a real unix socket with mode 0o600", 
     return;
   }
 
-  const sockPath = path.join(
-    os.tmpdir(),
-    `gemini-acp-int-${process.pid}-${Date.now()}.sock`
-  );
-  try { fs.unlinkSync(sockPath); } catch {}
+  const sockPath = path.join(os.tmpdir(), `gemini-acp-int-${process.pid}-${Date.now()}.sock`);
+  try {
+    fs.unlinkSync(sockPath);
+  } catch {}
 
   const originalUmask = process.umask();
   const server = net.createServer();
@@ -58,15 +57,13 @@ test("listenOnRestrictedUnixSocket creates a real unix socket with mode 0o600", 
 
     const st = fs.statSync(sockPath);
     const mode = st.mode & 0o777;
-    assert.equal(
-      mode,
-      0o600,
-      `socket ${sockPath} expected mode 0o600, got 0o${mode.toString(8)}`
-    );
+    assert.equal(mode, 0o600, `socket ${sockPath} expected mode 0o600, got 0o${mode.toString(8)}`);
     assert.equal(process.umask(), originalUmask, "umask must be restored after listen()");
   } finally {
     await new Promise((resolve) => server.close(() => resolve()));
-    try { fs.unlinkSync(sockPath); } catch {}
+    try {
+      fs.unlinkSync(sockPath);
+    } catch {}
     process.umask(originalUmask);
   }
 });

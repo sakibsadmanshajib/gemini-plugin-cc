@@ -1,6 +1,6 @@
-# Gemini Plugin for Claude Code (and Codex CLI)
+# Artagon Agent CLI Plugin Suite
 
-Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) **or** [Codex CLI](https://developers.openai.com/codex/cli) to review code or delegate tasks. One runtime; both hosts.
+Multi-backend agent CLI plugin suite for [Claude Code](https://docs.anthropic.com/en/docs/claude-code), [Codex CLI](https://developers.openai.com/codex/cli), and (future) Gemini hosts. Each plugin is named for its install host and drives the OTHER backends via stateless CLI runners. The original Gemini-driving runtime (`plugins/gemini/`) ships alongside the new cross-pollination plugins for backward compatibility.
 
 **Install:** see [`docs/INSTALL.md`](docs/INSTALL.md) for the full recipe covering both Claude Code and Codex CLI. Short version (Codex) — add this to `~/.agents/plugins/marketplace.json`:
 
@@ -11,7 +11,10 @@ Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from insi
   "plugins": [
     {
       "name": "gemini",
-      "source": { "source": "local", "path": "<absolute path to this repo>/plugins/gemini" },
+      "source": {
+        "source": "local",
+        "path": "<absolute path to this repo>/plugins/gemini"
+      },
       "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
       "category": "Productivity",
       "interface": { "displayName": "Gemini Integration" }
@@ -26,17 +29,52 @@ Then run `codex` → `/plugins` → install. The plugin ships `.codex-plugin/plu
 
 > **Origin:** This plugin is a port of [codex-plugin-cc](https://github.com/openai/codex-plugin-cc), adapted from OpenAI's Codex App Server Protocol to Google's ACP (Agent Client Protocol). See [Differences from codex-plugin-cc](#differences-from-codex-plugin-cc) for details.
 
+## Multi-backend layout
+
+This repository ships **three plugins**, each named for its install host
+(not for the backend it drives) — see [`docs/plugins.md`](docs/plugins.md):
+
+| Plugin            | Install host                  | Drives                                       | Cross-pollination commands         |
+| ----------------- | ----------------------------- | -------------------------------------------- | ---------------------------------- |
+| `plugins/claude/` | Claude Code                   | Codex + Gemini                               | `/codex:prompt`, `/gemini:prompt`  |
+| `plugins/codex/`  | Codex CLI                     | Gemini + Claude                              | `/gemini:prompt`, `/claude:prompt` |
+| `plugins/gemini/` | (legacy + future Gemini host) | Gemini (legacy `/gemini:*`) + Codex + Claude | `/claude:prompt`, `/codex:prompt`  |
+
+**Cross-pollination invariant**: a plugin installed in host X provides
+slash commands that drive the OTHER backends — the host's own backend is
+already what you're talking to. The runtime under `lib/` (CLI-only;
+no in-process SDKs) is shared; per-CLI argv builders +
+[`lib/translate/`](lib/translate/) translators map each CLI's
+`stream-json` output to ACP `session/update` notifications. See
+[`docs/architecture.md`](docs/architecture.md) for the layered shape and
+[`docs/runners.md`](docs/runners.md) for the spawn-and-stream pipeline.
+
+The legacy `plugins/gemini/` plugin (described in detail below) predates
+the cross-pollination model. It continues to ship its original
+`/gemini:*` commands (broker-shared multi-turn ACP via `gemini --acp`)
+_alongside_ the new cross-driving stateless ones.
+
 ## What You Get
 
-| Command | Purpose |
-|---------|---------|
-| `/gemini:review` | Read-only Gemini code review |
-| `/gemini:adversarial-review` | Steerable challenge review |
-| `/gemini:rescue` | Delegate a task to Gemini |
-| `/gemini:status` | List active and recent jobs |
-| `/gemini:result` | Show full output for a finished job |
-| `/gemini:cancel` | Cancel an active background job |
-| `/gemini:setup` | Check install, auth, and toggle review gate |
+Legacy `plugins/gemini/` commands (broker-shared ACP mode):
+
+| Command                      | Purpose                                     |
+| ---------------------------- | ------------------------------------------- |
+| `/gemini:review`             | Read-only Gemini code review                |
+| `/gemini:adversarial-review` | Steerable challenge review                  |
+| `/gemini:rescue`             | Delegate a task to Gemini                   |
+| `/gemini:status`             | List active and recent jobs                 |
+| `/gemini:result`             | Show full output for a finished job         |
+| `/gemini:cancel`             | Cancel an active background job             |
+| `/gemini:setup`              | Check install, auth, and toggle review gate |
+
+Cross-pollination commands (one-shot stateless via `runStatelessTurn`):
+
+| Command          | Plugin             | Spawns                                       |
+| ---------------- | ------------------ | -------------------------------------------- |
+| `/claude:prompt` | `codex`, `gemini`  | `claude --print --output-format=stream-json` |
+| `/codex:prompt`  | `claude`, `gemini` | `codex exec --json`                          |
+| `/gemini:prompt` | `claude`, `codex`  | `gemini -p -o stream-json`                   |
 
 ## Requirements
 
@@ -185,18 +223,18 @@ diagnostics.
 
 Health labels:
 
-| Label | Meaning | Recommended action |
-|-------|---------|--------------------|
-| `active` | Recent progress from Gemini. | No action; wait for result. |
-| `quiet` | Worker heartbeat is recent but no new progress. | Re-check status shortly. |
-| `possibly_stalled` | No recent heartbeat or progress. | Re-check status or fetch `/gemini:result`; retry if the job does not recover. |
-| `rate_limited` | Gemini reported quota/rate limiting. | Wait, switch models, or cancel with `/gemini:cancel <job-id>`. |
-| `auth_required` | Gemini reported an auth/login problem. | Re-authenticate via `/gemini:setup`, then retry. |
-| `broker_unhealthy` | The ACP broker reported a connectivity or busy state. | Re-check status shortly; restart the broker if it does not recover. |
-| `worker_missing` | The background worker PID is no longer alive. | Check `/gemini:result`; retry if output is incomplete. |
-| `failed` | Gemini or the worker ended with an error. | Check `/gemini:result` for details before retrying. |
-| `cancelled` | The job was cancelled by the user or runtime. | No further action unless you want to retry. |
-| `completed` | The job finished successfully. | Fetch output with `/gemini:result <job-id>`. |
+| Label              | Meaning                                               | Recommended action                                                            |
+| ------------------ | ----------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `active`           | Recent progress from Gemini.                          | No action; wait for result.                                                   |
+| `quiet`            | Worker heartbeat is recent but no new progress.       | Re-check status shortly.                                                      |
+| `possibly_stalled` | No recent heartbeat or progress.                      | Re-check status or fetch `/gemini:result`; retry if the job does not recover. |
+| `rate_limited`     | Gemini reported quota/rate limiting.                  | Wait, switch models, or cancel with `/gemini:cancel <job-id>`.                |
+| `auth_required`    | Gemini reported an auth/login problem.                | Re-authenticate via `/gemini:setup`, then retry.                              |
+| `broker_unhealthy` | The ACP broker reported a connectivity or busy state. | Re-check status shortly; restart the broker if it does not recover.           |
+| `worker_missing`   | The background worker PID is no longer alive.         | Check `/gemini:result`; retry if output is incomplete.                        |
+| `failed`           | Gemini or the worker ended with an error.             | Check `/gemini:result` for details before retrying.                           |
+| `cancelled`        | The job was cancelled by the user or runtime.         | No further action unless you want to retry.                                   |
+| `completed`        | The job finished successfully.                        | Fetch output with `/gemini:result <job-id>`.                                  |
 
 Example detailed output:
 
@@ -268,12 +306,12 @@ When the review gate is enabled, the plugin uses a `Stop` hook to run a targeted
 
 Each task or review accepts `--thinking <off|low|medium|high>` — a t-shirt-sized request for the reasoning level:
 
-| Level | Behavior |
-|-------|----------|
-| `off` | Minimal reasoning request. Fastest; clamped to `low` on models that don't support zero thinking. |
-| `low` | Light reasoning — quick tasks, short context. |
-| `medium` *(default)* | Dynamic reasoning — balanced default, matches the model's own heuristics. |
-| `high` | Deep reasoning — use when the task needs careful analysis. |
+| Level                | Behavior                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------ |
+| `off`                | Minimal reasoning request. Fastest; clamped to `low` on models that don't support zero thinking. |
+| `low`                | Light reasoning — quick tasks, short context.                                                    |
+| `medium` _(default)_ | Dynamic reasoning — balanced default, matches the model's own heuristics.                        |
+| `high`               | Deep reasoning — use when the task needs careful analysis.                                       |
 
 The level maps to the right underlying Gemini parameter for the selected model (Gemini 3 `thinkingLevel`, Gemini 2.5 `thinkingBudget`). Unknown models emit a one-line note to stderr and pass through unchanged. The local Gemini CLI does not expose a per-invocation thinking override yet, so the flag is parsed and validated but emits a one-shot stderr warning and falls back to the CLI's default reasoning. Configure `thinkingConfig` at the model-alias level in your Gemini `settings.json` for a persistent setting that takes effect today.
 
@@ -351,15 +389,15 @@ This plugin is a port of [codex-plugin-cc](https://github.com/openai/codex-plugi
 
 ### Protocol
 
-| Aspect | codex-plugin-cc | gemini-plugin-cc |
-|--------|----------------|-----------------|
-| **Backend CLI** | `codex` (OpenAI Codex CLI) | `gemini` (Google Gemini CLI) |
-| **Protocol** | App Server Protocol (ASP) — HTTP REST with SSE streaming | Agent Client Protocol (ACP) — JSON-RPC 2.0 over stdio |
-| **Connection** | HTTP server (`codex --app-server`) | Persistent broker over Unix socket (`gemini --acp`) |
-| **Session management** | Thread-based (`thread/start`, `thread/cancel`) | Session-based (`session/new`, `session/set_mode`) |
-| **Write control** | `sandbox: "workspace-write"` vs `"read-only"` | `approvalMode: "auto_edit"` vs `"default"` |
-| **Model effort** | `--effort` parameter (none → xhigh) | Not available via ACP (use `--model` instead) |
-| **Streaming** | SSE events from HTTP endpoint | JSON-RPC notifications over stdio |
+| Aspect                 | codex-plugin-cc                                          | gemini-plugin-cc                                      |
+| ---------------------- | -------------------------------------------------------- | ----------------------------------------------------- |
+| **Backend CLI**        | `codex` (OpenAI Codex CLI)                               | `gemini` (Google Gemini CLI)                          |
+| **Protocol**           | App Server Protocol (ASP) — HTTP REST with SSE streaming | Agent Client Protocol (ACP) — JSON-RPC 2.0 over stdio |
+| **Connection**         | HTTP server (`codex --app-server`)                       | Persistent broker over Unix socket (`gemini --acp`)   |
+| **Session management** | Thread-based (`thread/start`, `thread/cancel`)           | Session-based (`session/new`, `session/set_mode`)     |
+| **Write control**      | `sandbox: "workspace-write"` vs `"read-only"`            | `approvalMode: "auto_edit"` vs `"default"`            |
+| **Model effort**       | `--effort` parameter (none → xhigh)                      | Not available via ACP (use `--model` instead)         |
+| **Streaming**          | SSE events from HTTP endpoint                            | JSON-RPC notifications over stdio                     |
 
 ### What this means in practice
 
@@ -390,11 +428,11 @@ If you want to change the default model or settings, configure them in your Gemi
       "precise-mode": {
         "extends": "chat-base",
         "modelConfig": {
-          "generateContentConfig": { "temperature": 0.0 }
-        }
-      }
-    }
-  }
+          "generateContentConfig": { "temperature": 0.0 },
+        },
+      },
+    },
+  },
 }
 ```
 
@@ -409,11 +447,11 @@ Check out the [Gemini CLI docs](https://github.com/google-gemini/gemini-cli) for
 
 ### Authentication Methods
 
-| Method | Setup | Best For | Tested |
-|--------|-------|----------|--------|
-| Sign in with Google | `gemini` (interactive) | Desktop use | Yes |
-| Gemini API Key | `export GEMINI_API_KEY=...` | CI/headless | No |
-| Vertex AI | `export GOOGLE_CLOUD_PROJECT=...` | Enterprise | No |
+| Method              | Setup                             | Best For    | Tested |
+| ------------------- | --------------------------------- | ----------- | ------ |
+| Sign in with Google | `gemini` (interactive)            | Desktop use | Yes    |
+| Gemini API Key      | `export GEMINI_API_KEY=...`       | CI/headless | No     |
+| Vertex AI           | `export GOOGLE_CLOUD_PROJECT=...` | Enterprise  | No     |
 
 ### Moving The Work Over To Gemini
 
@@ -457,17 +495,17 @@ Yes. Because the plugin uses your local Gemini CLI, your existing authentication
 
 **Current version:** v1.0.0 — tested on Linux/macOS with Google OAuth only. Windows is untested.
 
-| Area | Status |
-|------|--------|
-| Core commands (`review`, `rescue`, `status`, `result`, `cancel`) | Working |
-| Background jobs + broker persistence | Working |
-| Review gate (`/gemini:setup --enable-review-gate`) | Working — see warning in docs |
-| Scope validation (`--scope` flag) | [Known bug #1](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/1) — falls through to default silently |
-| Protocol method mismatch edge cases | [Known bug #2](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/2) |
-| Windows (Native) and macOS | Untested |
-| WSL and Linux | Tested |
-| `GEMINI_API_KEY` auth | Untested |
-| Vertex AI auth | Untested |
+| Area                                                             | Status                                                                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Core commands (`review`, `rescue`, `status`, `result`, `cancel`) | Working                                                                                                            |
+| Background jobs + broker persistence                             | Working                                                                                                            |
+| Review gate (`/gemini:setup --enable-review-gate`)               | Working — see warning in docs                                                                                      |
+| Scope validation (`--scope` flag)                                | [Known bug #1](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/1) — falls through to default silently |
+| Protocol method mismatch edge cases                              | [Known bug #2](https://github.com/sakibsadmanshajib/gemini-plugin-cc/issues/2)                                     |
+| Windows (Native) and macOS                                       | Untested                                                                                                           |
+| WSL and Linux                                                    | Tested                                                                                                             |
+| `GEMINI_API_KEY` auth                                            | Untested                                                                                                           |
+| Vertex AI auth                                                   | Untested                                                                                                           |
 
 **Requirements reminder:** Gemini CLI (`@google/gemini-cli`) must be installed and authenticated separately — this plugin is a bridge, not a bundled runtime.
 

@@ -1,5 +1,5 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
 import { parseArgs, parseCommandInput } from "../../plugins/gemini/scripts/lib/args.mjs";
 
@@ -32,7 +32,10 @@ test("parseCommandInput preserves already-tokenized argv", () => {
 });
 
 test("parseCommandInput splits a quoted raw argument token after fixed flags", () => {
-  const parsed = parseCommandInput(["--json", "--enable-review-gate --disable-review-gate"], SETUP_SCHEMA);
+  const parsed = parseCommandInput(
+    ["--json", "--enable-review-gate --disable-review-gate"],
+    SETUP_SCHEMA
+  );
 
   assert.deepEqual(parsed, {
     options: {

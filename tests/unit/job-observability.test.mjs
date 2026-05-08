@@ -1,22 +1,22 @@
-import test from "node:test";
 import assert from "node:assert/strict";
+import { test } from "vitest";
 
-import { initGitRepo, makeTempDir } from "../helpers.mjs";
+import { buildJobEventFromAcpNotification } from "../../plugins/gemini/scripts/lib/gemini.mjs";
+import {
+  MAX_DIAGNOSTIC_LENGTH,
+  MAX_JOB_EVENTS,
+  classifyDiagnostic,
+  __testing as jobObsTesting,
+  recordJobEvent
+} from "../../plugins/gemini/scripts/lib/job-observability.mjs";
+import { loadState, readJobFile } from "../../plugins/gemini/scripts/lib/state.mjs";
 import {
   createTrackedJob,
   markTrackedJobCancelled,
   runTrackedJob,
   updateJobPhase
 } from "../../plugins/gemini/scripts/lib/tracked-jobs.mjs";
-import { loadState, readJobFile } from "../../plugins/gemini/scripts/lib/state.mjs";
-import {
-  classifyDiagnostic,
-  recordJobEvent,
-  MAX_JOB_EVENTS,
-  MAX_DIAGNOSTIC_LENGTH,
-  __testing as jobObsTesting
-} from "../../plugins/gemini/scripts/lib/job-observability.mjs";
-import { buildJobEventFromAcpNotification } from "../../plugins/gemini/scripts/lib/gemini.mjs";
+import { initGitRepo, makeTempDir } from "../helpers.mjs";
 
 const { isDiagnosticEvent, sanitizeEvent } = jobObsTesting;
 
@@ -81,14 +81,21 @@ test("runTrackedJob records worker start and completion events", async () => {
   const stored = readJobFile(workspace, job.id);
   assert.equal(stored.status, "completed");
   assert.equal(stored.healthStatus, "completed");
-  assert.deepEqual(stored.events.map((event) => event.type), ["worker_started", "completed"]);
+  assert.deepEqual(
+    stored.events.map((event) => event.type),
+    ["worker_started", "completed"]
+  );
   assert.equal(stored.events.at(-1).message, "Job completed.");
 });
 
 test("runTrackedJob start transition preserves pre-existing events", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "pre-start event" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "pre-start event"
+  });
 
   await recordJobEvent(workspace, job.id, {
     type: "status",
@@ -102,11 +109,10 @@ test("runTrackedJob start transition preserves pre-existing events", async () =>
   }));
 
   const stored = readJobFile(workspace, job.id);
-  assert.deepEqual(stored.events.map((event) => event.type), [
-    "status",
-    "worker_started",
-    "completed"
-  ]);
+  assert.deepEqual(
+    stored.events.map((event) => event.type),
+    ["status", "worker_started", "completed"]
+  );
 });
 
 test("runTrackedJob records failure events without swallowing the original error", async () => {
@@ -124,7 +130,10 @@ test("runTrackedJob records failure events without swallowing the original error
   const stored = readJobFile(workspace, job.id);
   assert.equal(stored.status, "failed");
   assert.equal(stored.healthStatus, "failed");
-  assert.deepEqual(stored.events.map((event) => event.type), ["worker_started", "failed"]);
+  assert.deepEqual(
+    stored.events.map((event) => event.type),
+    ["worker_started", "failed"]
+  );
   assert.equal(stored.events.at(-1).message, "boom");
 });
 
@@ -222,7 +231,11 @@ test("recordJobEvent replaces index entries with compact observability fields", 
 test("recordJobEvent stores only bounded safe event fields", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "safe fields" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "safe fields"
+  });
   const longValue = "x".repeat(MAX_DIAGNOSTIC_LENGTH + 25);
 
   await recordJobEvent(workspace, job.id, {
@@ -267,7 +280,11 @@ test("recordJobEvent stores only bounded safe event fields", async () => {
 test("diagnostic events update health fields with bounded sanitized messages", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "diagnostic" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "diagnostic"
+  });
   const diagnosticText = `\u001b[31m401 auth expired\u001b[0m\u0007 ${"x".repeat(MAX_DIAGNOSTIC_LENGTH + 50)}`;
 
   await recordJobEvent(workspace, job.id, {
@@ -292,7 +309,11 @@ test("diagnostic events update health fields with bounded sanitized messages", a
 test("diagnostic sanitization strips OSC and DCS payloads", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "escape hygiene" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "escape hygiene"
+  });
 
   await recordJobEvent(workspace, job.id, {
     type: "diagnostic",
@@ -379,7 +400,11 @@ test("progress events clear stale diagnostic recovery actions", async () => {
 test("unknown error events use cautious health status", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "unknown error" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "unknown error"
+  });
 
   await recordJobEvent(workspace, job.id, {
     type: "error",
@@ -429,7 +454,9 @@ test("markTrackedJobCancelled returns { job, eventRecorded }", async () => {
 
 test("buildJobEventFromAcpNotification records chars, not model text, for agent_message_chunk", () => {
   const evt = buildJobEventFromAcpNotification({
-    params: { update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "secret" } } }
+    params: {
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "secret" } }
+    }
   });
   assert.equal(evt.type, "model_text_chunk");
   assert.equal(evt.chars, 6);
@@ -485,11 +512,17 @@ test("concurrent recordJobEvent calls on the same job retain all events", async 
 test("buildJobEventFromAcpNotification distinguishes agent_thought_chunk from agent_message_chunk", async () => {
   const messageEvent = buildJobEventFromAcpNotification({
     method: "session/update",
-    params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } } }
+    params: {
+      sessionId: "s1",
+      update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "hello" } }
+    }
   });
   const thoughtEvent = buildJobEventFromAcpNotification({
     method: "session/update",
-    params: { sessionId: "s1", update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "reasoning" } } }
+    params: {
+      sessionId: "s1",
+      update: { sessionUpdate: "agent_thought_chunk", content: { type: "text", text: "reasoning" } }
+    }
   });
   assert.equal(messageEvent.type, "model_text_chunk");
   assert.equal(messageEvent.chars, 5);
@@ -502,7 +535,11 @@ test("buildJobEventFromAcpNotification distinguishes agent_thought_chunk from ag
 test("recordJobEvent persists model_thought_chunk with only char count", async () => {
   const workspace = makeTempDir();
   initGitRepo(workspace);
-  const job = await createTrackedJob({ workspaceRoot: workspace, kind: "task", title: "thought persist" });
+  const job = await createTrackedJob({
+    workspaceRoot: workspace,
+    kind: "task",
+    title: "thought persist"
+  });
 
   await recordJobEvent(workspace, job.id, {
     type: "model_thought_chunk",

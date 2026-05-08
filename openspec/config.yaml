@@ -102,5 +102,5 @@ rules:
     - Cross-references between specs use the post-archive path
       `openspec/specs/<cap>/spec.md`, since archive moves deltas from
       `openspec/changes/<id>/specs/<cap>/` into the canonical tree.
-    - Gate before requesting review or archiving:
-      `openspec validate <change-id> --strict`.
+    - Gate via `openspec validate <change-id> --strict` before requesting
+      review or archiving.

@@ -1,0 +1,9 @@
+# pnpm workspace configuration.
+#
+# Initial layout has no workspace packages declared; the single root package.json
+# is the entire repo at modernize-toolchain time. Workspace globs (e.g. 'lib',
+# 'plugins/*') will be added incrementally in subsequent changes
+# (add-app-server-transport-and-marketplace-split, etc.) as @artagon/acp-plugin-lib
+# and per-plugin packages are extracted.
+
+packages: []

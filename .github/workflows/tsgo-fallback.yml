@@ -1,0 +1,39 @@
+name: tsgo-fallback
+
+# Weekly type-check using stable `tsc` to detect tsgo regressions.
+# tsgo (`@typescript/native-preview`) is pre-1.0 and ships breaking changes
+# regularly; this job validates that our typecheck still passes under
+# stable TypeScript so we can fall back if tsgo regresses.
+
+on:
+  schedule:
+    # Mondays at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  fallback:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: "pnpm"
+
+      - name: Install dependencies
+        env:
+          HUSKY: 0
+        run: pnpm install --frozen-lockfile
+
+      - name: Type-check under stable tsc
+        run: pnpm run typecheck:fallback

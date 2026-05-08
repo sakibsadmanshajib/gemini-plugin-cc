@@ -1,11 +1,14 @@
+import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import test from "node:test";
-import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
+import { test } from "vitest";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const COMPANION_SRC = fs.readFileSync(path.join(ROOT, "plugins/gemini/scripts/gemini-companion.mjs"), "utf8");
+const COMPANION_SRC = fs.readFileSync(
+  path.join(ROOT, "plugins/gemini/scripts/gemini-companion.mjs"),
+  "utf8"
+);
 
 function functionSource(name) {
   const marker = `async function ${name}`;

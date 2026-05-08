@@ -132,7 +132,9 @@ export function loadState(cwd) {
 
 function pruneJobs(jobs) {
   return [...jobs]
-    .sort((left, right) => String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? "")))
+    .sort((left, right) =>
+      String(right.updatedAt ?? "").localeCompare(String(left.updatedAt ?? ""))
+    )
     .slice(0, MAX_JOBS);
 }
 
@@ -155,7 +157,7 @@ function removeFileIfExists(filePath) {
 function reconcileState(current, incoming) {
   const byId = new Map();
   for (const job of current.jobs ?? []) {
-    if (job && job.id) byId.set(job.id, job);
+    if (job?.id) byId.set(job.id, job);
   }
   for (const job of incoming?.jobs ?? []) {
     if (!job || !job.id) continue;

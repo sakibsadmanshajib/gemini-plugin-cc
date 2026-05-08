@@ -1,0 +1,8 @@
+{
+  "name": "claude",
+  "version": "0.1.0",
+  "description": "Installed in Claude Code; drives Codex and Gemini backends via stateless CLI runners.",
+  "author": {
+    "name": "Artagon & Giedrius Trumpickas"
+  }
+}

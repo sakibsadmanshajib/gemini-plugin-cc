@@ -78,8 +78,8 @@ export const SESSION_ID_ENV = "GEMINI_COMPANION_SESSION_ID";
 
 // ─── Filenames the runtime writes inside the state dir ────────────────────
 
-export const SESSION_ENV_FILENAME = "session.env";   // Claude Code writes this
-export const STATE_DIR_NAME = "state";               // <CLAUDE_PLUGIN_DATA>/state/...
+export const SESSION_ENV_FILENAME = "session.env"; // Claude Code writes this
+export const STATE_DIR_NAME = "state"; // <CLAUDE_PLUGIN_DATA>/state/...
 export const FALLBACK_STATE_ROOT_NAME = "gemini-companion"; // <TMPDIR>/gemini-companion/...
 export const ACP_SESSION_DIR_NAME = "acp-session";
 export const BROKER_SESSION_FILENAME = "broker-session.json";

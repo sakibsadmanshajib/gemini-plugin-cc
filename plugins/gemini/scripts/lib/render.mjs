@@ -96,7 +96,9 @@ export function renderStatusSnapshot(snapshot) {
     for (const job of snapshot.recent) {
       const duration = computeElapsedDisplay(job);
       const followUp = job.status === "completed" ? `/gemini:result ${job.id}` : "-";
-      lines.push(`| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${job.summary ?? "-"} | ${followUp} |`);
+      lines.push(
+        `| ${job.id} | ${job.kind ?? "-"} | ${job.status} | ${duration} | ${job.summary ?? "-"} | ${followUp} |`
+      );
     }
     lines.push("");
   }
@@ -238,7 +240,9 @@ export function renderSingleJobStatus(snapshotOrJob, options = {}) {
     for (const event of tail) {
       lines.push(`    ${formatEventLineBrief(event)}  ${formatAgo(nowMs, event.timestamp)}`);
     }
-    lines.push(`  totals: chunks=${counters.chunks}  thoughts=${counters.thoughts}  tools=${counters.tools}  files=${counters.files}`);
+    lines.push(
+      `  totals: chunks=${counters.chunks}  thoughts=${counters.thoughts}  tools=${counters.tools}  files=${counters.files}`
+    );
   }
 
   return `${lines.join("\n").trimEnd()}\n`;
@@ -271,7 +275,9 @@ export function renderResultOutput(cwd, job, storedJob) {
 
   // If there's pre-rendered output, return it.
   if (storedJob?.rendered) {
-    const output = storedJob.rendered.endsWith("\n") ? storedJob.rendered : `${storedJob.rendered}\n`;
+    const output = storedJob.rendered.endsWith("\n")
+      ? storedJob.rendered
+      : `${storedJob.rendered}\n`;
     if (!threadId) {
       return output;
     }
@@ -313,12 +319,7 @@ export function renderResultOutput(cwd, job, storedJob) {
  * @returns {string}
  */
 export function renderCancelReport(job) {
-  const lines = [
-    "# Gemini Cancel",
-    "",
-    `Cancelled ${job.id}.`,
-    ""
-  ];
+  const lines = ["# Gemini Cancel", "", `Cancelled ${job.id}.`, ""];
 
   if (job.title) {
     lines.push(`- Title: ${job.title}`);
@@ -343,13 +344,17 @@ export function renderSetupReport(report) {
   lines.push("");
 
   if (report.geminiAvailable) {
-    lines.push(`- Gemini CLI: installed${report.geminiVersion ? ` (${report.geminiVersion})` : ""}`);
+    lines.push(
+      `- Gemini CLI: installed${report.geminiVersion ? ` (${report.geminiVersion})` : ""}`
+    );
   } else {
     lines.push("- Gemini CLI: **not installed**");
   }
 
   if (report.authenticated !== undefined) {
-    lines.push(`- Authentication: ${report.authenticated ? "authenticated" : "**not authenticated**"}`);
+    lines.push(
+      `- Authentication: ${report.authenticated ? "authenticated" : "**not authenticated**"}`
+    );
     if (report.authMethod) {
       lines.push(`- Auth method: ${report.authMethod}`);
     }
@@ -403,10 +408,7 @@ function computeElapsedDisplay(job) {
 }
 
 function formatEventLine(event) {
-  const parts = [
-    event.timestamp ?? "-",
-    event.type ?? "event"
-  ];
+  const parts = [event.timestamp ?? "-", event.type ?? "event"];
   const details = [];
   if (event.phase) {
     details.push(`phase=${event.phase}`);

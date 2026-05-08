@@ -16,7 +16,9 @@ export const QUIET_AFTER_MS = 2 * 60 * 1000;
 export const POSSIBLY_STALLED_AFTER_MS = 10 * 60 * 1000;
 
 export function sortJobsNewestFirst(jobs) {
-  return [...jobs].sort((a, b) => String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? "")));
+  return [...jobs].sort((a, b) =>
+    String(b.updatedAt ?? "").localeCompare(String(a.updatedAt ?? ""))
+  );
 }
 
 export function filterJobsForCurrentSession(jobs, env = process.env) {
@@ -99,7 +101,8 @@ function classifyRuntimeHealth(job, options = {}) {
     return {
       healthStatus: "worker_missing",
       healthMessage: "Worker process is no longer running.",
-      recommendedAction: "Check /gemini:result or /gemini:status, then retry if the result is incomplete."
+      recommendedAction:
+        "Check /gemini:result or /gemini:status, then retry if the result is incomplete."
     };
   }
 
@@ -133,7 +136,8 @@ function classifyRuntimeHealth(job, options = {}) {
     return {
       healthStatus: "possibly_stalled",
       healthMessage: "No recent worker heartbeat or progress was recorded.",
-      recommendedAction: "Check /gemini:status or /gemini:result, then retry if the job does not recover."
+      recommendedAction:
+        "Check /gemini:status or /gemini:result, then retry if the job does not recover."
     };
   }
 
@@ -254,7 +258,9 @@ export function buildSingleJobSnapshot(cwd, reference, options = {}) {
 export function resolveResultJob(cwd, reference, options = {}) {
   const workspaceRoot = resolveWorkspaceRoot(cwd);
   const jobs = sortJobsNewestFirst(
-    reference ? listJobs(workspaceRoot) : filterJobsForCurrentSession(listJobs(workspaceRoot), options.env)
+    reference
+      ? listJobs(workspaceRoot)
+      : filterJobsForCurrentSession(listJobs(workspaceRoot), options.env)
   );
   const selected = matchJobReference(
     jobs,
@@ -266,7 +272,11 @@ export function resolveResultJob(cwd, reference, options = {}) {
     return { workspaceRoot, job: selected };
   }
 
-  const active = matchJobReference(jobs, reference, (job) => job.status === "running" || job.status === "queued");
+  const active = matchJobReference(
+    jobs,
+    reference,
+    (job) => job.status === "running" || job.status === "queued"
+  );
   if (active) {
     throw new Error(
       `Job ${active.id} is still ${active.status}. Run /gemini:status ${active.id} to check progress, or /gemini:status ${active.id} --wait to wait.`

@@ -25,7 +25,8 @@ function detectFamily(modelId) {
   if (/^gemini-3(\.|-|$)/.test(modelId) || /^auto-gemini-3/.test(modelId)) return "gemini-3";
   if (/^gemini-2\.5-flash-lite/.test(modelId)) return "gemini-2.5-flash-lite";
   if (/^gemini-2\.5-flash/.test(modelId)) return "gemini-2.5-flash";
-  if (/^gemini-2\.5-pro/.test(modelId) || /^auto-gemini-2\.5/.test(modelId)) return "gemini-2.5-pro";
+  if (/^gemini-2\.5-pro/.test(modelId) || /^auto-gemini-2\.5/.test(modelId))
+    return "gemini-2.5-pro";
   return "unknown";
 }
 
@@ -39,7 +40,9 @@ export function resolveThinkingConfig(level, modelId) {
     return { thinkingLevel: undefined, thinkingBudget: undefined, notes: [] };
   }
   if (!LEVEL_SET.has(level)) {
-    throw new Error(`Invalid thinking level: ${level}. Expected one of ${THINKING_LEVELS.join(", ")}.`);
+    throw new Error(
+      `Invalid thinking level: ${level}. Expected one of ${THINKING_LEVELS.join(", ")}.`
+    );
   }
 
   const family = detectFamily(modelId);
@@ -65,7 +68,9 @@ export function resolveThinkingConfig(level, modelId) {
 
   if (family === "gemini-2.5-pro") {
     if (level === "off") {
-      notes.push("clamped off→low: Gemini 2.5 Pro does not support disabling thinking; using thinkingBudget 2048 (API minimum is 128)");
+      notes.push(
+        "clamped off→low: Gemini 2.5 Pro does not support disabling thinking; using thinkingBudget 2048 (API minimum is 128)"
+      );
       return { thinkingLevel: undefined, thinkingBudget: 2048, notes };
     }
     if (level === "low") return { thinkingLevel: undefined, thinkingBudget: 2048, notes };

@@ -194,7 +194,10 @@ export function readUntrackedFiles(cwd, files, options = {}) {
         continue;
       }
       if (totalBytes + stat.size > maxBytes) {
-        results.push({ path: file, skipped: `exceeds byte limit (${stat.size} bytes)` });
+        results.push({
+          path: file,
+          skipped: `exceeds byte limit (${stat.size} bytes)`
+        });
         continue;
       }
       const buffer = fs.readFileSync(fullPath);
@@ -273,7 +276,7 @@ export function buildWorkingTreeSummary(branch, headSha, changedFiles, untracked
  *
  * @param {string} cwd
  * @param {string} baseRef
- * @returns {{ mergeBase: string, diff: string, commits: string, fileList: string[], summary: string }}
+ * @returns {{ mergeBase: string, diff: string, commits: string, fileList: string[], untrackedContents: Array<any>, summary: string }}
  */
 export function buildBranchComparison(cwd, baseRef) {
   const mergeBase = gitChecked(cwd, ["merge-base", "HEAD", baseRef]).trim();
@@ -291,7 +294,9 @@ export function buildBranchComparison(cwd, baseRef) {
     ...fileList.map((f) => `  ${f}`)
   ].join("\n");
 
-  return { mergeBase, diff, commits, fileList, summary };
+  // untrackedContents is empty for branch comparisons (no working-tree files)
+  // but included so the union return type from collectReviewContext is uniform.
+  return { mergeBase, diff, commits, fileList, untrackedContents: [], summary };
 }
 
 /**
@@ -307,9 +312,7 @@ export function collectReviewContext(cwd, options = {}) {
   const scope = options.scope ?? "auto";
 
   if (!VALID_SCOPES.has(scope)) {
-    throw new Error(
-      `Invalid scope "${scope}". Must be one of: ${[...VALID_SCOPES].join(", ")}`
-    );
+    throw new Error(`Invalid scope "${scope}". Must be one of: ${[...VALID_SCOPES].join(", ")}`);
   }
 
   if (scope === "branch" && options.base) {
@@ -322,7 +325,8 @@ export function collectReviewContext(cwd, options = {}) {
   if (scope === "auto") {
     // If there are working-tree changes, review those. Otherwise try branch.
     const files = getWorkingTreeFiles(cwd);
-    const hasChanges = files.staged.length > 0 || files.unstaged.length > 0 || files.untracked.length > 0;
+    const hasChanges =
+      files.staged.length > 0 || files.unstaged.length > 0 || files.untracked.length > 0;
     if (hasChanges) {
       return {
         scope: "working-tree",

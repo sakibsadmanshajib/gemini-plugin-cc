@@ -6,14 +6,21 @@
  * (JSON-RPC 2.0 via `gemini --acp`) instead of Codex's app-server.
  */
 
-import { readJsonFile } from "./fs.mjs";
-import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV, GeminiAcpClient } from "./acp-client.mjs";
+// All ACP call sites in this module use the v2 transport layer. The legacy
+// `GeminiAcpClient` (formerly at `./acp-client.mjs`) was removed; only its
+// constants survive in `./broker-constants.mjs`.
+import { createAcpClient } from "#lib/acp/client.mjs";
+import { geminiBackend } from "#lib/backends/gemini.mjs";
+
 import { sanitizeDiagnosticMessage } from "./acp-diagnostics.mjs";
-import { loadBrokerSession } from "./broker-lifecycle.mjs";
-import { binaryAvailable, runCommand } from "./process.mjs";
+import { BROKER_BUSY_RPC_CODE, BROKER_ENDPOINT_ENV } from "./broker-constants.mjs";
+import { ensureBrokerSession, loadBrokerSession } from "./broker-lifecycle.mjs";
+import { readJsonFile } from "./fs.mjs";
 import { collectReviewContext } from "./git.mjs";
-import { loadPrompt } from "./prompts.mjs";
 import { recordJobEvent } from "./job-observability.mjs";
+import { getPluginInfo } from "./plugin-info.mjs";
+import { binaryAvailable, runCommand } from "./process.mjs";
+import { loadPrompt } from "./prompts.mjs";
 import { resolveThinkingConfig } from "./thinking.mjs";
 
 let thinkingWarned = false;
@@ -77,9 +84,7 @@ function recordObserverEvent(observer, event) {
   // crash the ACP flow. `recordJobEvent` is async; attach a `.catch` and
   // drop any rejection so this helper remains fire-and-forget.
   try {
-    Promise.resolve(
-      recordJobEvent(observer.workspaceRoot, observer.jobId, event)
-    ).catch(() => {});
+    Promise.resolve(recordJobEvent(observer.workspaceRoot, observer.jobId, event)).catch(() => {});
   } catch {
     // Swallow synchronous throws (e.g. bad args) for the same reason.
   }
@@ -124,9 +129,9 @@ function emitThinkingWarningIfNew(writer = (s) => process.stderr.write(s)) {
   }
   writer(
     "Warning: --thinking is parsed but not delivered to the running Gemini CLI. " +
-    "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
-    "for a persistent setting. See " +
-    "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
+      "Configure thinkingConfig at the model-alias level in your Gemini settings.json " +
+      "for a persistent setting. See " +
+      "https://github.com/google-gemini/gemini-cli/blob/main/docs/cli/generation-settings.md\n"
   );
   thinkingWarned = true;
 }
@@ -222,36 +227,171 @@ export async function getGeminiAuthStatus(cwd) {
     return { authenticated: true, method: "service_account" };
   }
 
+  // v2 path: spawn `gemini --acp` via the new transport layer, perform a
+  // manual handshake to recover capabilities (the new createAcpClient does
+  // not auto-handshake — that's intentional, since not every consumer wants
+  // the initialize round-trip), then walk the auth-method priority order.
+  // disableBroker semantics are inherent: transports.cli always spawns a
+  // fresh subprocess, never touching the broker socket.
+  const transport = geminiBackend.transports.cli({
+    cwd,
+    env: process.env
+  });
+  const client = createAcpClient(transport);
   try {
-    const client = await GeminiAcpClient.connect(cwd, { disableBroker: true });
-    try {
-      const authMethods = client.capabilities?.authMethods ?? [];
-      // Try oauth-personal first (most common for interactive users),
-      // then fall back to any other available method.
-      const methodOrder = ["oauth-personal", "gemini-api-key", "vertex-ai", "cloud-shell", "compute-default-credentials", "gateway"];
-      const available = methodOrder.filter((m) => authMethods.some((am) => am.id === m));
+    await client.start();
+    const info = getPluginInfo();
+    /** @type {any} */
+    const init = await client.request("initialize", {
+      protocolVersion: 1,
+      clientInfo: { name: info.name, version: info.version }
+    });
+    const authMethods = init?.authMethods ?? [];
+    // Priority order: oauth-personal first (most common for interactive
+    // users), then fall back to any other advertised method.
+    const methodOrder = [
+      "oauth-personal",
+      "gemini-api-key",
+      "vertex-ai",
+      "cloud-shell",
+      "compute-default-credentials",
+      "gateway"
+    ];
+    const available = methodOrder.filter((m) =>
+      authMethods.some(/** @param {{ id: string }} am */ (am) => am.id === m)
+    );
 
-      for (const methodId of available) {
-        try {
-          const result = await client.request("authenticate", { methodId });
-          // A successful (non-error) response that doesn't explicitly say
-          // authenticated:false means the user is already authenticated.
-          if (result && result.authenticated !== false) {
-            return { authenticated: true, method: methodId };
-          }
-        } catch {
-          // This method isn't authenticated, try next.
-          continue;
+    for (const methodId of available) {
+      try {
+        /** @type {any} */
+        const result = await client.request("authenticate", { methodId });
+        // A successful (non-error) response that doesn't explicitly say
+        // authenticated:false means the user is already authenticated.
+        if (result && result.authenticated !== false) {
+          return { authenticated: true, method: methodId };
         }
-      }
-
-      return { authenticated: false, method: null };
-    } finally {
-      await client.close();
+      } catch {}
     }
+
+    return { authenticated: false, method: null };
   } catch {
     return { authenticated: false, method: null };
+  } finally {
+    try {
+      await client.close();
+    } catch {}
   }
+}
+
+/**
+ * Connect to the Gemini ACP runtime via the v2 transport layer with the
+ * legacy broker-fallback semantics: try broker (existing or freshly spawned)
+ * first, fall back to a direct CLI subprocess on broker-busy or any other
+ * broker connection failure.
+ *
+ * Returns the started AcpSession plus the initialize-result capabilities so
+ * callers can inspect e.g. `authMethods` without re-issuing the request.
+ *
+ * `onDiagnostic` mirrors the legacy hook: when broker fallback fires, the
+ * fallback message is forwarded to the caller for job-event recording.
+ *
+ * `launchOptions` are forwarded to `geminiBackend.transports.cli` when the
+ * broker path isn't taken (the broker is already running, so it can't honor
+ * fresh launch flags). Per the v2 architecture, these become CLI argv via
+ * `buildGeminiArgs` — see `lib/backends/gemini.mjs`.
+ *
+ * @param {string} cwd
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   reuseExistingBroker?: boolean,
+ *   disableBroker?: boolean,
+ *   onDiagnostic?: (payload: { source: string, message: string }) => void,
+ *   launchOptions?: import("#lib/backends/gemini.mjs").BackendConfig
+ * }} [options]
+ * @returns {Promise<{ client: import("#lib/acp/types.mjs").AcpSession, capabilities: any, viaBroker: boolean }>}
+ */
+async function connectGeminiAcpV2(cwd, options = {}) {
+  let brokerEndpoint = null;
+  if (!options.disableBroker) {
+    brokerEndpoint = options.env?.[BROKER_ENDPOINT_ENV] ?? process.env[BROKER_ENDPOINT_ENV] ?? null;
+    if (!brokerEndpoint && options.reuseExistingBroker) {
+      brokerEndpoint = loadBrokerSession(cwd)?.endpoint ?? null;
+    }
+    if (!brokerEndpoint && !options.reuseExistingBroker) {
+      const brokerSession = await ensureBrokerSession(cwd, {
+        env: options.env
+      });
+      brokerEndpoint = brokerSession?.endpoint ?? null;
+    }
+  }
+
+  const info = getPluginInfo();
+  /** @type {import("#lib/acp/types.mjs").AcpSession | null} */
+  let client = null;
+  let capabilities = null;
+
+  if (brokerEndpoint) {
+    const transport = geminiBackend.transports.brokerSocket(brokerEndpoint, {
+      cwd,
+      env: options.env
+    });
+    const candidate = createAcpClient(transport);
+    try {
+      await candidate.start();
+      capabilities = await candidate.request("initialize", {
+        protocolVersion: 1,
+        clientInfo: { name: info.name, version: info.version }
+      });
+      client = candidate;
+    } catch (error) {
+      const code = /** @type {any} */ (error)?.code;
+      const fallbackMessage =
+        code === BROKER_BUSY_RPC_CODE
+          ? "Broker busy, falling back to direct gemini --acp spawn."
+          : `Broker connection failed (${/** @type {any} */ (error)?.message ?? error}), falling back to direct spawn.`;
+      process.stderr.write(`${fallbackMessage}\n`);
+      try {
+        options.onDiagnostic?.({
+          source: "broker-fallback",
+          message: sanitizeDiagnosticMessage(fallbackMessage)
+        });
+      } catch {
+        // Best-effort.
+      }
+      try {
+        await candidate.close();
+      } catch {
+        // Already failed; nothing more to clean up.
+      }
+    }
+  }
+
+  const viaBroker = client !== null;
+
+  if (!client) {
+    // launchOptions are CLI-flag-shaped (yolo, approvalMode, worktree,
+    // policyFiles, etc.) and only meaningful on a fresh subprocess. The
+    // broker path can't honor them — the broker's child was started long
+    // before this call. If the caller passed launch options AND we ended
+    // up on the broker path, those options are silently inert; that's
+    // intentional (see docs/architecture.md "Key invariants" — broker
+    // reuse trades fresh launch flags for amortized startup cost).
+    // launchOptions FIRST so outer cwd/env always win — callers shouldn't
+    // accidentally relocate the spawn by stuffing cwd into launchOptions.
+    const transport = geminiBackend.transports.cli({
+      ...(options.launchOptions ?? {}),
+      cwd,
+      env: options.env
+    });
+    client = createAcpClient(transport);
+    await client.start();
+    capabilities = await client.request("initialize", {
+      protocolVersion: 1,
+      clientInfo: { name: info.name, version: info.version }
+    });
+  }
+
+  return { client, capabilities, viaBroker };
 }
 
 /**
@@ -263,7 +403,8 @@ export async function getGeminiAuthStatus(cwd) {
  */
 export function getSessionRuntimeStatus(env, cwd) {
   const session = loadBrokerSession(cwd);
-  const endpoint = session?.endpoint ?? env?.[BROKER_ENDPOINT_ENV] ?? process.env[BROKER_ENDPOINT_ENV] ?? null;
+  const endpoint =
+    session?.endpoint ?? env?.[BROKER_ENDPOINT_ENV] ?? process.env[BROKER_ENDPOINT_ENV] ?? null;
   return {
     brokerRunning: Boolean(session),
     endpoint
@@ -362,15 +503,28 @@ export const __testing = {
  *
  * @param {string} cwd
  * @param {string} prompt
- * @param {{ model?: string, thinkingBudget?: number, thinking?: "off"|"low"|"medium"|"high", approvalMode?: string, sessionId?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
+ * @param {{
+ *   model?: string,
+ *   thinkingBudget?: number,
+ *   thinking?: "off"|"low"|"medium"|"high",
+ *   approvalMode?: string,
+ *   sessionId?: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   onNotification?: (n: any) => void,
+ *   onStream?: (event: any) => void,
+ *   streamThoughtText?: boolean,
+ *   jobObserver?: any,
+ *   onDiagnostic?: (payload: { source: string, message: string }) => void,
+ *   launchOptions?: import("#lib/backends/gemini.mjs").BackendConfig,
+ *   disableBroker?: boolean
+ * }} [options]
  * @returns {Promise<TurnResult>}
  */
 export async function runAcpPrompt(cwd, prompt, options = {}) {
   // Collect streamed text and tool calls from session/update notifications.
   const sinks = createNotificationSinks();
-  const observer = options.jobObserver && options.jobObserver.workspaceRoot && options.jobObserver.jobId
-    ? options.jobObserver
-    : null;
+  const observer =
+    options.jobObserver?.workspaceRoot && options.jobObserver.jobId ? options.jobObserver : null;
 
   const notificationHandler = (notification) => {
     dispatchOneNotification(notification, sinks, options.onStream, {
@@ -396,46 +550,78 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
     }
   };
 
-  const client = await GeminiAcpClient.connect(cwd, {
+  // v2 transport path: connect via the new layer with broker fallback,
+  // then attach the notification handler. The legacy `connect()` accepted
+  // the handler at construction time; the v2 client exposes
+  // `onNotification(handler)` for the same purpose. Order matters — we
+  // attach BEFORE issuing any session/* requests so we don't miss the
+  // first session/update notification.
+  const { client } = await connectGeminiAcpV2(cwd, {
     env: options.env,
-    onNotification: notificationHandler,
-    onDiagnostic: diagnosticHandler
+    onDiagnostic: diagnosticHandler,
+    launchOptions: options.launchOptions,
+    disableBroker: options.disableBroker
   });
+  client.onNotification(notificationHandler);
 
   try {
     // Create or load session.
     let sessionId = options.sessionId ?? null;
     if (sessionId) {
       await client.request("session/load", { sessionId, cwd, mcpServers: [] });
-      recordObserverEvent(observer, { type: "phase", message: "session_loaded" });
-      emitStreamEvent(options.onStream, { type: "phase", message: "session_loaded" });
+      recordObserverEvent(observer, {
+        type: "phase",
+        message: "session_loaded"
+      });
+      emitStreamEvent(options.onStream, {
+        type: "phase",
+        message: "session_loaded"
+      });
     } else {
       const session = await client.request("session/new", {
         cwd,
         mcpServers: []
       });
       sessionId = session?.sessionId ?? null;
-      recordObserverEvent(observer, { type: "phase", message: "session_created" });
-      emitStreamEvent(options.onStream, { type: "phase", message: "session_created" });
+      recordObserverEvent(observer, {
+        type: "phase",
+        message: "session_created"
+      });
+      emitStreamEvent(options.onStream, {
+        type: "phase",
+        message: "session_created"
+      });
     }
 
     // Set approval mode (defaults to autoEdit if not specified).
     {
-      const modeMap = { auto_edit: "autoEdit", default: "default", yolo: "yolo", plan: "plan" };
+      const modeMap = {
+        auto_edit: "autoEdit",
+        default: "default",
+        yolo: "yolo",
+        plan: "plan"
+      };
       const modeId = modeMap[options.approvalMode ?? "auto_edit"] ?? options.approvalMode;
       try {
         await client.request("session/set_mode", { sessionId, modeId });
       } catch (error) {
-        process.stderr.write(`Warning: could not set mode to ${modeId}: ${error?.message ?? error}\n`);
+        process.stderr.write(
+          `Warning: could not set mode to ${modeId}: ${error?.message ?? error}\n`
+        );
       }
     }
 
     // Set model if requested.
     if (options.model) {
       try {
-        await client.request("session/set_model", { sessionId, modelId: options.model });
+        await client.request("session/set_model", {
+          sessionId,
+          modelId: options.model
+        });
       } catch (error) {
-        process.stderr.write(`Warning: could not set model to ${options.model}: ${error?.message ?? error}\n`);
+        process.stderr.write(
+          `Warning: could not set model to ${options.model}: ${error?.message ?? error}\n`
+        );
       }
     }
 
@@ -445,8 +631,14 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
       for (const note of resolvedThinking.notes) {
         process.stderr.write(`Thinking: ${note}\n`);
       }
-      recordObserverEvent(observer, { type: "phase", message: `thinking:${options.thinking}` });
-      emitStreamEvent(options.onStream, { type: "phase", message: sanitizeDiagnosticMessage(`thinking:${options.thinking}`) });
+      recordObserverEvent(observer, {
+        type: "phase",
+        message: `thinking:${options.thinking}`
+      });
+      emitStreamEvent(options.onStream, {
+        type: "phase",
+        message: sanitizeDiagnosticMessage(`thinking:${options.thinking}`)
+      });
       // Delivery: upstream Gemini CLI (0.38.x) does not accept a per-invocation
       // thinking override via CLI flag, env var, or session/new param; the
       // configuration lives in settings.json at the model-alias level.
@@ -501,8 +693,21 @@ export async function runAcpPrompt(cwd, prompt, options = {}) {
  * Run a code review via ACP. Collects git context and sends a review prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
- * @returns {Promise<{ text: string, sessionId: string | null, scope: string, summary: string, error: unknown }>}
+ * @param {{
+ *   scope?: string,
+ *   base?: string,
+ *   model?: string,
+ *   thinking?: "off"|"low"|"medium"|"high",
+ *   env?: NodeJS.ProcessEnv,
+ *   onNotification?: (n: any) => void,
+ *   onStream?: (event: any) => void,
+ *   streamThoughtText?: boolean,
+ *   jobObserver?: any,
+ *   onDiagnostic?: (payload: { source: string, message: string }) => void,
+ *   launchOptions?: import("#lib/backends/gemini.mjs").BackendConfig,
+ *   disableBroker?: boolean
+ * }} [options]
+ * @returns {Promise<{ text: string, sessionId: string | null, scope: string, summary: string, fileChanges: Array<{ path: string, action: string }>, toolCalls: Array<{ name: string, arguments: Record<string, unknown>, result?: string }>, error: unknown }>}
  */
 export async function runAcpReview(cwd, options = {}) {
   const { scope, context } = collectReviewContext(cwd, {
@@ -516,6 +721,8 @@ export async function runAcpReview(cwd, options = {}) {
       sessionId: null,
       scope,
       summary: "No changes",
+      fileChanges: [],
+      toolCalls: [],
       error: null
     };
   }
@@ -531,7 +738,9 @@ export async function runAcpReview(cwd, options = {}) {
     env: options.env,
     onNotification: options.onNotification,
     jobObserver: options.jobObserver,
-    onDiagnostic: options.onDiagnostic
+    onDiagnostic: options.onDiagnostic,
+    launchOptions: options.launchOptions,
+    disableBroker: options.disableBroker
   });
 
   return {
@@ -539,6 +748,8 @@ export async function runAcpReview(cwd, options = {}) {
     sessionId: result.sessionId,
     scope,
     summary: context.summary,
+    fileChanges: result.fileChanges,
+    toolCalls: result.toolCalls,
     error: result.error
   };
 }
@@ -547,8 +758,23 @@ export async function runAcpReview(cwd, options = {}) {
  * Run an adversarial review via ACP with a structured output prompt.
  *
  * @param {string} cwd
- * @param {{ scope?: string, base?: string, model?: string, thinking?: "off"|"low"|"medium"|"high", focus?: string, schemaPath?: string, env?: NodeJS.ProcessEnv, onNotification?: (n: any) => void, onStream?: (event: any) => void, streamThoughtText?: boolean }} [options]
- * @returns {Promise<{ text: string, parsed: any, sessionId: string | null, scope: string, error: unknown }>}
+ * @param {{
+ *   scope?: string,
+ *   base?: string,
+ *   model?: string,
+ *   thinking?: "off"|"low"|"medium"|"high",
+ *   focus?: string,
+ *   schemaPath?: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   onNotification?: (n: any) => void,
+ *   onStream?: (event: any) => void,
+ *   streamThoughtText?: boolean,
+ *   jobObserver?: any,
+ *   onDiagnostic?: (payload: { source: string, message: string }) => void,
+ *   launchOptions?: import("#lib/backends/gemini.mjs").BackendConfig,
+ *   disableBroker?: boolean
+ * }} [options]
+ * @returns {Promise<{ text: string, parsed: any, sessionId: string | null, scope: string, fileChanges: Array<{ path: string, action: string }>, toolCalls: Array<{ name: string, arguments: Record<string, unknown>, result?: string }>, error: unknown }>}
  */
 export async function runAcpAdversarialReview(cwd, options = {}) {
   const { scope, context } = collectReviewContext(cwd, {
@@ -556,9 +782,10 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
     base: options.base
   });
 
-  const targetLabel = scope === "branch"
-    ? `Branch comparison: ${context.summary?.split("\n")[0] ?? "HEAD vs base"}`
-    : `Working tree: ${context.summary?.split("\n")[0] ?? "uncommitted changes"}`;
+  const targetLabel =
+    scope === "branch"
+      ? `Branch comparison: ${context.summary?.split("\n")[0] ?? "HEAD vs base"}`
+      : `Working tree: ${context.summary?.split("\n")[0] ?? "uncommitted changes"}`;
 
   const userFocus = options.focus || "General review — no specific focus area requested.";
 
@@ -600,7 +827,9 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
     env: options.env,
     onNotification: options.onNotification,
     jobObserver: options.jobObserver,
-    onDiagnostic: options.onDiagnostic
+    onDiagnostic: options.onDiagnostic,
+    launchOptions: options.launchOptions,
+    disableBroker: options.disableBroker
   });
 
   const parsed = parseStructuredOutput(result.text);
@@ -610,6 +839,8 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
     parsed,
     sessionId: result.sessionId,
     scope,
+    fileChanges: result.fileChanges,
+    toolCalls: result.toolCalls,
     error: result.error
   };
 }
@@ -622,21 +853,36 @@ export async function runAcpAdversarialReview(cwd, options = {}) {
  * @returns {Promise<{ attempted: boolean, interrupted: boolean }>}
  */
 export async function interruptAcpPrompt(cwd, options = {}) {
+  // T7 (add-transport-abstraction-with-gemini) — this call site uses the v2
+  // transport layer (`lib/backends/gemini.mjs::transports.brokerSocket` wired
+  // through `lib/acp/client.mjs::createAcpClient`). When a broker session
+  // exists, route through it; when one does not, fall back to a one-shot
+  // direct CLI subprocess via `transports.cli`. The direct fallback won't
+  // reach an in-flight session in another process — but neither did the
+  // legacy code path; behavior parity is preserved.
+  const session = loadBrokerSession(cwd);
+  /** @type {import("#lib/acp/client.mjs").ClientTransport} */
+  const transport = session?.endpoint
+    ? geminiBackend.transports.brokerSocket(session.endpoint, {
+        cwd,
+        env: options.env
+      })
+    : geminiBackend.transports.cli({ cwd, env: options.env });
+  const client = createAcpClient(transport);
   try {
-    const client = await GeminiAcpClient.connect(cwd, {
-      reuseExistingBroker: true,
-      env: options.env
+    await client.start();
+    client.notify("session/cancel", {
+      sessionId: options.sessionId
     });
-    try {
-      client.notify("session/cancel", {
-        sessionId: options.sessionId
-      });
-      return { attempted: true, interrupted: true };
-    } finally {
-      await client.close();
-    }
+    return { attempted: true, interrupted: true };
   } catch {
     return { attempted: true, interrupted: false };
+  } finally {
+    try {
+      await client.close();
+    } catch {
+      // Already torn down.
+    }
   }
 }
 
@@ -731,13 +977,19 @@ function buildReviewPrompt(scope, context) {
   const lines = [];
   lines.push("<role>");
   lines.push("You are Gemini performing a code review.");
-  lines.push("Review the provided changes for correctness, security, performance, and maintainability.");
+  lines.push(
+    "Review the provided changes for correctness, security, performance, and maintainability."
+  );
   lines.push("</role>");
   lines.push("");
   lines.push("<task>");
   lines.push(`Review the following ${scope === "branch" ? "branch" : "working tree"} changes.`);
-  lines.push("Focus on material issues: bugs, security vulnerabilities, data loss risks, and correctness problems.");
-  lines.push("Do not comment on style, naming, or formatting unless it creates a functional issue.");
+  lines.push(
+    "Focus on material issues: bugs, security vulnerabilities, data loss risks, and correctness problems."
+  );
+  lines.push(
+    "Do not comment on style, naming, or formatting unless it creates a functional issue."
+  );
   lines.push("</task>");
   lines.push("");
 
@@ -796,4 +1048,5 @@ export function buildPersistentTaskThreadName(taskText) {
 /**
  * Default prompt for continuing a previous task.
  */
-export const DEFAULT_CONTINUE_PROMPT = "Continue where you left off. If the previous task is complete, summarize the outcome.";
+export const DEFAULT_CONTINUE_PROMPT =
+  "Continue where you left off. If the previous task is complete, summarize the outcome.";
