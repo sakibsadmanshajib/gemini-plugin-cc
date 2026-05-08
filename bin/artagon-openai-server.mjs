@@ -43,6 +43,10 @@ const USAGE = `artagon-openai-server [flags]
 flags:
   --port <n>     listen port (default 0 = OS-assigned)
   --host <h>     bind host (default 127.0.0.1)
+  --cors <spec>  enable CORS. Spec is "*" (allow any), a single
+                 origin (e.g. "http://localhost:3000"), or a
+                 comma-separated allowlist. Off by default.
+                 Env: ARTAGON_FACADE_CORS
   --version      print version
   --help         print this message
 `;
@@ -52,7 +56,7 @@ function printUsage(stream = process.stderr) {
 }
 
 function parseArgs(/** @type {string[]} */ argv) {
-  /** @type {{ port?: number, host?: string, version?: boolean, help?: boolean }} */
+  /** @type {{ port?: number, host?: string, cors?: string, version?: boolean, help?: boolean }} */
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
@@ -68,6 +72,10 @@ function parseArgs(/** @type {string[]} */ argv) {
       const h = argv[++i];
       if (!h) throw new Error("--host requires a value");
       out.host = h;
+    } else if (tok === "--cors") {
+      const c = argv[++i];
+      if (c == null) throw new Error("--cors requires a value (e.g. * or http://localhost:3000)");
+      out.cors = c;
     } else {
       throw new Error(`unknown flag: ${tok}`);
     }
@@ -94,9 +102,31 @@ async function main() {
     return;
   }
 
+  // CLI --cors accepts the same shapes as $ARTAGON_FACADE_CORS:
+  //   "*" / "1" / "true" → wildcard allow-any
+  //   "<origin>"          → single-origin allowlist
+  //   "<a>,<b>,..."       → multi-origin allowlist
+  // Pre-parse here so the facade option types stay clean (single
+  // string is a single-origin allowlist; arrays cover multi-origin).
+  let cors;
+  if (opts.cors !== undefined) {
+    const trimmed = opts.cors.trim();
+    if (trimmed === "*" || trimmed === "1" || trimmed === "true") {
+      cors = true;
+    } else if (trimmed.includes(",")) {
+      cors = trimmed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (trimmed) {
+      cors = trimmed;
+    }
+  }
+
   const facade = createOpenAiFacadeServer({
     port: opts.port,
-    host: opts.host
+    host: opts.host,
+    cors
   });
 
   let address;
