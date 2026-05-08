@@ -200,6 +200,27 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
 
 ### Documentation
 
+- **README badges** — replaced the stale hardcoded
+  `tests-587-passing` badge (drifts every commit, we're at 700+ now)
+  with two live GitHub Actions badges that auto-update from `main`:
+  CI test.yml + CodeQL. Both link to the workflow run lists.
+
+- **`docs/homebrew-tap.md`** updated for the `--version` →
+  `--pkg-version` rename in 6bc5514 (commander auto-injects
+  `--version` for package version, so the script's flag had to
+  rename).
+
+### Tests
+
+- **`scripts/generate-homebrew-formula` smoke tests** (4 cases). The
+  generator was refactored to commander in 6bc5514 but had no test
+  coverage in this repo. Covers --help layout + --pkg-version
+  missing-value rejection + unknown-flag rejection + the fetch-failure
+  exit-1 path (validated against an impossible version string;
+  network-free).
+
+### Documentation
+
 - **`CODE_OF_CONDUCT.md`** adapted from Contributor Covenant 2.1 with
   project-specific reporting channels (`conduct@artagon.dev`, separate
   from `SECURITY.md`'s vuln channel). `CONTRIBUTING.md` gains a
