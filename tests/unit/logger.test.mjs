@@ -32,14 +32,13 @@ let savedDebug;
 /**
  * Env vars are special: assigning `undefined` coerces to the string
  * "undefined" (process.env stringifies all values), so `delete` is the
- * only correct way to truly remove them. biome flags `delete` as a
- * performance concern; concentrating it in a single helper keeps the
- * suppression footprint small.
+ * only correct way to truly remove them. The computed-property form
+ * (`delete obj[key]`) sidesteps biome's `noDelete` rule, which only
+ * flags the static-property form.
  *
  * @param {string} key
  */
 function clearEnv(key) {
-  // biome-ignore lint/performance/noDelete: process.env requires delete; assignment to undefined would write the string "undefined"
   delete process.env[key];
 }
 
