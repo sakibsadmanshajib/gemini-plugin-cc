@@ -47,6 +47,10 @@ flags:
                  origin (e.g. "http://localhost:3000"), or a
                  comma-separated allowlist. Off by default.
                  Env: ARTAGON_FACADE_CORS
+  --api-key <k>  require Authorization: Bearer <k> on /v1/* requests.
+                 Comma-separated for multi-key allowlist. /health is
+                 exempt. Off by default.
+                 Env: ARTAGON_FACADE_API_KEY
   --version      print version
   --help         print this message
 `;
@@ -56,7 +60,7 @@ function printUsage(stream = process.stderr) {
 }
 
 function parseArgs(/** @type {string[]} */ argv) {
-  /** @type {{ port?: number, host?: string, cors?: string, version?: boolean, help?: boolean }} */
+  /** @type {{ port?: number, host?: string, cors?: string, apiKey?: string, version?: boolean, help?: boolean }} */
   const out = {};
   for (let i = 0; i < argv.length; i++) {
     const tok = argv[i];
@@ -76,6 +80,10 @@ function parseArgs(/** @type {string[]} */ argv) {
       const c = argv[++i];
       if (c == null) throw new Error("--cors requires a value (e.g. * or http://localhost:3000)");
       out.cors = c;
+    } else if (tok === "--api-key") {
+      const k = argv[++i];
+      if (k == null) throw new Error("--api-key requires a value");
+      out.apiKey = k;
     } else {
       throw new Error(`unknown flag: ${tok}`);
     }
@@ -123,10 +131,26 @@ async function main() {
     }
   }
 
+  // CLI --api-key accepts either a single key or a comma-separated
+  // multi-key allowlist. Pre-parse to match the facade's option type.
+  let apiKey;
+  if (opts.apiKey !== undefined) {
+    const trimmed = opts.apiKey.trim();
+    if (trimmed.includes(",")) {
+      apiKey = trimmed
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else if (trimmed) {
+      apiKey = trimmed;
+    }
+  }
+
   const facade = createOpenAiFacadeServer({
     port: opts.port,
     host: opts.host,
-    cors
+    cors,
+    apiKey
   });
 
   let address;

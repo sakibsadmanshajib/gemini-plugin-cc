@@ -19,6 +19,7 @@ import {
   createOpenAiFacadeServer,
   flattenMessages,
   mapFinishReason,
+  resolveApiKeyPolicy,
   resolveCorsPolicy,
   resolveModelToBackend,
   turnResultToOpenAiResponse
@@ -718,5 +719,149 @@ describe("CORS — HTTP behavior", () => {
       headers: { Origin: "http://anywhere.test" }
     });
     expect(res.status).toBe(405);
+  });
+});
+
+describe("resolveApiKeyPolicy", () => {
+  test("string → single-element allowlist", () => {
+    expect(resolveApiKeyPolicy("sk-test", {})).toEqual(["sk-test"]);
+  });
+
+  test("array → allowlist (filtered for empty/non-string)", () => {
+    expect(
+      resolveApiKeyPolicy(/** @type {any} */ (["sk-a", "sk-b", "", null, "sk-c"]), {})
+    ).toEqual(["sk-a", "sk-b", "sk-c"]);
+  });
+
+  test("undefined + no env → null (auth disabled)", () => {
+    expect(resolveApiKeyPolicy(undefined, {})).toBeNull();
+  });
+
+  test("$ARTAGON_FACADE_API_KEY: comma-separated list", () => {
+    expect(
+      resolveApiKeyPolicy(undefined, {
+        ARTAGON_FACADE_API_KEY: "sk-a, sk-b ,sk-c"
+      })
+    ).toEqual(["sk-a", "sk-b", "sk-c"]);
+  });
+
+  test("Direct option takes precedence over env", () => {
+    expect(resolveApiKeyPolicy("sk-direct", { ARTAGON_FACADE_API_KEY: "sk-env" })).toEqual([
+      "sk-direct"
+    ]);
+  });
+});
+
+describe("API-key auth — HTTP behavior", () => {
+  /** @type {ReturnType<typeof createOpenAiFacadeServer>} */
+  let facade;
+  /** @type {string} */
+  let baseUrl;
+
+  afterEach(async () => {
+    if (facade) await facade.close();
+  });
+
+  async function startWithKey(/** @type {string | string[] | undefined} */ apiKey) {
+    facade = createOpenAiFacadeServer({
+      apiKey,
+      dispatch: async (backend) => ({
+        text: `[${backend}] response`,
+        thoughtText: "",
+        chunkCount: 1,
+        chunkChars: 0,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: null,
+        reason: "stop",
+        updates: []
+      })
+    });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+  }
+
+  test("disabled by default — no Authorization required", async () => {
+    await startWithKey(undefined);
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }]
+      })
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("apiKey set + missing Authorization → 401 with WWW-Authenticate", async () => {
+    await startWithKey("sk-correct");
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }]
+      })
+    });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toMatch(/^Bearer/);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.code).toBe("invalid_api_key");
+  });
+
+  test("apiKey set + wrong key → 401", async () => {
+    await startWithKey("sk-correct");
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer sk-wrong"
+      },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }]
+      })
+    });
+    expect(res.status).toBe(401);
+  });
+
+  test("apiKey set + correct key → 200", async () => {
+    await startWithKey("sk-correct");
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer sk-correct"
+      },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "x" }]
+      })
+    });
+    expect(res.status).toBe(200);
+  });
+
+  test("multi-key allowlist — any matching key passes", async () => {
+    await startWithKey(["sk-a", "sk-b"]);
+    for (const key of ["sk-a", "sk-b"]) {
+      const res = await fetch(`${baseUrl}/v1/models`, {
+        headers: { Authorization: `Bearer ${key}` }
+      });
+      expect(res.status).toBe(200);
+    }
+    const bad = await fetch(`${baseUrl}/v1/models`, {
+      headers: { Authorization: "Bearer sk-c" }
+    });
+    expect(bad.status).toBe(401);
+  });
+
+  test("/health is exempt from auth (LB probe path)", async () => {
+    await startWithKey("sk-correct");
+    // No Authorization header — must still pass.
+    const res = await fetch(`${baseUrl}/health`);
+    expect(res.status).toBe(200);
   });
 });
