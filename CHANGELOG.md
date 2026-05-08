@@ -387,6 +387,31 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   out why every entry needs group 1, so a future addition doesn't
   hit the same trap.
 
+- **logger top-level credentials were not being redacted.**
+  `lib/logger.mjs` REDACTED_PATHS used only `*.<name>`-style
+  entries (`*.api_key`, `*.password`, etc.). pino's path syntax
+  matches `*.<name>` against fields exactly ONE level under the
+  root with no recursion. So a call like
+  `logger.info({api_key: "sk-...", jobId: "x"}, "starting")` —
+  the most common pattern in the codebase (broker, runners, and
+  middleware all log flat key bags) — wrote the credential
+  verbatim to stderr. The list was effectively guarding only
+  the `params.*` JSON-RPC shape and a `{request: {...}}` wrapper
+  almost no caller produced.
+
+  Found while writing the first unit tests for `lib/logger.mjs`
+  (zero coverage prior). Fix: prepended bare paths
+  (`api_key`, `password`, `secret`, etc.) so both top-level and
+  nested usage are covered. Comment block added explaining
+  pino's path semantics so a future maintainer doesn't strip
+  the bare entries thinking they duplicate the wildcards.
+
+  Mitigating factor: at the time of the fix, no production code
+  imported `lib/logger.mjs` (it was added in the
+  `add-testing-and-observability` proposal and not yet adopted),
+  so no actual leak occurred. Fix lands the contract before
+  adoption.
+
 - **`secret` field-name aligned across all three redaction
   layers.** The project has three independent redaction layers
   (`redaction.mjs` middleware, `wire-log.mjs`, `logger.mjs`) each
