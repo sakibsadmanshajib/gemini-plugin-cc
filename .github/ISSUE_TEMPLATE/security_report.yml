@@ -12,7 +12,9 @@ body:
         bypass, etc. — **do not file here**. Instead:
 
         1. Open a [private security advisory](https://github.com/artagon/artagon-agent-cli-plugin/security/advisories/new) on the repo, **or**
-        2. Email [security contact — ARTAGON_SECURITY_EMAIL TBD] with the details.
+        2. Email `security@artagon.dev` with the details.
+
+        See [SECURITY.md](https://github.com/artagon/artagon-agent-cli-plugin/blob/main/SECURITY.md) for the full disclosure policy, supported versions, and what to include in your report.
 
         Use this issue template only for low-severity or informational
         reports (e.g. minor information disclosure, a hardening
