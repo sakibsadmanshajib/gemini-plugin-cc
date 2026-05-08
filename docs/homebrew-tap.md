@@ -59,10 +59,25 @@ class ArtagonAgentCliPlugin < Formula
 end
 ```
 
-## Computing the tarball SHA256
+## Generating the formula automatically
 
-After the first `git tag -s v1.0.1 && git push --tags` triggers the
-npm-publish workflow:
+After `git tag -s v<NEW> && git push --tags` triggers the
+npm-publish workflow and the version is live on npm, the simplest
+path is the in-repo generator:
+
+```sh
+# In a checkout of artagon-agent-cli-plugin:
+pnpm gen:homebrew --output /path/to/homebrew-tap/Formula/artagon-agent-cli-plugin.rb
+# Or print to stdout to inspect first:
+pnpm gen:homebrew
+```
+
+The generator (`scripts/generate-homebrew-formula.mjs`) reads
+`package.json` for the version + name, fetches the published tarball
+from registry.npmjs.org, computes the SHA-256, and renders the
+formula. `--version <v>` overrides if you need a different release.
+
+If you'd rather do it by hand:
 
 ```sh
 # Download the published tarball + compute SHA
