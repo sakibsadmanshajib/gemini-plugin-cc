@@ -563,7 +563,10 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     const body = /** @type {any} */ (await res.json());
     expect(body.error.type).toBe("backend_error");
     expect(body.error.backend).toBe(BACKEND_NAMES.CLAUDE);
-    expect(body.error.message).toMatch(/upstream auth required/);
+    // Public message is now redacted (CodeQL js/stack-trace-exposure
+    // fix). Detail goes to server stderr; clients see only the
+    // backend name + a generic prompt to check logs.
+    expect(body.error.message).toMatch(/claude backend failed/);
   });
 
   test("GET /random — 404", async () => {

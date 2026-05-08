@@ -40,7 +40,12 @@ jobs:
         uses: github/codeql-action/init@9887d98ae49f1f598651b556d8c8f02f3ea065cb # v3.27.0
         with:
           languages: ${{ matrix.language }}
-          queries: security-extended,security-and-quality
+          # External config so the path-ignore list lives next to the
+          # CodeQL settings instead of being inlined here. Defines the
+          # query packs (security-extended + security-and-quality) and
+          # the test/scripts ignore list (false-positive heavy areas
+          # that aren't shipped to users).
+          config-file: ./.github/codeql-config.yml
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@9887d98ae49f1f598651b556d8c8f02f3ea065cb # v3.27.0

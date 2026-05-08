@@ -1,0 +1,25 @@
+name: artagon-agent-cli-plugin CodeQL config
+
+# CodeQL configuration: scan production code, skip tests / scripts
+# whose findings are typically false positives.
+#
+# Why:
+#   - tests/** uses helpers (makeTempDir → fs.mkdtempSync) that
+#     CodeQL's data-flow can't trace through; every fs.writeFileSync
+#     against a workspace-derived path gets flagged
+#     js/insecure-temporary-file even though the parent dir is a
+#     freshly-created 0o700 mkdtemp.
+#   - scripts/** are release-time tools (homebrew formula generator,
+#     etc.) that intentionally read package.json + fetch from
+#     registry.npmjs.org — js/file-data-in-outbound-network-request
+#     is the desired behavior, not a vulnerability.
+#
+# Production code (lib/, bin/, plugins/) IS still scanned.
+
+paths-ignore:
+  - "tests/**"
+  - "scripts/**"
+
+queries:
+  - uses: security-extended
+  - uses: security-and-quality

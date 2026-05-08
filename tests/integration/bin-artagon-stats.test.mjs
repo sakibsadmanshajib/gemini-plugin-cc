@@ -22,18 +22,26 @@ const ROOT = path.resolve(new URL("../..", import.meta.url).pathname);
 const BIN = path.join(ROOT, "bin/artagon-stats.mjs");
 
 /** @type {string} */
+let tmpDir;
+/** @type {string} */
 let costLog;
 /** @type {NodeJS.ProcessEnv} */
 let env;
 
 beforeEach(() => {
-  costLog = path.join(os.tmpdir(), `stats-bin-${crypto.randomBytes(4).toString("hex")}.jsonl`);
+  // mkdtempSync atomically creates a unique 0o700 directory — fixes
+  // CodeQL js/insecure-temporary-file vs the prior path.join with a
+  // hex suffix, which is predictable and race-able.
+  tmpDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), `stats-bin-${crypto.randomBytes(4).toString("hex")}-`)
+  );
+  costLog = path.join(tmpDir, "cost.jsonl");
   env = { ...process.env, ARTAGON_COST_LOG: costLog };
 });
 
 afterEach(() => {
   try {
-    fs.unlinkSync(costLog);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {
     // best-effort
   }
