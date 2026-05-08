@@ -50,10 +50,24 @@ test("compose: redaction at index 0 is fine", () => {
   expect(() => composeMiddleware([createRedactionMiddleware(), identityMiddleware])).not.toThrow();
 });
 
-test("compose: redaction NOT at index 0 throws in dev", () => {
+test("compose: redaction NOT at index 0 throws (regardless of NODE_ENV)", () => {
   expect(() => composeMiddleware([identityMiddleware, createRedactionMiddleware()])).toThrow(
     MiddlewareOrderError
   );
+
+  // Previously the same misconfiguration was downgraded to a stderr
+  // warning under NODE_ENV=production. That failed-open in exactly the
+  // deployment where un-redacted payloads through audit/observability
+  // middleware are most damaging. The contract is now: always throw.
+  const prevEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
+  try {
+    expect(() => composeMiddleware([identityMiddleware, createRedactionMiddleware()])).toThrow(
+      MiddlewareOrderError
+    );
+  } finally {
+    process.env.NODE_ENV = prevEnv;
+  }
 });
 
 test("compose: rejects non-array input", () => {
