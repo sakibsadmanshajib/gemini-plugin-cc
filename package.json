@@ -27,6 +27,7 @@
     "test:unit": "vitest run tests/unit",
     "test:int": "vitest run tests/integration",
     "test:property": "vitest run tests/property",
+    "test:smoke": "ARTAGON_REAL_CLI_SMOKE=1 vitest run tests/integration/real-cli-smoke.test.mjs",
     "test:cov": "vitest run --coverage",
     "test:mutation": "stryker run",
     "typecheck": "tsgo --noEmit",
