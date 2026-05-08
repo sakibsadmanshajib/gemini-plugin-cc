@@ -38,12 +38,19 @@ The major coding-agent CLIs (`claude`, `codex`, `gemini`) speak different protoc
 | **Legacy gemini-driving plugin**                             | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                      |
 | **Homebrew**                                                 | _Pending — `brew install artagon/tap/artagon-agent-cli-plugin` once the tap is published._                              |
 
-After global install, two binaries are on PATH:
+After global install, three binaries are on PATH:
 
 ```sh
-artagon-agent <backend> "<prompt>" [flags]      # one-shot dispatch
+artagon-agent <backend> "<prompt>" [flags]     # one-shot dispatch
 artagon-openai-server [--port N] [--host H]    # OpenAI Chat Completions facade
+artagon-stats [--json] [--since <iso>]         # cost / token usage aggregator
 ```
+
+`artagon-stats` reads the local cost log written by every dispatch
+(`~/.acp-plugins/cost/<YYYY>-<MM>.jsonl` by default — see
+[`docs/observability.md`](docs/observability.md)) and prints a
+per-backend summary or machine-readable JSON. Use `--budget` /
+`--budget-usd` to assert against a CI budget.
 
 ## Quick examples
 
