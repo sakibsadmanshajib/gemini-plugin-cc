@@ -134,18 +134,19 @@ The runtime under `lib/` is **CLI-only** — no in-process SDKs. Per-CLI argv bu
 
 ## Documentation
 
-| Doc                                                                  | What                                                         |
-| -------------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`docs/architecture.md`](docs/architecture.md)                       | Layered system overview + key invariants                     |
-| [`docs/plugins.md`](docs/plugins.md)                                 | Multi-plugin cross-pollination model                         |
-| [`docs/runners.md`](docs/runners.md)                                 | Stateless runners + dispatcher + TurnResult shape            |
-| [`docs/cli-options-research.md`](docs/cli-options-research.md)       | Per-CLI flag taxonomy (claude/codex/gemini)                  |
-| [`docs/backends/{gemini,codex,claude}.md`](docs/backends/)           | Per-backend specifics                                        |
-| [`docs/middleware-architecture.md`](docs/middleware-architecture.md) | Redaction-first composer + 6 middlewares                     |
-| [`docs/observability.md`](docs/observability.md)                     | Logger / wire-log / OpenTelemetry tracing                    |
-| [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)       | Original `/gemini:*` commands (broker-shared multi-turn ACP) |
-| [`docs/INSTALL.md`](docs/INSTALL.md)                                 | Full install recipes for both Claude Code and Codex CLI      |
-| [`CHANGELOG.md`](CHANGELOG.md)                                       | Release history                                              |
+| Doc                                                                  | What                                                                               |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                       | Layered system overview + key invariants                                           |
+| [`docs/plugins.md`](docs/plugins.md)                                 | Multi-plugin cross-pollination model                                               |
+| [`docs/runners.md`](docs/runners.md)                                 | Stateless runners + dispatcher + TurnResult shape                                  |
+| [`docs/openai-facade.md`](docs/openai-facade.md)                     | OpenAI Chat Completions HTTP facade — endpoints, auth, CORS, finish_reason mapping |
+| [`docs/cli-options-research.md`](docs/cli-options-research.md)       | Per-CLI flag taxonomy (claude/codex/gemini)                                        |
+| [`docs/backends/{gemini,codex,claude}.md`](docs/backends/)           | Per-backend specifics                                                              |
+| [`docs/middleware-architecture.md`](docs/middleware-architecture.md) | Redaction-first composer + 6 middlewares                                           |
+| [`docs/observability.md`](docs/observability.md)                     | Logger / wire-log / OpenTelemetry tracing                                          |
+| [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)       | Original `/gemini:*` commands (broker-shared multi-turn ACP)                       |
+| [`docs/INSTALL.md`](docs/INSTALL.md)                                 | Full install recipes for both Claude Code and Codex CLI                            |
+| [`CHANGELOG.md`](CHANGELOG.md)                                       | Release history                                                                    |
 
 ## Architecture in one diagram
 
