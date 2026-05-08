@@ -17,12 +17,12 @@ name: install
 # https://github.blog/security/vulnerability-research/how-to-catch-github-actions-workflow-injections-before-attackers-do/
 
 on:
+  # `push` only on main — feature branches go through `pull_request`.
+  # Both used to trigger together for same-repo PRs, doubling CI cost
+  # for every commit.
   push:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-      - "chore/**"
     paths:
       - "plugins/gemini/SKILL.md"
       - "plugins/gemini/agents/**"
@@ -62,6 +62,13 @@ on:
       - "tests/mocks/**"
       - ".github/workflows/install.yml"
   workflow_dispatch: {}
+
+# Cancel in-flight runs of the same workflow + ref when a new commit
+# lands. Without this, rapid pushes pile up runs and burn CI time on
+# stale commits.
+concurrency:
+  group: install-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

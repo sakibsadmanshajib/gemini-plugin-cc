@@ -1,15 +1,22 @@
 name: test
 
 on:
+  # `push` only on main — feature branches go through `pull_request`.
+  # Both used to trigger together for same-repo PRs, doubling CI cost
+  # for every commit.
   push:
     branches:
       - main
-      - "feat/**"
-      - "fix/**"
-      - "chore/**"
   pull_request:
     branches: [main]
   workflow_dispatch: {}
+
+# Cancel in-flight runs of the same workflow + ref when a new commit
+# lands. Without this, rapid pushes pile up runs and burn CI time on
+# stale commits.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
 
 # Security note: this workflow uses no user-controlled `${{ github.event.* }}`
 # interpolation in `run:` blocks. Only matrix and runner-managed values are
