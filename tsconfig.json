@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["lib/**/*.mjs", "plugins/gemini/scripts/**/*.mjs", "types/**/*.d.ts"],
+  "include": ["lib/**/*.mjs", "bin/**/*.mjs", "plugins/gemini/scripts/**/*.mjs", "types/**/*.d.ts"],
   "exclude": ["node_modules", "**/.generated/**", "tests/**"]
 }

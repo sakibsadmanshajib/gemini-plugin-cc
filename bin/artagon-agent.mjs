@@ -45,7 +45,10 @@ function parsePositiveInt(value) {
   return n;
 }
 
-/** @param {string} value */
+/**
+ * @param {string} value
+ * @returns {import("#lib/backends/names.mjs").BackendName}
+ */
 function parseBackend(value) {
   if (!isBackendName(value)) {
     throw new InvalidArgumentError(`must be one of ${ALL_BACKEND_NAMES.join(", ")}`);
@@ -79,7 +82,12 @@ program.exitOverride((err) => {
 
 program.parse(process.argv);
 const opts = program.opts();
-const [backend, ...promptParts] = program.args;
+// commander types program.args as string[] — narrow back to BackendName
+// here. parseBackend (the .argument() validator) already enforced the
+// runtime constraint and would have exited 2 on bad input, so the cast
+// is sound even though the static types don't reflect it.
+const [rawBackend, ...promptParts] = program.args;
+const backend = /** @type {import("#lib/backends/names.mjs").BackendName} */ (rawBackend);
 const prompt = promptParts.join(" ");
 
 if (!prompt) {
