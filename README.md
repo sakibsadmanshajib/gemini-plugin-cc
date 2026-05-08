@@ -70,10 +70,33 @@ resp = client.chat.completions.create(
     model="claude-sonnet-4-6",          # or codex / gemini / "<backend>:<model>"
     messages=[{"role": "user", "content": "summarize this repo"}],
     stream=True,                         # SSE streaming supported
+    stream_options={"include_usage": True},  # token tallies in final chunk
 )
 for chunk in resp:
     print(chunk.choices[0].delta.content or "", end="")
 ```
+
+The facade also supports:
+
+- **CORS**: `--cors '*'` (or single-origin / comma-separated allowlist; or `$ARTAGON_FACADE_CORS`). Off by default for safety. Required when calling from a browser-based client.
+- **API-key auth**: `--api-key sk-...` (single or comma-separated; or `$ARTAGON_FACADE_API_KEY`). Off by default. When set, every `/v1/*` request must carry `Authorization: Bearer <key>`. `/health` is exempt.
+- **finish_reason mapping**: each backend's stop dialect (`end_turn` / `MAX_TOKENS` / `tool_use`) maps to OpenAI's canonical set (`stop` / `length` / `content_filter` / `tool_calls`).
+
+### Cost observability
+
+Every turn (HTTP facade or direct dispatch) appends a JSONL row to `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`. View totals via:
+
+```sh
+artagon-stats                    # text summary + 5 most recent
+artagon-stats --json --recent 50 # full JSON for tooling
+```
+
+Or as slash commands inside any host plugin:
+
+- `/<plugin>:stats` — turns / tokens / wall-clock / per-backend breakdown / **estimated $** + cache savings
+- `/<plugin>:budget [--limit N | --limit-usd N] [--month]` — soft budget vs. used; observability, never blocks a turn
+
+Pricing lives in `lib/cost/pricing.mjs` (Claude Sonnet/Opus/Haiku, GPT-5/o-series, Gemini Pro/Flash) with prompt-cache discount tiers (Anthropic 10% read / +25% write, OpenAI 50% read). Override the rate table at runtime via `$ARTAGON_PRICING_OVERRIDE` (JSON).
 
 ### Embedded library use
 
