@@ -63,10 +63,14 @@ jobs:
 
       - name: Verify tarball contents
         run: |
-          # `npm pack --dry-run --json` lists what would ship without actually
+          # `npm pack --dry-run` lists what would ship without actually
           # creating the tarball. Catches accidental inclusion of secrets,
           # tests, or stryker artifacts BEFORE publish.
-          pnpm pack --dry-run
+          # Uses npm (bundled with Node) because `pnpm pack` rejects
+          # --dry-run as an unknown option (verified pnpm 9.15). The
+          # `pack:check` script is the single source of truth for this
+          # invocation — local devs run the same command.
+          pnpm pack:check
 
       - name: Publish to npm with provenance
         run: pnpm publish --access public --no-git-checks --provenance
