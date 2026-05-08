@@ -35,6 +35,7 @@ import {
   deregisterRunner,
   getRunnerPidDir,
   isPidAlive,
+  readProcStartTime,
   readRegistry,
   registerRunner
 } from "#lib/runners/orphan-check.mjs";
@@ -381,5 +382,168 @@ describe("checkOrphanedRunners — reap", () => {
     );
     checkOrphanedRunners({ env, reap: true });
     expect(readRegistry({ env })).toHaveLength(1);
+  });
+});
+
+describe("readProcStartTime", () => {
+  test("returns a non-empty string for the current process", () => {
+    const out = readProcStartTime(process.pid);
+    // On macOS / Linux `ps -o lstart=` returns something like
+    // "Thu May  8 10:23:45 2026". On systems where `ps` is missing
+    // (Windows, locked-down sandboxes), null is acceptable.
+    if (out === null) return; // degraded mode — accepted
+    expect(typeof out).toBe("string");
+    expect(out.length).toBeGreaterThan(0);
+  });
+
+  test("returns null for non-positive PIDs", () => {
+    expect(readProcStartTime(0)).toBeNull();
+    expect(readProcStartTime(-1)).toBeNull();
+    expect(readProcStartTime(Number.NaN)).toBeNull();
+  });
+
+  test("returns null for a definitely-dead PID (huge number)", () => {
+    // 9999999 is almost certainly not a live PID. ps will exit non-zero
+    // and we catch → null.
+    expect(readProcStartTime(9999999)).toBeNull();
+  });
+});
+
+describe("PID-reuse hazard — start-time verification", () => {
+  test("registerRunner captures childStartedAtOs via readProcStartTime", () => {
+    const stubStart = "Thu May  8 10:00:00 2026";
+    const pidPath = /** @type {string} */ (
+      registerRunner(
+        {
+          childPid: process.pid,
+          parentPid: process.pid,
+          runner: BACKEND_NAMES.CLAUDE,
+          command: "claude",
+          args: []
+        },
+        { env, readProcStartTime: () => stubStart }
+      )
+    );
+    const body = JSON.parse(fs.readFileSync(pidPath, "utf8"));
+    expect(body.childStartedAtOs).toBe(stubStart);
+  });
+
+  test("registerRunner tolerates null readProcStartTime (no ps available)", () => {
+    const pidPath = /** @type {string} */ (
+      registerRunner(
+        {
+          childPid: process.pid,
+          parentPid: process.pid,
+          runner: BACKEND_NAMES.CLAUDE,
+          command: "claude",
+          args: []
+        },
+        { env, readProcStartTime: () => null }
+      )
+    );
+    const body = JSON.parse(fs.readFileSync(pidPath, "utf8"));
+    expect(body.childStartedAtOs).toBeNull();
+  });
+
+  test("checkOrphanedRunners: alive PID + start-time MISMATCH → classified stale, NOT orphan", () => {
+    // Stored start time differs from the live PID's reported start time.
+    // This is the PID-reuse case: the OS recycled the PID, the stored
+    // entry refers to a process that's gone, and the reaper must NOT
+    // classify the new tenant as our orphan.
+    registerRunner(
+      {
+        childPid: process.pid,
+        parentPid: process.pid,
+        runner: BACKEND_NAMES.GEMINI,
+        command: "gemini",
+        args: []
+      },
+      { env, readProcStartTime: () => "Mon Jan  1 00:00:00 2020" }
+    );
+    const result = checkOrphanedRunners({
+      env,
+      readProcStartTime: () => "Thu May  8 10:00:00 2026"
+    });
+    // stale (will just unlink — never SIGKILL)
+    expect(result.stale).toHaveLength(1);
+    expect(result.orphaned).toEqual([]);
+  });
+
+  test("checkOrphanedRunners: alive PID + start-time MATCH + parent-dead → orphan", async () => {
+    // Spawn a long-running child as the live target.
+    const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"]);
+    const liveChildPid = /** @type {number} */ (child.pid);
+
+    // Real start-time as reported by ps for the live child.
+    const realStart = readProcStartTime(liveChildPid);
+    if (realStart === null) {
+      // Degraded mode — skip the assertion path.
+      child.kill("SIGKILL");
+      return;
+    }
+
+    // Use a known-dead parent PID.
+    const deadParent = spawn(process.execPath, ["-e", "process.exit(0)"]);
+    const deadParentPid = /** @type {number} */ (deadParent.pid);
+    await new Promise((resolve) => deadParent.on("exit", resolve));
+    await new Promise((r) => setTimeout(r, 50));
+
+    try {
+      registerRunner(
+        {
+          childPid: liveChildPid,
+          parentPid: deadParentPid,
+          runner: BACKEND_NAMES.CODEX,
+          command: "codex",
+          args: []
+        },
+        { env, readProcStartTime: () => realStart }
+      );
+      const result = checkOrphanedRunners({ env });
+      expect(result.orphaned).toHaveLength(1);
+      expect(result.orphaned[0].reason).toBe("parent-dead");
+    } finally {
+      child.kill("SIGKILL");
+    }
+  });
+
+  test("reap: true with start-time mismatch does NOT SIGKILL (uses unlink only)", () => {
+    // If reap is true and the live PID has a different start time, the
+    // entry is classified stale (unlink-only) — process.kill must never
+    // be invoked. Confirm by spying on a stub readProcStartTime that
+    // simulates mismatch.
+    let signaled = false;
+    const origKill = process.kill.bind(process);
+    // @ts-expect-error — temporary monkey-patch for the test
+    process.kill = (pid, sig) => {
+      if (sig === "SIGKILL") {
+        signaled = true;
+        return true;
+      }
+      return origKill(pid, sig);
+    };
+
+    try {
+      registerRunner(
+        {
+          childPid: process.pid,
+          parentPid: process.pid,
+          runner: BACKEND_NAMES.CLAUDE,
+          command: "claude",
+          args: []
+        },
+        { env, readProcStartTime: () => "Old Start Time 2020" }
+      );
+      const result = checkOrphanedRunners({
+        env,
+        reap: true,
+        readProcStartTime: () => "Different New Start 2026"
+      });
+      expect(result.stale).toHaveLength(1);
+      expect(signaled).toBe(false);
+    } finally {
+      // @ts-expect-error — restoring monkey-patch
+      process.kill = origKill;
+    }
   });
 });

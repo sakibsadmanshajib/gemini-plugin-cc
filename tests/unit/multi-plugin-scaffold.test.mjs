@@ -58,12 +58,25 @@ describe("plugins/claude (installed in Claude Code)", () => {
     expect(cmd).toMatch(/scripts\/codex-prompt\.mjs/);
   });
 
+  test("commands/gemini-prompt.md drives Gemini (per cross-pollination spec)", () => {
+    const cmd = readText("plugins/claude/commands/gemini-prompt.md");
+    expect(cmd).toMatch(/gemini/i);
+    expect(cmd).toMatch(/scripts\/gemini-prompt\.mjs/);
+  });
+
   test("scripts/codex-prompt.mjs uses runStatelessTurn(CODEX)", () => {
     const script = readText("plugins/claude/scripts/codex-prompt.mjs");
     expect(script).toMatch(/runStatelessTurn/);
     expect(script).toMatch(/BACKEND_NAMES\.CODEX/);
     // Must NOT reference its own host backend name (claude installed in
     // Claude Code drives codex/gemini, not claude itself).
+    expect(script).not.toMatch(/BACKEND_NAMES\.CLAUDE/);
+  });
+
+  test("scripts/gemini-prompt.mjs uses runStatelessTurn(GEMINI) — never CLAUDE", () => {
+    const script = readText("plugins/claude/scripts/gemini-prompt.mjs");
+    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/BACKEND_NAMES\.GEMINI/);
     expect(script).not.toMatch(/BACKEND_NAMES\.CLAUDE/);
   });
 });
@@ -93,10 +106,23 @@ describe("plugins/codex (installed in Codex CLI)", () => {
     expect(cmd).toMatch(/scripts\/claude-prompt\.mjs/);
   });
 
+  test("commands/gemini-prompt.md drives Gemini (per cross-pollination spec)", () => {
+    const cmd = readText("plugins/codex/commands/gemini-prompt.md");
+    expect(cmd).toMatch(/gemini/i);
+    expect(cmd).toMatch(/scripts\/gemini-prompt\.mjs/);
+  });
+
   test("scripts/claude-prompt.mjs uses runStatelessTurn(CLAUDE)", () => {
     const script = readText("plugins/codex/scripts/claude-prompt.mjs");
     expect(script).toMatch(/runStatelessTurn/);
     expect(script).toMatch(/BACKEND_NAMES\.CLAUDE/);
+    expect(script).not.toMatch(/BACKEND_NAMES\.CODEX/);
+  });
+
+  test("scripts/gemini-prompt.mjs uses runStatelessTurn(GEMINI) — never CODEX", () => {
+    const script = readText("plugins/codex/scripts/gemini-prompt.mjs");
+    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/BACKEND_NAMES\.GEMINI/);
     expect(script).not.toMatch(/BACKEND_NAMES\.CODEX/);
   });
 });
