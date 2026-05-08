@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Argv parsers across all entry points migrated to `commander` 14.0.3**.
+  The four hand-rolled `parseArgs` functions in `bin/artagon-stats`,
+  `bin/artagon-agent`, `bin/artagon-openai-server`, and
+  `scripts/generate-homebrew-formula` were reimplementing what
+  commander has done correctly for a decade — `--help` formatting,
+  `--version` handling, unknown-flag rejection, missing-value
+  detection, type coercion. Net -445 / +368 lines (77 fewer
+  maintained). Per-flag validators (parseIso, parsePositiveInt,
+  parsePositiveNumber, parsePort, parseBackend) throw
+  InvalidArgumentError to wire into commander's standard error path.
+  Exit codes preserved (0 / 1 / 2 / 3) via `program.exitOverride`.
+  Test assertions updated to commander's standard error wording —
+  semantics unchanged.
+
+  Note: `scripts/generate-homebrew-formula`'s prior `--version <ver>`
+  flag conflicted with commander's auto-injected `--version` (which
+  prints package version + exits). Renamed to `-V, --pkg-version
+<ver>` since the original semantics would have surprised users
+  hitting the auto-flag.
+
+### Security (CodeQL findings on PR #4 — all 11 addressed)
+
+- **CRITICAL ReDoS in `extractBearerToken`**: replaced
+  `/^Bearer\s+(.+)$/i` with a fixed-length string parse (no regex,
+  no backtracking, faster).
+- **HIGH stack-trace exposure** in both streaming and non-streaming
+  backend_error response paths: detail logged to stderr server-side;
+  clients see only "<backend> backend failed; check server logs for
+  detail".
+- **HIGH × 6 insecure-tmp-file in tests + MEDIUM file-data-in-network
+  in scripts/**: false positives (mkdtempSync-derived helpers / a
+  release-time tool that intentionally fetches `registry.npmjs.org`).
+  Added `.github/codeql-config.yml` with `paths-ignore: tests/**,
+scripts/**` and wired the workflow's `init` to use it.
+  `bin-artagon-stats.test.mjs` also tightened to use mkdtempSync as
+  defense-in-depth.
+
 ### Added
 
 - **`bin/artagon-stats --budget <n>` and `--budget-usd <n>`**: shell-side
