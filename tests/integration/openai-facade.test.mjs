@@ -228,16 +228,38 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 
-  test("GET /v1/models lists three backends", async () => {
+  test("GET /v1/models returns all per-backend models + aliases", async () => {
     const res = await fetch(`${baseUrl}/v1/models`);
     expect(res.status).toBe(200);
     const body = /** @type {any} */ (await res.json());
     expect(body.object).toBe("list");
-    expect(body.data.map((/** @type {any} */ d) => d.id).sort()).toEqual([
-      BACKEND_NAMES.CLAUDE,
-      BACKEND_NAMES.CODEX,
-      BACKEND_NAMES.GEMINI
-    ]);
+    /** @type {string[]} */
+    const ids = body.data.map((/** @type {any} */ d) => d.id);
+
+    // Per-backend canonical models from each backend's modelAliases.
+    expect(ids).toContain("claude-sonnet-4-6");
+    expect(ids).toContain("claude-opus-4-7");
+    expect(ids).toContain("claude-haiku-4-5");
+    expect(ids).toContain("gpt-5");
+    expect(ids).toContain("gpt-5-codex");
+    expect(ids).toContain("spark");
+    expect(ids).toContain("gemini-3.1-pro-preview");
+    expect(ids).toContain("auto-gemini-3");
+
+    // Aliases also exposed as separate ids (so clients can use either form).
+    expect(ids).toContain("sonnet");
+    expect(ids).toContain("opus");
+    expect(ids).toContain("haiku");
+    expect(ids).toContain("pro");
+    expect(ids).toContain("flash");
+
+    // Each entry has the OpenAI model shape.
+    for (const m of body.data) {
+      expect(m.object).toBe("model");
+      expect(typeof m.id).toBe("string");
+      expect(typeof m.owned_by).toBe("string");
+      expect(m.owned_by).toMatch(/artagon-agent-cli-plugin \((claude|codex|gemini)\)/);
+    }
   });
 
   test("POST /v1/chat/completions: claude routes to claude backend", async () => {
