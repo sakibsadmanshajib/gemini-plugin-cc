@@ -175,12 +175,46 @@ process.stdout.write(
 
 // Graceful shutdown on SIGINT / SIGTERM.
 let shuttingDown = false;
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 const shutdown = async (/** @type {string} */ signal) => {
   if (shuttingDown) return;
   shuttingDown = true;
   process.stderr.write(`\nartagon-openai-server: ${signal} received, closing...\n`);
-  await facade.close();
+
+  // Safety timer: if facade.close() can't drain in 10s (stuck keep-alive
+  // connection, runner subprocess that won't yield, etc.) force-exit so
+  // the parent shell isn't wedged. .unref() so we don't keep the loop
+  // alive on a clean shutdown.
+  const forceExit = setTimeout(() => {
+    process.stderr.write(
+      `artagon-openai-server: shutdown exceeded ${SHUTDOWN_TIMEOUT_MS}ms; force-exiting.\n`
+    );
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceExit.unref();
+
+  try {
+    await facade.close();
+  } catch (err) {
+    // Log but still exit cleanly — close() throwing means resources may
+    // leak but holding the process open hoping for a re-try is worse for
+    // the operator who already pressed Ctrl-C.
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`artagon-openai-server: error during shutdown: ${message}\n`);
+  }
   process.exit(0);
 };
-process.on("SIGINT", () => shutdown("SIGINT"));
-process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+// Wrap shutdown invocations to swallow async rejections at the signal-
+// handler boundary. Without the .catch the runtime would print
+// "Unhandled promise rejection" at the worst possible moment (during
+// shutdown, when stderr is the only thing the user is watching).
+const safeShutdown = (/** @type {string} */ signal) => {
+  shutdown(signal).catch((err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`artagon-openai-server: shutdown handler crashed: ${message}\n`);
+    process.exit(1);
+  });
+};
+process.on("SIGINT", () => safeShutdown("SIGINT"));
+process.on("SIGTERM", () => safeShutdown("SIGTERM"));
