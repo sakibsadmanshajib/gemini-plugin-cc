@@ -9,6 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Rebrand to `artagon-agent-cli-plugin`** (was `gemini-plugin-cc`).
+  Owner Artagon & Giedrius Trumpickas. Repo at
+  `github.com/artagon/artagon-agent-cli-plugin`. Scoped install paths
+  via npm + npx + brew documented in `docs/INSTALL.md`. Distributable
+  bundle is signed: npm provenance via OIDC + Sigstore, CycloneDX
+  SBOM (JSON + XML) attached as a release artifact, Build Provenance
+  attestation. Workflows pinned to 40-char SHA action references per
+  security audit; `@cyclonedx/cyclonedx-npm@2.1.0` pinned via
+  `pnpm-lock.yaml` integrity SHA-512 (replacing unpinned `npx` in the
+  publish job that holds NPM_TOKEN).
+- **OpenAI Chat Completions HTTP facade** (`lib/server/openai-facade.mjs`,
+  `bin/artagon-openai-server`). Spins up a local `/v1/chat/completions`,
+  `/v1/models`, `/health` endpoint that routes to the appropriate
+  backend (Claude / Codex / Gemini) via `runStatelessTurn` under the
+  hood. SSE streaming (`stream: true`) with proper AbortController
+  threading: client disconnect SIGTERMs the child; every `sendChunk`
+  is guarded against destroyed sockets. `/v1/models` discovers per-
+  backend canonical model ids + aliases via
+  `lib/backends/discover-models.mjs`. Model resolution accepts both
+  bare names ("claude-opus-4-5") and `<backend>:<model>` syntax.
+- **`/<plugin>:stats` and `/<plugin>:budget` slash commands** across
+  all three plugins. `/stats` prints global + per-backend turn / token
+  / wall-clock totals plus the 5 most recent turns by default;
+  `--json`/`--since`/`--until`/`--recent N` flags. `/budget`
+  compares aggregate usage against a soft budget; supports both
+  token mode (`--limit` or `$ARTAGON_BUDGET_TOKENS`) and USD mode
+  (`--limit-usd` or `$ARTAGON_BUDGET_USD`); always exit 0
+  (observability, not gating); `--json` exposes both `{tokens, usd}`
+  totals for downstream gating tooling.
+- **Cost USD pricing layer** (`lib/cost/pricing.mjs`). Per-backend ×
+  per-model rate table (Sonnet/Opus/Haiku, GPT-5/o-series, Gemini
+  Pro/Flash) keyed by longest-prefix substring match against the
+  recorded model id. `estimateUsd(backend, model, usage)` with
+  defensive coercion (NaN → 0 so a malformed log row can't poison
+  the global total). Override the table at runtime via
+  `$ARTAGON_PRICING_OVERRIDE` (JSON) — useful when vendor pricing
+  changes between releases. `summarizeCostRecords` / `bin/artagon-stats`
+  / `formatCostSummaryText` now surface "Estimated cost: $X.XX"
+  alongside tokens, both globally and per-backend.
+- **Model id capture in cost records.** `TurnResult.model` and
+  `SessionUpdate.model` thread through stream-runner + all 3
+  translators (claude `message.model`, codex top-level / message,
+  gemini `model`/`modelVersion`/`model_version`); runners pass it
+  to `appendCostRecord`. `CostRecord.model` is now part of the JSONL
+  schema. The pricing layer hits per-model rates instead of falling
+  back to per-backend defaults — Opus turns are now correctly priced
+  5× Sonnet via the per-model rate table.
+- **`bin/artagon-stats` CLI** — shell-side aggregator for the cost
+  log. `--json` / `--since` / `--until` / `--recent N` /
+  `--version` / `--help`.
+- **Cost recorder** (`lib/cost/recorder.mjs`) appends one JSONL row
+  per turn under `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`
+  (or `$ARTAGON_COST_LOG` override). Schema:
+  `{timestamp, backend, model?, sessionId?, promptChars, usage,
+durationMs, reason, ok}`. Best-effort: failures warn once on
+  stderr and silently proceed; cost recording must never block a
+  turn. `lib/cost/aggregate.mjs` reads + summarizes; pure-ish
+  functions data-in/data-out for testability.
+- **Dependabot, CodeQL, issue/PR templates** — weekly npm + GitHub
+  Actions update PRs (grouped, labeled), CodeQL javascript-typescript
+  scan workflow, three issue forms (bug / feature / security) with
+  labels, structured PR template with backend coverage matrix,
+  8 GitHub labels created via `gh label`.
+
+### Changed
+
+- **PID-reuse hardening on the orphan-runner reaper.** Each pid file
+  now stores the OS-reported start time of the child captured at
+  register (`childStartedAtOs`), and `checkOrphanedRunners()` requires
+  a match before classifying as orphan. PID-mismatch (recycled to
+  unrelated process) → classified `stale` (unlink only, never SIGKILL).
+  The reap pass re-verifies once more at the moment of `process.kill`
+  to close the classify→signal race. New cross-platform
+  `readProcStartTime(pid)`: `ps -o lstart=` on POSIX,
+  PowerShell `Get-CimInstance Win32_Process` on Windows (avoiding
+  deprecated `wmic`).
+- **OpenAI facade SSE abort propagation.** Threads
+  `AbortController.signal` through dispatch, listens on `res "error"`,
+  guards every `sendChunk` against destroyed sockets — was missing
+  before; client disconnect didn't kill the runner subprocess.
+- **`normalizeUsage` defensive shape detection.** Each backend's
+  bare usage shape (claude/codex `input_tokens`, gemini
+  `promptTokenCount`, openai `prompt_tokens`) is now detected
+  directly; only the wrapper `{usage: {...}}` shape falls back to
+  the middleware extractor. Was 0-tokenizing every claude/codex
+  turn before this fix.
+
 - **Multi-plugin scaffold** (cross-pollination model). New
   `plugins/claude/` (installed in Claude Code, drives codex + gemini)
   and `plugins/codex/` (installed in Codex CLI, drives gemini + claude)
