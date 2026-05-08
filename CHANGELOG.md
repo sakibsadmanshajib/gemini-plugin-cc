@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **OpenAI facade error response builder consolidated**. The
+  `{error: {message, type, code?, param?, backend?}}` shape was
+  rebuilt inline at 8 call sites. New `sendError(res, status,
+message, opts)` helper centralizes the wrapper. Default
+  `type: "invalid_request_error"` matches the common case (5 of 8
+  sites); optional code / param / backend stay declarative. Net
+  -45 +18 lines in the call sites; 61/61 facade tests pass
+  unchanged.
+
 - **HTTP body parsing in OpenAI facade migrated to `raw-body` 3.0.2**.
   The hand-rolled `readJsonBody` was reimplementing chunk-buffering +
   size-cap + drain-without-destroy. We already had to fix it once
