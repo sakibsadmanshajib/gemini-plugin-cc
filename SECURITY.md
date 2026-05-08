@@ -13,10 +13,12 @@ Use one of these channels instead, in order of preference:
 1. **GitHub Private Security Advisory** (preferred):
    <https://github.com/artagon/artagon-agent-cli-plugin/security/advisories/new>
 
-2. **Email**: `security@artagon.dev`
-   PGP key fingerprint forthcoming; encrypt sensitive details only if
-   you have a verified key. Plain email is acceptable for non-critical
-   reports.
+2. **Email**: `security@artagon.dev` (TLS-in-transit only; no
+   published PGP key currently). For reports containing
+   exploitation details or unredacted PoC artifacts, prefer the
+   GitHub private security advisory route above — it offers
+   transport-equivalent protection plus access-controlled
+   disclosure history.
 
 We aim to acknowledge a report within **3 business days** and provide
 an initial assessment within **7 business days**. Critical findings
