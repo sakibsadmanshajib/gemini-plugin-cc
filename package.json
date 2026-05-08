@@ -14,7 +14,6 @@
     "plugins/",
     ".claude-plugin/",
     ".agents/",
-    "agents/",
     "docs/",
     "README.md",
     "LICENSE",
