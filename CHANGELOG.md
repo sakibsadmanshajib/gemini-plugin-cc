@@ -352,6 +352,83 @@ checkout` needs in this workflow). Closes the OpenSSF Scorecard
   cleans up false-positive squiggles for authors working in these
   files.
 
+- **`chmod +x` on `bin/*.mjs`** (was `100644` in git). The three
+  bin entry points were checked in as non-executable, so a
+  contributor running `./bin/artagon-agent.mjs --help` got
+  "Permission denied". After `npm i -g`, end-user invocation went
+  through npm's wrapper and was unaffected — but local dev and
+  `npm link` workflows hit unnecessary friction. Used `git
+update-index --chmod=+x` so blob SHAs are unchanged, only the
+  mode prefix flipped (verified `git ls-files --stage`).
+
+- **dependabot.yml runtime-deps comment clarified.** The docstring
+  said "Group runtime patch/minor updates similarly" but the
+  config grouped only `patch`. Updated the comment to spell out
+  the rationale (minors deliberately land as solo PRs since they
+  can introduce new flags / change error wording) so a future
+  reader doesn't "fix" the perceived omission. Comment-only.
+
+### Security
+
+- **wire-log password redaction was corrupting field name to
+  offset number.** The `password` redaction regex
+  (`lib/wire-log.mjs`) was missing a capture group that the other
+  three patterns had. `String.prototype.replace` passes the match
+  OFFSET as the second callback argument when there's no
+  capturing group — so `"password":"hunter2"` rendered as
+  `"208":"[redacted]"` on disk, with the offset shifting per
+  record. Three consequences: (1) on-disk JSON structure was
+  technically valid but semantically wrong (the field name had
+  vanished); (2) `grep password` against the wire log missed the
+  redacted entries entirely; (3) the offset shift meant the
+  output wasn't idempotent across runs, complicating diff-based
+  review. Discovered while writing the first unit tests for
+  `lib/wire-log.mjs`. Comment added on `REDACT_TOKENS` spelling
+  out why every entry needs group 1, so a future addition doesn't
+  hit the same trap.
+
+- **`secret` field-name aligned across all three redaction
+  layers.** The project has three independent redaction layers
+  (`redaction.mjs` middleware, `wire-log.mjs`, `logger.mjs`) each
+  acting as defense-in-depth nets for payloads that bypass the
+  others. The middleware's `DEFAULT_FIELD_NAMES` listed `"secret"`
+  but `wire-log` and `logger` didn't. A `{secret: "..."}` payload
+  that bypassed the middleware (e.g. a direct `logger.info` call
+  from broker code) would leak through the other two layers
+  uncovered. Added `"secret"` to wire-log's `REDACT_TOKENS` and
+  `"*.secret"` to logger's pino redact paths. Comment on
+  `logger.mjs` now explicitly calls out the cross-file invariant.
+
+- **`SECURITY.md` PGP-key claim removed.** Previous text promised
+  a "PGP key fingerprint forthcoming" — a stale aspirational TODO
+  that hasn't materialized. Replaced with honest guidance:
+  `security@artagon.dev` is TLS-in-transit-only with no published
+  PGP key; for sensitive material, prefer the GitHub private
+  security advisory route (already preferred channel #1) which
+  offers transport-equivalent protection plus access-controlled
+  disclosure history.
+
+### Tests added (continued)
+
+- **`tests/unit/wire-log.test.mjs`** — 6 unit tests pinning the
+  wire-log redaction contract (zero coverage prior; the tests
+  caught the password→offset-number bug above). Covers no-op when
+  ACP_WIRE_LOG unset; JSONL envelope shape; full 9-field default
+  redaction (matching the cross-layer invariant); ACP_WIRE_LOG_RAW=1
+  opt-out; defensive `RAW=true` should-stay-redacted; close-then-
+  record best-effort.
+
+- **`tests/property/wire-log-redaction.test.mjs`** — 2 fast-check
+  properties (100 runs each). Property 1: every (fieldName,
+  secretValue) pair → field value parses to `[redacted]` and the
+  original value never appears in raw text. Property 2: every set
+  of credential fields sharing one secret → output round-trips
+  through `JSON.parse` cleanly with all values redacted. Self-test
+  bug caught while writing — initial substring leak-check
+  false-positived on `["apiKey", "K"]` (single-char "K" is a
+  substring of "apiKey"); resolved by making the load-bearing
+  assertion structural via JSON.parse and bumping minLength to 8.
+
 ### Repository hygiene
 
 - **`.editorconfig`** already in place; added complementary
