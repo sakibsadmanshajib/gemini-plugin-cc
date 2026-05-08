@@ -161,7 +161,11 @@ jobs:
           mkdir -p "$CLAUDE_PLUGIN_DATA"
           # Create the session.env file the runtime will stat().
           printf "# Claude session env\n" > "$CLAUDE_ENV_FILE"
-          node --test tests/integration/install.test.mjs
+          # The test file imports from "vitest"; run via vitest, not
+          # node:test. Using `node --test` was the previous default and
+          # caused "Vitest failed to access its internal state" because
+          # vitest's APIs only work when launched via the vitest runner.
+          pnpm exec vitest run tests/integration/install.test.mjs
 
       - name: Run install-integration tests under Codex env shape
         run: |
@@ -170,16 +174,18 @@ jobs:
           unset CLAUDE_ENV_FILE
           unset CLAUDE_PLUGIN_DATA
           unset GEMINI_COMPANION_SESSION_ID
-          node --test tests/integration/install.test.mjs
+          pnpm exec vitest run tests/integration/install.test.mjs
 
       - name: Run broker-reaper tests
         run: |
           # The reaper tests stand up real Unix sockets and verify the
           # endpoint-liveness gate. Not env-shape-specific — they force
           # Codex shape internally and assert reaper behavior is correct.
+          # Both this and install.test.mjs use vitest's APIs, so they
+          # must launch via vitest, not node --test.
           unset CLAUDE_ENV_FILE
           unset CLAUDE_PLUGIN_DATA
-          node --test tests/integration/broker-reaper.test.mjs
+          pnpm exec vitest run tests/integration/broker-reaper.test.mjs
 
       - name: Run plugin-info tests
-        run: node --test tests/unit/plugin-info.test.mjs
+        run: pnpm exec vitest run tests/unit/plugin-info.test.mjs
