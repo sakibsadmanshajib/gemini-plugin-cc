@@ -57,6 +57,61 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
     expect(r.status).toBe(2);
     expect(r.stderr.toString()).toMatch(/--host requires a value/);
   });
+
+  test("--cors without value: exits 2", () => {
+    const r = runBinSync(["--cors"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/--cors requires a value/);
+  });
+
+  test("--help mentions --cors flag + env var", () => {
+    const r = runBinSync(["--help"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.toString()).toMatch(/--cors/);
+    expect(r.stdout.toString()).toMatch(/ARTAGON_FACADE_CORS/);
+  });
+});
+
+describe("bin/artagon-openai-server.mjs — --cors lifecycle", () => {
+  test("--cors '*' enables wildcard CORS on /health response", async () => {
+    const child = spawn(process.execPath, [BIN, "--port", "0", "--cors", "*"], {
+      cwd: ROOT
+    });
+
+    let stdoutBuf = "";
+    /** @type {(value: number) => void} */
+    let resolvePort;
+    const portReady = new Promise((resolve) => {
+      resolvePort = resolve;
+    });
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuf += chunk;
+      const m = stdoutBuf.match(/listening at http:\/\/[^:]+:(\d+)/);
+      if (m) resolvePort(Number(m[1]));
+    });
+
+    try {
+      const port = /** @type {number} */ (
+        await Promise.race([
+          portReady,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("server didn't print port within 15s")), 15000)
+          )
+        ])
+      );
+      const res = await fetch(`http://127.0.0.1:${port}/health`, {
+        headers: { Origin: "http://anywhere.test" }
+      });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    } finally {
+      child.kill("SIGTERM");
+      // Wait for child to exit so subsequent tests don't hit a stale port.
+      await new Promise((resolve) => child.on("exit", resolve));
+      if (!child.killed) child.kill("SIGKILL");
+    }
+  });
 });
 
 describe("bin/artagon-openai-server.mjs — actual server lifecycle", () => {
