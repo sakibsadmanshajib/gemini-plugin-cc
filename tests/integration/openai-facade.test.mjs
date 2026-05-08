@@ -414,12 +414,32 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     expect(res.status).toBe(404);
   });
 
-  test("invalid JSON body → 500", async () => {
+  test("invalid JSON body → 400 (client error, not 500)", async () => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "not-json"
     });
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(400);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.type).toBe("invalid_request_error");
+    expect(body.error.message).toMatch(/invalid JSON/i);
+  });
+
+  test("oversized body → 413 (request entity too large)", async () => {
+    // Default cap is 1 MiB. Send 1.5 MiB to force the limit.
+    const big = JSON.stringify({
+      model: "claude",
+      messages: [{ role: "user", content: "x".repeat(1.5 * 1024 * 1024) }]
+    });
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: big
+    });
+    expect(res.status).toBe(413);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.type).toBe("invalid_request_error");
+    expect(body.error.message).toMatch(/too large/i);
   });
 });
