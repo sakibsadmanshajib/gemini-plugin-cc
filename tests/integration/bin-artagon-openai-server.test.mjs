@@ -70,6 +70,19 @@ describe("bin/artagon-openai-server.mjs — argv parsing (synchronous)", () => {
     expect(r.stdout.toString()).toMatch(/--cors/);
     expect(r.stdout.toString()).toMatch(/ARTAGON_FACADE_CORS/);
   });
+
+  test("--api-key without value: exits 2", () => {
+    const r = runBinSync(["--api-key"]);
+    expect(r.status).toBe(2);
+    expect(r.stderr.toString()).toMatch(/--api-key requires a value/);
+  });
+
+  test("--help mentions --api-key flag + env var", () => {
+    const r = runBinSync(["--help"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.toString()).toMatch(/--api-key/);
+    expect(r.stdout.toString()).toMatch(/ARTAGON_FACADE_API_KEY/);
+  });
 });
 
 describe("bin/artagon-openai-server.mjs — --cors lifecycle", () => {
@@ -108,6 +121,57 @@ describe("bin/artagon-openai-server.mjs — --cors lifecycle", () => {
     } finally {
       child.kill("SIGTERM");
       // Wait for child to exit so subsequent tests don't hit a stale port.
+      await new Promise((resolve) => child.on("exit", resolve));
+      if (!child.killed) child.kill("SIGKILL");
+    }
+  });
+});
+
+describe("bin/artagon-openai-server.mjs — --api-key lifecycle", () => {
+  test("--api-key 'sk-test' enforces auth on /v1/* but exempts /health", async () => {
+    const child = spawn(process.execPath, [BIN, "--port", "0", "--api-key", "sk-test"], {
+      cwd: ROOT
+    });
+
+    let stdoutBuf = "";
+    /** @type {(value: number) => void} */
+    let resolvePort;
+    const portReady = new Promise((resolve) => {
+      resolvePort = resolve;
+    });
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      stdoutBuf += chunk;
+      const m = stdoutBuf.match(/listening at http:\/\/[^:]+:(\d+)/);
+      if (m) resolvePort(Number(m[1]));
+    });
+
+    try {
+      const port = /** @type {number} */ (
+        await Promise.race([
+          portReady,
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error("server didn't print port within 15s")), 15000)
+          )
+        ])
+      );
+
+      // /health is exempt from auth.
+      const healthRes = await fetch(`http://127.0.0.1:${port}/health`);
+      expect(healthRes.status).toBe(200);
+
+      // /v1/models without auth → 401.
+      const noAuthRes = await fetch(`http://127.0.0.1:${port}/v1/models`);
+      expect(noAuthRes.status).toBe(401);
+      expect(noAuthRes.headers.get("www-authenticate")).toMatch(/^Bearer/);
+
+      // /v1/models with correct auth → 200.
+      const authRes = await fetch(`http://127.0.0.1:${port}/v1/models`, {
+        headers: { Authorization: "Bearer sk-test" }
+      });
+      expect(authRes.status).toBe(200);
+    } finally {
+      child.kill("SIGTERM");
       await new Promise((resolve) => child.on("exit", resolve));
       if (!child.killed) child.kill("SIGKILL");
     }
