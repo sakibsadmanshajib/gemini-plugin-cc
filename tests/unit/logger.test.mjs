@@ -22,7 +22,7 @@
 
 import { afterEach, beforeEach, expect, test } from "vitest";
 
-import { _resetLoggerForTests, logger } from "#lib/logger.mjs";
+import { REDACTED_PATHS, _resetLoggerForTests, logger } from "#lib/logger.mjs";
 
 /** @type {string | undefined} */
 let savedLogLevel;
@@ -95,6 +95,32 @@ test("logger.child returns a usable child logger", () => {
   expect(typeof child.debug).toBe("function");
   // Child inherits the root level.
   expect(child.level).toBe(logger.level);
+});
+
+test("REDACTED_PATHS: every credential has BOTH bare and *.<name> forms", () => {
+  // Structural invariant on the exported list: each credential field
+  // name must appear at top-level (`api_key`) AND one-level-nested
+  // (`*.api_key`). The bug fixed in commit b3e239a was missing bare
+  // entries — pino's `*.<name>` syntax doesn't recurse, so top-level
+  // `logger.info({api_key, ...})` calls leaked the credential
+  // verbatim to stderr. Lock both forms in here so a future
+  // refactor can't silently strip the bare entries thinking
+  // they're duplicates.
+  const SENSITIVE = [
+    "api_key",
+    "apiKey",
+    "authorization",
+    "Authorization",
+    "password",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret"
+  ];
+  for (const name of SENSITIVE) {
+    expect(REDACTED_PATHS).toContain(name);
+    expect(REDACTED_PATHS).toContain(`*.${name}`);
+  }
 });
 
 test("redaction: top-level + nested credentials scrub via REDACTED_PATHS", async () => {
