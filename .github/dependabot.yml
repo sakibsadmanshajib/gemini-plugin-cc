@@ -33,7 +33,12 @@ updates:
         update-types:
           - "minor"
           - "patch"
-      # Group runtime patch/minor updates similarly.
+      # Group runtime PATCH bumps (e.g. commander 14.0.3 → 14.0.4)
+      # so they don't churn one PR each. Minor bumps in runtime deps
+      # land as solo PRs deliberately — semver-minor in production
+      # surface (commander/raw-body) can introduce new flags or
+      # change error wording, so review one-by-one rather than risk
+      # a grouped PR sliding past quickly.
       runtime-dependencies:
         dependency-type: "production"
         update-types:
