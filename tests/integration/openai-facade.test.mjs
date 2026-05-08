@@ -18,6 +18,7 @@ import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import {
   createOpenAiFacadeServer,
   flattenMessages,
+  resolveCorsPolicy,
   resolveModelToBackend,
   turnResultToOpenAiResponse
 } from "#lib/server/openai-facade.mjs";
@@ -441,5 +442,126 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     const body = /** @type {any} */ (await res.json());
     expect(body.error.type).toBe("invalid_request_error");
     expect(body.error.message).toMatch(/too large/i);
+  });
+});
+
+describe("resolveCorsPolicy", () => {
+  test("cors: true → wildcard", () => {
+    expect(resolveCorsPolicy(true)).toBe("*");
+  });
+
+  test('cors: "*" → wildcard', () => {
+    expect(resolveCorsPolicy("*")).toBe("*");
+  });
+
+  test("cors: 'http://localhost:3000' → single-element allowlist", () => {
+    expect(resolveCorsPolicy("http://localhost:3000")).toEqual(["http://localhost:3000"]);
+  });
+
+  test("cors: array → allowlist", () => {
+    expect(resolveCorsPolicy(["http://a.test", "http://b.test"])).toEqual([
+      "http://a.test",
+      "http://b.test"
+    ]);
+  });
+
+  test("cors: false / empty array / undefined-with-no-env → null", () => {
+    expect(resolveCorsPolicy(false, {})).toBeNull();
+    expect(resolveCorsPolicy([], {})).toBeNull();
+    expect(resolveCorsPolicy(undefined, {})).toBeNull();
+  });
+
+  test("$ARTAGON_FACADE_CORS=1 → wildcard", () => {
+    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "1" })).toBe("*");
+    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "true" })).toBe("*");
+    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "*" })).toBe("*");
+  });
+
+  test("$ARTAGON_FACADE_CORS=comma list → allowlist", () => {
+    expect(
+      resolveCorsPolicy(undefined, {
+        ARTAGON_FACADE_CORS: "http://a.test, http://b.test"
+      })
+    ).toEqual(["http://a.test", "http://b.test"]);
+  });
+
+  test("Direct option takes precedence over env", () => {
+    expect(resolveCorsPolicy("*", { ARTAGON_FACADE_CORS: "http://different.test" })).toBe("*");
+  });
+});
+
+describe("CORS — HTTP behavior", () => {
+  /** @type {ReturnType<typeof createOpenAiFacadeServer>} */
+  let facade;
+  /** @type {string} */
+  let baseUrl;
+
+  afterEach(async () => {
+    if (facade) await facade.close();
+  });
+
+  test("cors disabled by default — no Access-Control-Allow-Origin header", async () => {
+    facade = createOpenAiFacadeServer({});
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "http://x.test" }
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  test("cors: '*' → echo wildcard on every response", async () => {
+    facade = createOpenAiFacadeServer({ cors: "*" });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+    const res = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "http://anywhere.test" }
+    });
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    expect(res.headers.get("vary")).toBe("Origin");
+  });
+
+  test("cors: allowlist — echoes matched origin, omits unmatched", async () => {
+    facade = createOpenAiFacadeServer({ cors: ["http://allowed.test"] });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+
+    const allowedRes = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "http://allowed.test" }
+    });
+    expect(allowedRes.headers.get("access-control-allow-origin")).toBe("http://allowed.test");
+
+    const blockedRes = await fetch(`${baseUrl}/health`, {
+      headers: { Origin: "http://blocked.test" }
+    });
+    expect(blockedRes.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  test("OPTIONS preflight → 204 with allow-headers when origin is permitted", async () => {
+    facade = createOpenAiFacadeServer({ cors: "*" });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "OPTIONS",
+      headers: {
+        Origin: "http://app.test",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "Content-Type"
+      }
+    });
+    expect(res.status).toBe(204);
+    expect(res.headers.get("access-control-allow-methods")).toMatch(/POST/);
+    expect(res.headers.get("access-control-allow-headers")).toMatch(/Content-Type/i);
+  });
+
+  test("OPTIONS preflight → 405 when CORS is disabled", async () => {
+    facade = createOpenAiFacadeServer({});
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "OPTIONS",
+      headers: { Origin: "http://anywhere.test" }
+    });
+    expect(res.status).toBe(405);
   });
 });
