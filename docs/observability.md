@@ -60,17 +60,24 @@ brokerLog.error({ pid }, "child exited unexpectedly");
 ### Redaction
 
 The root logger has a `redact` config covering known credential paths
-(`*.api_key`, `*.apiKey`, `*.token`, `*.authorization`, `*.password`,
-`*.secret`, `*.bearer`, plus a few framework-specific paths). Values
-become the literal string `"[REDACTED]"`.
+exported as `REDACTED_PATHS` from `lib/logger.mjs` — see the actual list
+there. Each credential field appears in BOTH bare (`api_key`) AND
+one-level-nested (`*.api_key`) form because pino's path syntax doesn't
+recurse. Values become the literal string `"[redacted]"`.
 
-**Opt-out for local debugging:** pass `{ rawAuth: 1 }` as a child binding.
-The redaction skips that scope. **Never** ship `rawAuth` to production.
+**No runtime opt-out.** Earlier revisions of this doc mentioned a
+`{ rawAuth: 1 }` child-binding escape hatch, but the feature was never
+implemented. For local debugging with un-redacted output, either:
 
-```js
-const debugLog = logger.child({ rawAuth: 1, component: "auth-debug" });
-// Now api_key etc. log raw — for local triage only.
-```
+- set `ACP_WIRE_LOG_RAW=1` (the wire log's documented opt-out — see
+  the **Wire log** section below), or
+- temporarily edit `REDACTED_PATHS` in `lib/logger.mjs` and re-run
+  with the change unstaged.
+
+Adding a real per-call opt-out would need a wrapper around `pino.child`
+that returns a non-redacting logger when a magic binding is present —
+non-trivial enough to warrant its own design discussion if there's
+demand.
 
 ### Failure mode
 
