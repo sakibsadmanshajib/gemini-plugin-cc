@@ -9,6 +9,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Prompt-cache aware USD pricing.** `lib/cost/recorder.mjs` now
+  extracts Claude's `cache_creation_input_tokens` /
+  `cache_read_input_tokens` and OpenAI's
+  `prompt_tokens_details.cached_tokens` into normalized
+  `cache_creation_tokens` / `cache_read_tokens` fields on
+  `NormalizedUsage`. `lib/cost/pricing.mjs` honors per-backend
+  cache multipliers (Claude write +25%, read 10%; OpenAI read 50%
+  with subset-of-prompt subtraction). Without this, every cached
+  token was billed at full input rate — significant over-estimation
+  for prompt-cache users.
+- **Cache savings surfaced in /stats.** `lib/cost/aggregate.mjs`
+  adds `cache_creation_tokens` + `cache_read_tokens` aggregates plus
+  a counterfactual `estimated_usd_without_cache`. The delta is the
+  dollar value of cache hits; `formatCostSummaryText` emits a
+  `Cache savings: $X.XX (N hits, M writes)` line when applicable.
+  Per-backend totals also carry the cache fields.
+
+### Fixed
+
+- **CI install workflow was red on every commit since vitest tests
+  were added.** Three steps in `.github/workflows/install.yml`
+  (Run install-integration tests under Claude env / Codex env, Run
+  broker-reaper tests, Run plugin-info tests) ran their target files
+  via `node --test`, but each file imports from `vitest`. vitest's
+  APIs only function under the vitest worker; under node:test they
+  threw "Vitest failed to access its internal state". Switched all
+  four invocations to `pnpm exec vitest run <file>`. Verified locally
+  install.test.mjs passes 12/12 under both env shapes.
+- **CodeQL findings (5)** addressed on PR #4:
+  - 2× `js/insecure-randomness`: session-id generation in
+    `lib/middleware/{audit,cost}.mjs` switched from `Math.random` to
+    `crypto.randomBytes`. Same applied to chatcmpl-id generation in
+    `lib/server/openai-facade.mjs` (extracted as
+    `generateChatCompletionId()` helper).
+  - 1× `js/stack-trace-exposure`: the global 500 catch in the OpenAI
+    facade returned `err.message` to clients. Now writes the full
+    stack to stderr server-side and returns a generic
+    `"internal server error"`. Backend-level 502 errors still
+    surface vendor CLI stderr (the user's own backend giving up).
+  - 2× `js/unused-import`: dropped `SESSION_ID_ENV` from
+    gemini-companion.mjs and `execFileSync` from
+    plugins/gemini/scripts/lib/process.mjs.
+
+### Documentation
+
+- **OpenAI facade docstring** moved SSE streaming from "Not supported
+  (yet)" to "What IS supported"; the streaming surface has been live
+  with AbortController threading + socket guards for several commits.
+
+### Added
+
 - **Rebrand to `artagon-agent-cli-plugin`** (was `gemini-plugin-cc`).
   Owner Artagon & Giedrius Trumpickas. Repo at
   `github.com/artagon/artagon-agent-cli-plugin`. Scoped install paths

@@ -58,10 +58,15 @@ test("property: ACP notification (no id) round-trips", () => {
   fc.assert(
     fc.property(notification, (msg) => {
       const wire = JSON.stringify(msg);
-      // Notifications MUST NOT have an `id` field on the wire — server uses
-      // its presence to distinguish requests from notifications.
-      expect(wire.includes('"id"')).toBe(false);
-      expectJsonEqual(JSON.parse(wire), msg);
+      // Notifications MUST NOT have a TOP-LEVEL `id` field on the wire —
+      // server uses its presence to distinguish requests from
+      // notifications. Use a structural check on the parsed message;
+      // a substring scan of the wire string falsely flags nested `id`
+      // keys inside params (caught by fast-check counterexample
+      // `{params: {" ": {id: ""}}}`).
+      const parsed = JSON.parse(wire);
+      expect(Object.hasOwn(parsed, "id")).toBe(false);
+      expectJsonEqual(parsed, msg);
     }),
     { numRuns: 100 }
   );
