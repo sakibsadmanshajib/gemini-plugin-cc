@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`bin/artagon-stats --budget <n>` and `--budget-usd <n>`**: shell-side
+  CI gating for cost overruns. Token + USD budgets were already
+  reachable via the in-host `/<plugin>:budget` slash commands but had
+  no shell counterpart. Exit code 3 distinguishes "over budget" from
+  clean (0) and usage error (2), so CI scripts can branch:
+  `case $? in 0) ;; 2) exit 1 ;; 3) alert ;; esac`. `--json` output
+  gains a `budget` block with `{tokens, usd, over, message}`.
+
+- **`bin/artagon-stats` test suite** (14 cases). Covers argv parsing
+  (--version, --help, unknown flag, invalid --since / --budget /
+  --budget-usd), empty-log handling, populated-log summary rendering
+  with cost line, --json budget block, --budget exit 3 + stderr
+  OVER BUDGET message, --budget-usd exit 3 with $-formatted message,
+  --recent N filtering. Each test uses a per-test temp
+  `ARTAGON_COST_LOG` so no cross-test state.
+
 - **OpenAI compatibility hardening on the HTTP facade**:
   - **Opt-in API-key auth** (`apiKey` option + `--api-key` flag +
     `--api-key-file <path>` flag + `$ARTAGON_FACADE_API_KEY` env).
