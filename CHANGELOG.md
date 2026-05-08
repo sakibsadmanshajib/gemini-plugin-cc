@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **OpenAI compatibility hardening on the HTTP facade**:
+  - **Opt-in API-key auth** (`apiKey` option + `--api-key` flag +
+    `--api-key-file <path>` flag + `$ARTAGON_FACADE_API_KEY` env).
+    Closes a deployment-misconfig hazard: the facade had no defense
+    if the user bound to 0.0.0.0 (Docker port-mapping). When set,
+    every `/v1/*` request must carry `Authorization: Bearer <key>`;
+    `/health` is exempt (LB probe convention). Constant-time
+    comparison via `crypto.timingSafeEqual` prevents char-by-char
+    timing-leak attacks. Multi-key allowlists supported (key
+    rotation). `--api-key-file` reads from a 0o600-safe file —
+    safer than `--api-key` since the latter is visible in
+    `ps -ef` output.
   - **Opt-in CORS** (`cors` option + `--cors` flag on
     `bin/artagon-openai-server` + `$ARTAGON_FACADE_CORS` env). Browser
     clients (Vercel AI SDK, in-browser openai SDK) couldn't reach
