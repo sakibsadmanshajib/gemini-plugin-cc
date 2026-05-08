@@ -36,15 +36,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@7088e561eb65bb68695d245aa206f005ef30921d # v4.1.0
         with:
           version: 9.15.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           registry-url: "https://registry.npmjs.org"
@@ -74,28 +74,35 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Generate CycloneDX SBOM
+        # @cyclonedx/cyclonedx-npm is a pinned devDependency. The
+        # integrity SHA-512 lives in pnpm-lock.yaml and is enforced by
+        # `pnpm install --frozen-lockfile` above — this is the actual
+        # content-hash pin, stronger than version-tag pinning. Running
+        # via `pnpm exec` (NOT `npx`) ensures the locally-installed,
+        # integrity-verified copy is used; `npx` would resolve a fresh
+        # copy from the registry at job time, bypassing the lockfile.
         run: |
-          npx @cyclonedx/cyclonedx-npm \
+          pnpm exec cyclonedx-npm \
             --output-format JSON \
             --output-file artagon-agent-cli-plugin.cdx.json
-          npx @cyclonedx/cyclonedx-npm \
+          pnpm exec cyclonedx-npm \
             --output-format XML \
             --output-file artagon-agent-cli-plugin.cdx.xml
 
       - name: Attest SBOM
-        uses: actions/attest-sbom@v1
+        uses: actions/attest-sbom@f19ab44411e02574a74181cec8eb584319d0f779 # v1.4.0
         with:
           subject-path: "*.tgz"
           sbom-path: "artagon-agent-cli-plugin.cdx.json"
 
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@ef244123eb79f2f7a7e75d99086184180e6d0018 # v1.4.4
         with:
           subject-path: "*.tgz"
 
       - name: Upload SBOM as release artifact
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
         with:
           files: |
             artagon-agent-cli-plugin.cdx.json
