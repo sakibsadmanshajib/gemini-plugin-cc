@@ -203,7 +203,7 @@ The page also indexes the in-repo hardening (CodeQL extended pack, SHA-pinned ac
 - OpenAI Chat Completions HTTP facade including SSE streaming
 - Per-process pid-file orphan tracking
 - Multi-backend dispatcher
-- 587 tests passing, 0 typecheck errors, biome clean
+- Full test suite green (unit + integration + property), 0 typecheck errors, biome clean — see the CI badge above for live status
 
 **Pending:**
 
