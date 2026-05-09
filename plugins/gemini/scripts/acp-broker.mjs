@@ -121,7 +121,7 @@ function spawnAcpProcess(cwd) {
     acpReady = false;
 
     // Reject all pending requests.
-    for (const [id, pending] of pendingRequests) {
+    for (const pending of pendingRequests.values()) {
       if (!pending.clientSocket) continue;
       send(pending.clientSocket, {
         jsonrpc: "2.0",
