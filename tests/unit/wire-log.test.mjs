@@ -67,7 +67,7 @@ test("openWireLog writes one line per record(), correct envelope", () => {
   expect(b.msg).toEqual({ jsonrpc: "2.0", id: 1, result: { pong: true } });
 });
 
-test("default redaction: scrubs all 9 sensitive field names", () => {
+test("default redaction: scrubs every sensitive field name in the cross-layer set", () => {
   // Field names MUST match the union of redaction layers:
   //   lib/middleware/redaction.mjs DEFAULT_FIELD_NAMES (the primary)
   //   lib/wire-log.mjs REDACT_TOKENS (this test target)
