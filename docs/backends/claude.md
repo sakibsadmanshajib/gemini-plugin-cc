@@ -16,7 +16,10 @@ replace `createNotYetSupportedTransport` with `createCliTransport({ command: "cl
    uniformly; having `claudeBackend` declared keeps that loop simple.
 2. **CLI flag taxonomy is research-derived and tested** — `buildClaudeArgs`
    captures the full `claude --help` flag surface (per
-   `docs/cli-options-research.md`) and is pinned by 30 tests. When ACP
+   `docs/cli-options-research.md`) and is pinned by the
+   `tests/unit/claude-args-builder.test.mjs` suite covering operation
+   modes, session identity, model + cost, permission + tool surface,
+   I/O format, and the no-silent-fallback validations below. When ACP
    arrives, no argv work needs to happen.
 3. **Failures are loud** — calling the transport throws synchronously
    on `start()`, not silently after a hung handshake.
