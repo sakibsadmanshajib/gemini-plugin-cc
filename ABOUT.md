@@ -23,7 +23,7 @@ The major coding-agent CLIs each speak different protocols, ship different SDKs,
 
 ## Status
 
-- 587 tests passing, 0 typecheck errors, biome clean across 145 files
+- Full test suite green (unit + integration + property), 0 typecheck errors, biome clean — see the CI badge in [README](README.md) for live status
 - npm provenance + CycloneDX SBOM signing wired into `.github/workflows/npm-publish.yml`
 - Triggered by `git tag -s v* && git push --tags`
 
