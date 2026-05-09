@@ -85,21 +85,32 @@ plugins/{gemini,codex,claude}/  — Three host-installable plugin shells
 └── scripts/         — Legacy runtime: acp-broker.mjs, gemini-companion.mjs, lib/
 
 tests/
-├── unit/
-├── integration/
-├── property/        — fast-check property tests (JSON-RPC framing, message round-trip)
-├── fixtures/        — JSONL wire fixtures for replay
-└── mocks/           — gemini-mock.mjs (ACP-mock binary for hermetic CI)
+├── unit/                — vitest unit tests (lib/* modules in isolation)
+├── integration/         — vitest integration tests (real fs/git/network mocks)
+├── property/            — fast-check property tests (framing, redaction, round-trip)
+├── integration/fixtures/ — JSONL wire fixtures for replay
+└── mocks/               — gemini-mock.mjs (ACP-mock binary for hermetic CI)
 
 docs/
-├── architecture.md      — High-level layer diagram
-├── transport-cli.md     — CliTransport reference
-├── state-schema.md      — v1/v2 state-file format + migration
-├── test-fixtures.md     — JSONL fixture format for replay
-├── feature-flags.md     — ACP_PLUGIN_VERSION semantics
-├── testing.md           — Test runner + property + mutation policy
-├── mutation-debt.md     — Surviving stryker mutants by design
-└── typecheck-debt.md    — Outstanding JSDoc annotation debt
+├── architecture.md          — High-level layer diagram + invariants
+├── runners.md               — Stateless runner contract + TurnResult shape
+├── openai-facade.md         — OpenAI Chat Completions HTTP facade reference
+├── plugins.md               — Multi-plugin cross-pollination model
+├── middleware-architecture.md — composeMiddleware + 6 middlewares
+├── observability.md         — Logger / wire-log / OpenTelemetry tracing
+├── transport-cli.md         — CliTransport reference
+├── state-schema.md          — v1/v2 state-file format + migration
+├── feature-flags.md         — ACP_PLUGIN_VERSION semantics (currently inert; see glossary)
+├── cli-options-research.md  — Per-CLI flag taxonomy (claude/codex/gemini)
+├── backends/{claude,codex,gemini}.md — Per-backend specifics
+├── homebrew-tap.md          — Tap publish recipe + version-bump workflow
+├── INSTALL.md               — Per-host install recipes
+├── legacy-gemini-plugin.md  — Original /gemini:* command reference (broker-shared multi-turn)
+├── agent-cli-design.md      — HISTORICAL — pre-pivot roadmap (kept as snapshot)
+├── test-fixtures.md         — JSONL fixture format for replay
+├── testing.md               — Test runner + property + mutation policy
+├── mutation-debt.md         — Surviving stryker mutants by design
+└── typecheck-debt.md        — Outstanding JSDoc annotation debt
 
 openspec/             — OpenSpec change proposals + capability specs
 ```
