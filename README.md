@@ -193,7 +193,7 @@ Vulnerability disclosure goes through a private channel — **do not file public
 - Or email `security@artagon.dev`
 - 3-business-day acknowledgement, 7-day initial assessment, 90-day default coordinated-disclosure window
 
-The page also indexes the in-repo hardening (CodeQL extended pack, SHA-pinned actions, OIDC provenance, `crypto.timingSafeEqual` for API keys, mode-0o600 cost log, no stack-trace exposure on HTTP errors, PID-reuse-hardened orphan reaper).
+The page also indexes the in-repo hardening (CodeQL extended pack, SHA-pinned actions, OIDC provenance, `crypto.timingSafeEqual` for API keys, mode-0o600 cost log, no stack-trace exposure on HTTP errors, PID-reuse-hardened orphan reaper, three-layer credential redaction with cross-layer-invariant CI test).
 
 ## Status
 
