@@ -1,11 +1,5 @@
 # artagon-agent-cli-plugin — Architecture Overview
 
-(Project history: started as `gemini-plugin-cc`, briefly known as
-`acp-plugins-cc` during the modernization, now
-`artagon-agent-cli-plugin`. Older proposals + reviews still
-reference the earlier names — those are intentionally preserved
-as historical record.)
-
 A 1-page summary of the system. For deep detail, see the OpenSpec
 change proposals and the per-capability spec files.
 

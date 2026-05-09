@@ -1,7 +1,7 @@
 schema: spec-driven
 
 context: |
-  # artagon-agent-cli-plugin (formerly acp-plugins-cc, originally gemini-plugin-cc)
+  # artagon-agent-cli-plugin
 
   Multi-backend ACP plugin suite that lets Claude Code, Codex CLI, and
   Gemini hosts each delegate to the OTHER backends via stateless CLI
@@ -42,7 +42,7 @@ context: |
   - `align-gemini-plugin-cli-schema-with-codex` — preparatory cleanup
     that freezes Codex's `--json` shape and CLI flag taxonomy as a v1
     baseline (`delegate-plugin-cli-schema/v1`) and makes
-    `gemini-plugin-cc` conform. Hard cut at v0→v1 signaled by a
+    the gemini plugin conform. Hard cut at v0→v1 signaled by a
     top-level `schemaVersion` field on every `--json` output. Today
     this carries proposal + design only; specs and tasks land in a
     follow-up change. Independent of the Stage 1/2 ladder; can ship

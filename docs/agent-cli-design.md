@@ -24,9 +24,9 @@
 > current execution plan. For the current architecture, start at
 > `docs/architecture.md`.
 
-This OpenSpec workspace tracks the modernization of `gemini-plugin-cc`
-into `acp-plugins-cc` — a multi-backend ACP plugin suite for Claude
-Code.
+This OpenSpec workspace tracks the design and modernization of
+`artagon-agent-cli-plugin` — a multi-backend ACP plugin suite for Claude
+Code, Codex CLI, and Gemini hosts.
 
 For orientation:
 
