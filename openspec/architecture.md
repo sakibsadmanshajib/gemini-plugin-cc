@@ -63,14 +63,14 @@ OpenAI Chat Completions HTTP facade.
 
 ## Where to add things
 
-| Want to add…                  | Touch…                                                                                                                |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| A new backend (e.g., Bedrock) | `lib/backends/<name>/`, declare `<name>Backend` in the same shape as existing ones; pick which transports it supports |
-| A new transport (e.g., gRPC)  | `lib/transport/<name>.mjs`, conform to `AcpSession`, pass the conformance suite                                       |
-| A new translator (for an SDK) | `lib/backends/<name>/translator.mjs`, function `(event) => SessionUpdate \| null`                                     |
-| A new middleware concern      | `lib/middleware/<name>.mjs`, slot into the canonical chain order; redaction MUST be index 0                           |
-| A new slash command           | `plugins/<backend>/commands/<verb>.md` and a handler in `scripts/companion.mjs`                                       |
-| A new plugin shell            | `plugins/<name>/` with manifest, commands, agents, scripts                                                            |
+| Want to add…                  | Touch…                                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A new backend (e.g., Bedrock) | `lib/backends/<name>/`, declare `<name>Backend` in the same shape as existing ones; pick which transports it supports                                        |
+| A new transport (e.g., gRPC)  | `lib/transport/<name>.mjs`, conform to `AcpSession`, pass the conformance suite                                                                              |
+| A new translator (per-runner) | `lib/translate/<backend>-stream-event.mjs`, function `(streamJsonLine) => SessionUpdate \| null` (post-pivot path; SdkTransport-backed translators are gone) |
+| A new middleware concern      | `lib/middleware/<name>.mjs`, slot into the canonical chain order; redaction MUST be index 0                                                                  |
+| A new slash command           | `plugins/<backend>/commands/<verb>.md` and a handler in `scripts/companion.mjs`                                                                              |
+| A new plugin shell            | `plugins/<name>/` with manifest, commands, agents, scripts                                                                                                   |
 
 ## Key invariants
 
@@ -87,10 +87,15 @@ OpenAI Chat Completions HTTP facade.
   contributions.
 - **State schema is versioned**. v1 state files migrate forward in
   memory; v2 state files include explicit `schemaVersion`.
-- **Trunk-based development**. Single main branch. v2 features behind
-  `ACP_PLUGIN_VERSION=v2` until the flip in
-  `add-app-server-transport-and-marketplace-split`. After flip, v1
-  remains opt-in for 30 calendar days.
+- **Trunk-based development**. Single main branch. The
+  `ACP_PLUGIN_VERSION` flag was originally designed to gate the v1→v2
+  cutover (default flip in
+  `add-app-server-transport-and-marketplace-split`, with v1 opt-in
+  for 30 calendar days after flip), but the multi-backend behavior
+  shipped via the rebrand without going through that flag-gated
+  cutover. The flag remains plumbed at
+  `lib/feature-flags.mjs::getPluginVersion` for future opt-in
+  behavior toggles; see the glossary entry for current state.
 
 ## Pointers for newcomers
 
