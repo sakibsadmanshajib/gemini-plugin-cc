@@ -368,6 +368,25 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   can introduce new flags / change error wording) so a future
   reader doesn't "fix" the perceived omission. Comment-only.
 
+- **`tsconfig.json` include expanded to bin/ and scripts/.** Both
+  directories ship runtime code (the three bin entry points, the
+  homebrew formula generator) but were excluded from tsgo's full
+  check. Adding them surfaced a real type error: `program.args[0]`
+  in `bin/artagon-agent.mjs` is typed `string` by commander, but
+  `runStatelessTurn` requires `BackendName`. Fixed via a runtime-
+  guarded cast at the call site (`parseBackend` already validates
+  - exits 2 on bad input before reaching the cast). Two-part fix:
+    added `@returns {BackendName}` JSDoc to `parseBackend`, and the
+    cast itself with a comment explaining why it's sound.
+
+- **`logger.mjs` exports `REDACTED_PATHS`** so consumers and tests
+  can pin the redaction policy shape directly. The exported list
+  has a comment block reminding maintainers to keep the cross-layer
+  invariant (redaction.mjs / wire-log / logger lists in lockstep).
+  The redaction tests now import the constant rather than
+  mirroring it — eliminates a maintenance gap where a list change
+  could drift between code and test.
+
 ### Security
 
 - **wire-log password redaction was corrupting field name to
@@ -433,6 +452,30 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   offers transport-equivalent protection plus access-controlled
   disclosure history.
 
+- **logger `rawAuth` opt-out claim removed (feature was never
+  implemented).** Both `lib/logger.mjs` docstring and
+  `docs/observability.md` promised a `{ rawAuth: 1 }` child-binding
+  opt-out from redaction. Grepping the codebase finds the string
+  in EXACTLY two places — the docstring and the doc — never in any
+  implementation. The feature was scaffolded into the docs (likely
+  during the `add-testing-and-observability` proposal) but never
+  landed in code.
+
+  Promising-but-not-implementing a security-sensitive opt-out is
+  worse than not mentioning at all: a developer using
+  `logger.child({ rawAuth: 1, component: "..." })` thinking
+  redaction is now off would see redaction continue firing —
+  inverting their expectation about what's been logged. Conversely,
+  a developer who thinks the doc is accurate might commit
+  `rawAuth: 1` to production code expecting un-redacted output to
+  reach prod.
+
+  Replaced both mentions with honest guidance: no runtime opt-out
+  exists; for local debug use `ACP_WIRE_LOG_RAW=1` (the wire-log's
+  actual documented opt-out) or temporarily edit `REDACTED_PATHS`.
+  A real per-call opt-out would need a `pino.child` wrapper and
+  is flagged for design discussion if there's actual demand.
+
 ### Tests added (continued)
 
 - **`tests/unit/wire-log.test.mjs`** — 6 unit tests pinning the
@@ -453,6 +496,38 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   false-positived on `["apiKey", "K"]` (single-char "K" is a
   substring of "apiKey"); resolved by making the load-bearing
   assertion structural via JSON.parse and bumping minLength to 8.
+
+- **`tests/unit/logger.test.mjs`** — 8 unit tests covering the
+  level-resolution surface (default `info`, `LOG_LEVEL` lowercased,
+  `DEBUG=1` shorthand, `LOG_LEVEL` precedence over `DEBUG`),
+  `logger.child()` shape, the `REDACTED_PATHS` structural invariant
+  (every credential has BOTH bare and `*.<name>` form), and a
+  pino-end-to-end redaction test using the _exported_ REDACTED_PATHS
+  list (so future list changes propagate automatically). The
+  structural test caught the top-level redaction bug — see Security
+  section.
+
+- **`tests/property/redaction-field-level.test.mjs`** — 5 fast-check
+  properties (50–100 runs each) for the redaction-middleware's
+  `fieldNames`-set path. The existing property test in
+  `tests/unit/middleware.test.mjs` only covered pattern-based
+  redaction (`sk-`/`ant-`/`AIza`); this fills the field-level gap
+  the runtime actually uses for credentials in JSON-RPC params.
+  Properties: top-level credential always becomes the sentinel;
+  empty-string credentials pass through (the implementation's
+  intentional skip-empty contract); nested fields redact at any
+  depth (structural walk + substring defense-in-depth); arrays of
+  objects each redact their credential fields; non-credential field
+  names pass through unchanged.
+
+- **`tests/integration/openai-facade.test.mjs`** — 4 new cases for
+  `GET /v1/models/{id}` (single-model retrieval). The endpoint was
+  implemented but had zero coverage — only the list endpoint
+  `/v1/models` was tested. Cases: known canonical id → 200 with
+  single-model OpenAI shape; alias resolution (`sonnet` → claude);
+  unknown id → 404 with actionable error including bad id + pointer
+  to `/v1/models`; URL-encoded id (`claude%3Aopus-4-7`) → decode
+  step runs and the error message contains the decoded form.
 
 ### Repository hygiene
 
