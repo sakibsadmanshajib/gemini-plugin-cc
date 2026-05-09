@@ -272,6 +272,22 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
   from the generator. Both Node 20 + 22 lanes deterministically
   pass after the fix.
 
+- **Redaction hardening for `__proto__` as own-property** (the
+  flip side of the property-test bug above). Production
+  `redactValue` reads via `Object.entries` (own-properties only —
+  no prototype walk), but the OUTPUT-rebuild used
+  `out[key] = ...` which DOES invoke JS's prototype-setter
+  semantics for `__proto__`. So an input like
+  `JSON.parse('{"__proto__":"x"}')` (which creates `__proto__`
+  as an own-property, unlike literal-syntax) produced output
+  `{}` — the field silently vanished. No leak (the value never
+  reached the wire) but data loss + surprising shape for an
+  audit/log analyzer. Switched to `Object.fromEntries` which
+  always creates own-properties, even for `__proto__`. Equivalent
+  shape for normal inputs; correctness for the synthetic edge
+  case. Regression test added with the canonical
+  `JSON.parse`-derived input.
+
 ### CI
 
 - **`pnpm pack:check` script** for tarball verification before
