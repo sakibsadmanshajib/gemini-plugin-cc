@@ -34,6 +34,8 @@ ACP_PLUGIN_VERSION=v2 node plugins/gemini/scripts/gemini-companion.mjs setup --j
 - Unknown value → falls back to `v1` with a one-shot stderr warning (`[feature-flags] Unknown ACP_PLUGIN_VERSION=...; falling back to v1.`).
 - `DEBUG=1` → companion's `main()` logs the resolved version on entry as `[debug] ACP_PLUGIN_VERSION=<version>`.
 
+`lib/feature-flags.mjs` also exports an `isV2(env?)` boolean helper for callers that just want to branch — equivalent to `getPluginVersion(env) === "v2"` but reads more naturally at the call site (`if (isV2()) { ... }`).
+
 ## Lifecycle
 
 - Each v2-introducing change MUST cite this file and add a one-line entry to the v2 list above describing the gated behavior.
