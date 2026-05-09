@@ -2,12 +2,12 @@
 
 ## Layers
 
-| Layer       | Runner              | Where                             | Purpose                                                   |
-| ----------- | ------------------- | --------------------------------- | --------------------------------------------------------- |
-| Unit        | vitest              | `tests/unit/**`                   | Pure-function and module-level checks                     |
-| Integration | vitest              | `tests/integration/**`            | Real fs, git, subprocess, broker socket fixtures          |
-| Property    | vitest + fast-check | `tests/property/**`               | Fuzz JSON-RPC framing + ACP message round-trips           |
-| Mutation    | stryker             | (no test files; mutates `lib/**`) | Score the suite's ability to catch real-world regressions |
+| Layer       | Runner              | Where                             | Purpose                                                                                                                 |
+| ----------- | ------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| Unit        | vitest              | `tests/unit/**`                   | Pure-function and module-level checks; includes structural invariants like `cross-layer-redaction.test.mjs`             |
+| Integration | vitest              | `tests/integration/**`            | Real fs, git, subprocess, broker socket fixtures                                                                        |
+| Property    | vitest + fast-check | `tests/property/**`               | Fuzz JSON-RPC framing, message round-trips, wire-log redaction, redaction-middleware field-level redaction at any depth |
+| Mutation    | stryker             | (no test files; mutates `lib/**`) | Score the suite's ability to catch real-world regressions                                                               |
 
 ## Commands
 
