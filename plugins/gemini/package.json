@@ -1,0 +1,9 @@
+{
+  "name": "@artagon/gemini-plugin",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#lib/*": "./lib/*"
+  },
+  "comment": "Plugin-local imports map. The lib/ symlink points at the repo-root lib/ so dev edits land in one place; marketplace install follows the symlink and ships a vendored copy."
+}

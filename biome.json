@@ -13,7 +13,8 @@
       "**/.generated/**",
       "openspec/changes/archive/**",
       ".stryker-tmp/**",
-      "reports/**"
+      "reports/**",
+      "plugins/gemini/lib/**"
     ]
   },
   "formatter": {

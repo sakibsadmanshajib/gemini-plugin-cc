@@ -19,5 +19,5 @@
     "plugins/gemini/scripts/**/*.mjs",
     "types/**/*.d.ts"
   ],
-  "exclude": ["node_modules", "**/.generated/**", "tests/**"]
+  "exclude": ["node_modules", "**/.generated/**", "tests/**", "plugins/gemini/lib/**"]
 }

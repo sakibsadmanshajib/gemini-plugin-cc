@@ -27,6 +27,8 @@
     "test:property": "vitest run tests/property",
     "test:smoke": "ARTAGON_REAL_CLI_SMOKE=1 vitest run tests/integration/real-cli-smoke.test.mjs",
     "gen:homebrew": "node scripts/generate-homebrew-formula.mjs",
+    "vendor:lib": "node scripts/vendor-lib.mjs",
+    "vendor:lib:check": "node scripts/vendor-lib.mjs --check",
     "pack:check": "npm pack --dry-run",
     "test:cov": "vitest run --coverage",
     "test:mutation": "stryker run",

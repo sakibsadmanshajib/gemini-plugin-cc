@@ -17,7 +17,11 @@
 import path from "node:path";
 import { afterEach, beforeEach, expect, test } from "vitest";
 
-import { geminiBackend } from "#lib/backends/gemini.mjs";
+// Load from the vendored copy: the SUT (runAcpPrompt) imports
+// `#lib/backends/gemini.mjs` via plugins/gemini/package.json's imports map,
+// which resolves to plugins/gemini/lib/. Spying on the repo-root copy here
+// would target a different module instance and silently miss.
+import { geminiBackend } from "../../plugins/gemini/lib/backends/gemini.mjs";
 import { runAcpPrompt } from "../../plugins/gemini/scripts/lib/gemini.mjs";
 
 const MOCK_PATH = path.resolve(new URL("../mocks/gemini-mock.mjs", import.meta.url).pathname);
