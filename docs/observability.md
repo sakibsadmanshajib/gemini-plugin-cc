@@ -65,6 +65,18 @@ there. Each credential field appears in BOTH bare (`api_key`) AND
 one-level-nested (`*.api_key`) form because pino's path syntax doesn't
 recurse. Values become the literal string `"[redacted]"`.
 
+The credential field-name set is part of a project-wide
+**cross-layer invariant** spanning three independent redaction layers:
+`lib/middleware/redaction.mjs` `DEFAULT_FIELD_NAMES` (the primary,
+applied at session entry), `lib/wire-log.mjs` `REDACT_TOKENS` (regex
+scrubbing of serialized JSON-RPC frames), and `REDACTED_PATHS` here.
+The three lists must agree on the set of credential field names —
+divergence opens leak windows for payloads that bypass the primary
+layer. Mechanically enforced by
+`tests/unit/cross-layer-redaction.test.mjs` (added 2026-05-08); a
+regression in any of the three lists fails CI immediately with a
+per-name diagnostic pointing at the missing layer.
+
 **No runtime opt-out.** Earlier revisions of this doc mentioned a
 `{ rawAuth: 1 }` child-binding escape hatch, but the feature was never
 implemented. For local debugging with un-redacted output, either:
