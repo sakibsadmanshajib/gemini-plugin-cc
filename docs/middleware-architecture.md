@@ -14,6 +14,13 @@ Order matters. The composition machinery validates the redaction-first invariant
 
 **Redaction first** — every other middleware sees only redacted content. Audit logs are safe to ship; retry diagnostics don't leak; cost bookkeeping never references credentials. Violating this is the single most dangerous misconfig possible, hence the hard validation.
 
+The redaction middleware is the **primary** of three independent redaction layers. The other two are defense-in-depth nets for payloads that bypass this layer (direct `logger.info` from broker code, raw JSON-RPC frames captured to a wire log, etc.):
+
+- `lib/wire-log.mjs` `REDACT_TOKENS` — regex scrubbing on serialized JSON-RPC frame strings (env-gated by `ACP_WIRE_LOG`)
+- `lib/logger.mjs` `REDACTED_PATHS` — pino redact paths for structured stderr logs
+
+The credential field-name set must agree across all three. `tests/unit/cross-layer-redaction.test.mjs` mechanically enforces this — a regression in any of the three lists fails CI immediately with a per-name diagnostic.
+
 **Audit second** — captures the decision flow (request, response, retry attempts, fallback swaps) on disk. Audit positioning after redaction guarantees no secrets land on disk.
 
 **Cost third** — token accounting. Records per-attempt usage; on retry, each attempt is its own record. Implemented at `lib/middleware/cost.mjs` with a pluggable token extractor that handles three known result shapes: Codex/Claude `usage.input_tokens`/`output_tokens` and Gemini `usageMetadata.{promptTokenCount, candidatesTokenCount, totalTokenCount}`. Tracks `prompts`/`toolCalls`/`errors` counts plus cumulative `tokens.{input,output,total}`. Cost numbers are non-authoritative — billing console is the source of truth; cost middleware exists for in-session feedback ("am I racking up tokens?") and trend analysis.
