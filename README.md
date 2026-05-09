@@ -23,20 +23,21 @@ The major coding-agent CLIs (`claude`, `codex`, `gemini`) speak different protoc
 
 - **One library**, three backends — `runStatelessTurn(BACKEND_NAMES.X, options)` returns a `TurnResult` regardless of which CLI ran.
 - **One HTTP facade**, three backends — point any OpenAI SDK at `localhost:3000/v1` and use `model="claude-…" | "gpt-5" | "gemini-…"` (or the explicit `<backend>:<model>` form).
-- **Three host-specific plugins** — install in Claude Code / Codex CLI to drive the OTHER backends without leaving the host.
+- **Three host-specific plugins** — install in Claude Code or Codex CLI to drive the OTHER backends from inside the host with slash commands.
 
 ## Install
 
 ### Pick whichever fits your context
 
-| Use case                                                     | Install                                                                                                                                                                                       |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Library / one-off CLI**                                    | `npm i -g artagon-agent-cli-plugin` (or `npx`)                                                                                                                                                |
-| **OpenAI-compatible HTTP server**                            | `npx -p artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                                                                                           |
-| **Claude Code plugin** (drive Codex+Gemini from Claude Code) | `claude plugin marketplace add artagon/artagon-agent-cli-plugin` then `/plugin install claude@artagon-agent-cli-plugin`                                                                       |
-| **Codex CLI plugin** (drive Gemini+Claude from Codex CLI)    | Add to `~/.agents/plugins/marketplace.json` (see [`docs/plugins.md`](docs/plugins.md))                                                                                                        |
-| **Legacy gemini-driving plugin**                             | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                                                                                            |
-| **Homebrew**                                                 | _Pending — `brew install artagon/tap/artagon-agent-cli-plugin` once the tap is published. See [`docs/homebrew-tap.md`](docs/homebrew-tap.md) for the publish recipe + version-bump workflow._ |
+| Use case                                                    | Install                                                                                                                                                                                                |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Library / one-off CLI**                                   | `npm i -g artagon-agent-cli-plugin` (or `npx`)                                                                                                                                                         |
+| **OpenAI-compatible HTTP server**                           | `npx -p artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                                                                                                    |
+| **Claude Code plugin** (drive Codex + Gemini from Claude)   | `claude plugin marketplace add artagon/artagon-agent-cli-plugin` then `claude plugin install claude@artagon-agent-cli-plugin`                                                                          |
+| **Codex CLI plugin** (drive Gemini + Claude from Codex)     | Same marketplace registry, then `claude plugin install codex@artagon-agent-cli-plugin` (Codex shares the install registry with Claude Code on this machine — see [`docs/INSTALL.md`](docs/INSTALL.md)) |
+| **Gemini-host plugin** (drives Codex + Claude from Gemini)  | `claude plugin install gemini@artagon-agent-cli-plugin`                                                                                                                                                |
+| **Legacy `/gemini:*` commands** (single-backend Gemini ACP) | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                                                                                                     |
+| **Homebrew**                                                | _Pending — `brew install artagon/tap/artagon-agent-cli-plugin` once the tap is published. See [`docs/homebrew-tap.md`](docs/homebrew-tap.md) for the publish recipe + version-bump workflow._          |
 
 After global install, three binaries are on PATH:
 
@@ -46,11 +47,22 @@ artagon-openai-server [--port N] [--host H]    # OpenAI Chat Completions facade
 artagon-stats [--json] [--since <iso>]         # cost / token usage aggregator
 ```
 
-`artagon-stats` reads the local cost log written by every dispatch
-(`~/.acp-plugins/cost/<YYYY>-<MM>.jsonl` by default — see
-[`docs/observability.md`](docs/observability.md)) and prints a
-per-backend summary or machine-readable JSON. Use `--budget` /
-`--budget-usd` to assert against a CI budget.
+`artagon-stats` reads the local cost log written by every dispatch (`$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` by default — see [`docs/observability.md`](docs/observability.md)) and prints a per-backend summary or machine-readable JSON. Use `--budget` / `--budget-usd` to assert against a CI budget.
+
+### Local install for development / testing
+
+If you're developing the plugin or testing an unreleased build:
+
+```sh
+git clone https://github.com/artagon/artagon-agent-cli-plugin.git
+cd artagon-agent-cli-plugin
+pnpm install
+pnpm vendor:lib                     # materializes lib/ into each plugin tree (REQUIRED — see Limitations)
+claude plugin marketplace add "$(pwd)"
+claude plugin install gemini@artagon-agent-cli-plugin
+```
+
+The marketplace install copies the plugin source tree as-is and does not run `npm install`. Plugin scripts use `#lib/*` imports that resolve via a per-plugin `package.json`. To make these resolve at install-time, the repo-root `lib/` is **vendored** into each `plugins/<host>/lib/`. This is committed to git but kept in sync via `pnpm vendor:lib` (CI runs `pnpm vendor:lib:check` to fail on drift).
 
 ## Quick examples
 
@@ -90,6 +102,24 @@ The facade also supports:
 - **API-key auth**: `--api-key sk-...` (single or comma-separated; or `$ARTAGON_FACADE_API_KEY`). Off by default. When set, every `/v1/*` request must carry `Authorization: Bearer <key>`. `/health` is exempt.
 - **finish_reason mapping**: each backend's stop dialect (`end_turn` / `MAX_TOKENS` / `tool_use`) maps to OpenAI's canonical set (`stop` / `length` / `content_filter` / `tool_calls`).
 
+### Cross-driver from inside a host
+
+After installing the host plugin (Claude Code, Codex CLI, or Gemini), invoke the OTHER backends as slash commands without leaving:
+
+```
+# Inside Claude Code (claude plugin installed):
+/codex:prompt   "Refactor the cache layer using the strategy pattern"
+/gemini:prompt  "Summarize this commit"
+
+# Inside Codex CLI (codex plugin installed):
+/claude:prompt  "Review this PR for breaking changes"
+/gemini:prompt  "Suggest edge-case tests"
+
+# In a Gemini host (gemini plugin installed):
+/claude:prompt  "Architect the migration"
+/codex:prompt   "Write the migration script"
+```
+
 ### Cost observability
 
 Every turn (HTTP facade or direct dispatch) appends a JSONL row to `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`. View totals via:
@@ -123,21 +153,52 @@ console.log(turn.usage);
 
 ## Multi-backend cross-pollination
 
-Each plugin is named for its **install host** (not for what it drives). The convention is: a plugin in host X provides commands that drive the OTHER backends. The host's own backend is what you're already talking to, so it doesn't need a slash command.
+Each plugin is named for its **install host** (not for what it drives). The convention: a plugin in host X provides commands that drive the OTHER backends. The host's own backend is what you're already talking to, so it doesn't need a slash command.
 
-| Plugin            | Install host                  | Drives                                       | Cross-pollination commands         |
-| ----------------- | ----------------------------- | -------------------------------------------- | ---------------------------------- |
-| `plugins/claude/` | Claude Code                   | Codex + Gemini                               | `/codex:prompt`, `/gemini:prompt`  |
-| `plugins/codex/`  | Codex CLI                     | Gemini + Claude                              | `/gemini:prompt`, `/claude:prompt` |
-| `plugins/gemini/` | (legacy + future Gemini host) | Gemini (legacy `/gemini:*`) + Codex + Claude | `/claude:prompt`, `/codex:prompt`  |
+| Plugin            | Install host | Drives          | Cross-pollination commands         |
+| ----------------- | ------------ | --------------- | ---------------------------------- |
+| `plugins/claude/` | Claude Code  | Codex + Gemini  | `/codex:prompt`, `/gemini:prompt`  |
+| `plugins/codex/`  | Codex CLI    | Gemini + Claude | `/gemini:prompt`, `/claude:prompt` |
+| `plugins/gemini/` | Gemini host  | Codex + Claude  | `/claude:prompt`, `/codex:prompt`  |
 
 The runtime under `lib/` is **CLI-only** — no in-process SDKs. Per-CLI argv builders + per-CLI translators map each CLI's `stream-json` output to a uniform `TurnResult`. See [`docs/plugins.md`](docs/plugins.md) for the model and [`docs/architecture.md`](docs/architecture.md) for the layered shape.
+
+### Verified end-to-end
+
+All six cross-driver paths (3 hosts × 2 other backends) have been smoke-tested against the real CLI binaries from the marketplace install cache:
+
+| From plugin | → To backend | Result |
+| ----------- | ------------ | ------ |
+| `claude`    | `codex`      | ✅     |
+| `claude`    | `gemini`     | ✅     |
+| `codex`     | `claude`     | ✅     |
+| `codex`     | `gemini`     | ✅     |
+| `gemini`    | `claude`     | ✅     |
+| `gemini`    | `codex`      | ✅     |
+
+(Test methodology: `node ~/.config/agents/plugins/cache/.../plugins/<host>/scripts/<other>-prompt.mjs "What is 2+2?"` — every path returns `4` plus a usage record.)
 
 ## Requirements
 
 - **Node.js ≥ 18.18** (uses native subpath imports + `fetch`)
 - **At least one of**: `claude`, `codex`, `gemini` installed and authenticated for the backends you want to drive
 - **For local OpenAI facade only**: nothing else (binds 127.0.0.1)
+
+The plugin **does not manage CLI authentication**. You must already have run `claude /login`, `codex login`, or `gemini auth` (whichever you intend to drive). The plugin shells out to the binary as the current user; whatever auth state the binary has is what gets used.
+
+## Limitations
+
+| Area                                  | Constraint                                                                                                                                                                                                                                                                                                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Marketplace install ≠ npm install** | The Claude Code / Codex marketplace install copies the plugin tree as-is and does **not** follow symlinks or run `npm install`. The repo-root `lib/` is vendored into each `plugins/<host>/lib/` to compensate. Run `pnpm vendor:lib` before testing a local marketplace install; CI's `pnpm vendor:lib:check` enforces drift-freedom.      |
+| **Schema drift risk**                 | Per-CLI translators (`lib/translate/<x>-stream.mjs`) parse each CLI's `stream-json` output. CLI vendors change schemas regularly without semver. We fixed three drift bugs as recently as `ffcd43f`. If a translator returns `null` for the agent-message text event, you'll see empty turn output — file an issue with the raw event JSON. |
+| **One-shot only (today)**             | `runStatelessTurn` and the slash commands are stateless — single prompt → single turn → exit. Multi-turn streaming-input variants are roadmap, not shipped.                                                                                                                                                                                 |
+| **macOS / Linux only**                | No Windows testing. Symlink-handling, Unix sockets (used by the legacy `/gemini:*` broker), and `cp -R` semantics differ enough on Windows that we don't claim support.                                                                                                                                                                     |
+| **Conservative event mapping**        | Translators map only the events they recognize; unknown shapes return `null` and the runner accumulates no text for them. Trade-off: predictable behavior vs. coverage of vendor-specific events. The runner does not infer from unknown shapes.                                                                                            |
+| **Cost rates may be stale**           | Pricing in `lib/cost/pricing.mjs` is a snapshot. Vendors change rates quarterly; we update on best-effort. Use `$ARTAGON_PRICING_OVERRIDE` to plug in fresh rates without forking.                                                                                                                                                          |
+| **No native OpenRouter / Bedrock**    | Routes-via-the-facade only (treat OpenRouter as `<openrouter-host>:<openai-compat-model>`). Native backend support is roadmap.                                                                                                                                                                                                              |
+| **Codex `exec --json` quirks**        | Codex's `exec --json` requires the working directory to be a git repo (or `--skip-git-repo-check`). The runner is currently invoked from the caller's `cwd`; if that's not a git repo, codex will refuse. Pass `extraArgs: ["--skip-git-repo-check"]` to bypass.                                                                            |
+| **Vendored lib/ size**                | The committed-vendored `lib/` adds ~324KB × 3 plugin trees ≈ 1MB to the repo. We accept this cost rather than rely on a build step the marketplace install can't run.                                                                                                                                                                       |
 
 ## Documentation
 
@@ -152,7 +213,7 @@ The runtime under `lib/` is **CLI-only** — no in-process SDKs. Per-CLI argv bu
 | [`docs/middleware-architecture.md`](docs/middleware-architecture.md) | Redaction-first composer + 6 middlewares                                           |
 | [`docs/observability.md`](docs/observability.md)                     | Logger / wire-log / OpenTelemetry tracing                                          |
 | [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)       | Original `/gemini:*` commands (broker-shared multi-turn ACP)                       |
-| [`docs/INSTALL.md`](docs/INSTALL.md)                                 | Full install recipes for both Claude Code and Codex CLI                            |
+| [`docs/INSTALL.md`](docs/INSTALL.md)                                 | Full install recipes for Claude Code and Codex CLI                                 |
 | [`CHANGELOG.md`](CHANGELOG.md)                                       | Release history                                                                    |
 
 ## Architecture in one diagram
@@ -197,19 +258,22 @@ The page also indexes the in-repo hardening (CodeQL extended pack, SHA-pinned ac
 
 ## Status
 
-**Currently working:**
+**Currently working (verified end-to-end):**
 
 - Three CLI runners (claude/codex/gemini) — stateless one-shot, with `signal`, `timeoutMs`, AbortController-style cancellation
+- All 6 cross-driver paths smoke-tested against the marketplace-install cache (see [Verified](#verified-end-to-end) above)
 - OpenAI Chat Completions HTTP facade including SSE streaming
 - Per-process pid-file orphan tracking
 - Multi-backend dispatcher
-- Full test suite green (unit + integration + property), 0 typecheck errors, biome clean — see the CI badge above for live status
+- 784 passing tests (504 unit + 263 integration + 17 property), 0 typecheck errors, biome clean — see CI badge for live status
 
-**Pending:**
+**Roadmap:**
 
 - Streaming-input (multi-turn) variants of the runners
 - Homebrew tap
-- OpenRouter native backend (today: route via `<openrouter-host>:<openai-compat-model>` through the facade)
+- Native OpenRouter and AWS Bedrock backends (today: route via the OpenAI facade)
+- Codex `--skip-git-repo-check` propagation as a runner config knob
+- Schema-drift CI canary (run real CLIs against canned prompts to catch translator regressions)
 
 ## License
 
