@@ -6,9 +6,10 @@
  *     safe to call, no file is created)
  *   - openWireLog with ACP_WIRE_LOG=<path> → appends one JSONL row
  *     per record() call in {"dir":"<in|out>","msg":<frame>}\n format
- *   - Redaction (default): api_key, apiKey, authorization,
- *     Authorization, token, access_token, refresh_token, password
- *     are scrubbed to "[redacted]" before write
+ *   - Redaction (default): every sensitive field name in the
+ *     cross-layer set (api_key, apiKey, authorization, Authorization,
+ *     password, token, access_token, refresh_token, secret) is
+ *     scrubbed to "[redacted]" before write
  *   - Redaction respects ACP_WIRE_LOG_RAW=1 (full unredacted capture)
  *   - record() on a closed log doesn't throw (best-effort semantics)
  *
