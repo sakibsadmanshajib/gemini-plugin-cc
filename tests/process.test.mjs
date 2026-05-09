@@ -46,19 +46,30 @@ test("spawnDetached redirects stderr to logFile when provided", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "gemini-plugin-test-"));
   const logFile = path.join(dir, "log.txt");
 
-  const child = spawnDetached("node", ["-e", 'process.stderr.write("hello-stderr")'], { logFile });
+  try {
+    const child = spawnDetached("node", ["-e", 'process.stderr.write("hello-stderr")'], { logFile });
+    child.ref();
 
-  await new Promise((resolve) => {
-    child.on("exit", () => {
-      const content = fs.readFileSync(logFile, "utf8");
-      assert.equal(content, "hello-stderr");
-      fs.rmSync(dir, { recursive: true, force: true });
-      resolve();
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("child did not exit in time")), 5000);
+      child.once("error", (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
     });
-  });
+
+    const content = fs.readFileSync(logFile, "utf8");
+    assert.equal(content, "hello-stderr");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
-test("spawnDetached without logFile does not create files", () => {
+test("spawnDetached without logFile returns a running child process", () => {
   const child = spawnDetached("node", ["-e", "process.exit(0)"]);
   assert.ok(child.pid > 0);
 });

@@ -133,18 +133,25 @@ export function terminateProcessTree(pid) {
  * @returns {import("node:child_process").ChildProcess}
  */
 export function spawnDetached(command, args, options = {}) {
-  const logFd = options.logFile ? fs.openSync(options.logFile, "a") : null;
-  const stdio = options.logFile
-    ? ["ignore", "ignore", logFd]
-    : ["ignore", "ignore", "ignore"];
+  let logFd = null;
+  try {
+    logFd = options.logFile ? fs.openSync(options.logFile, "a") : null;
+    const stdio = options.logFile
+      ? ["ignore", "ignore", logFd]
+      : ["ignore", "ignore", "ignore"];
 
-  const child = nodeSpawn(command, args, {
-    cwd: options.cwd,
-    env: options.env ?? process.env,
-    detached: true,
-    stdio
-  });
+    const child = nodeSpawn(command, args, {
+      cwd: options.cwd,
+      env: options.env ?? process.env,
+      detached: true,
+      stdio
+    });
 
-  child.unref();
-  return child;
+    child.unref();
+    return child;
+  } finally {
+    if (typeof logFd === "number") {
+      fs.closeSync(logFd);
+    }
+  }
 }
