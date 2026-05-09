@@ -34,6 +34,10 @@ A 1-page tour of the runtime layers. For deep detail see the per-capability spec
 │  Transports              lib/transport/                      │
 │  - cli.mjs           — subprocess + stdio framing            │
 │  - broker-socket.mjs — Unix-socket / named-pipe to broker    │
+│  - broker-probe.mjs  — discover an existing broker for cwd   │
+│                        (Phase 0 warm-path: dispatcher uses   │
+│                        this to skip cold-start when a live   │
+│                        broker is already running)            │
 │  All conform to `ClientTransport` (lib/acp/client.mjs).      │
 │  CLI-only architecture: no in-process SDK transport, no HTTP │
 │  app-server transport. Each backend launches its CLI binary  │

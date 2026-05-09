@@ -69,8 +69,19 @@ import { defaultExtractTokens } from "#lib/middleware/cost.mjs";
  *   usage: NormalizedUsage,
  *   durationMs: number,
  *   reason: string | null,
- *   ok: boolean
+ *   ok: boolean,
+ *   transport?: "cli" | "broker" | "facade" | "acp-server"
  * }} CostRecord
+ *
+ * The `transport` field describes HOW the turn reached the backend:
+ *   - "cli": cold-start subprocess (today's default for one-shot runners)
+ *   - "broker": connected to a long-running gemini --acp broker via Unix
+ *               socket (Phase 0 of add-unified-acp-server-with-mcp-aggregation)
+ *   - "facade": routed through artagon-openai-server (cache-friendly)
+ *   - "acp-server": routed through artagon-acp-server (Phase 1+)
+ *
+ * Absent on legacy records (introduced 2026-05); aggregation tooling
+ * treats absent as "cli" for back-compat.
  */
 
 let warnedOnce = false;
