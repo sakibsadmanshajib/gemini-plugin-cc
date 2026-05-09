@@ -233,6 +233,9 @@ the facade in front of a different runner.
 - [`docs/runners.md`](./runners.md) — the underlying runner contract
 - [`docs/observability.md`](./observability.md) — cost log integration
 - [`SECURITY.md`](../SECURITY.md) — vulnerability disclosure policy
-- `tests/integration/openai-facade.test.mjs` — 61 tests covering
-  every endpoint, error path, CORS preflight, auth gate, and streaming
-  shape
+- `tests/integration/openai-facade.test.mjs` — covers every
+  endpoint (`/health`, `/v1/models`, `/v1/models/{id}`,
+  `/v1/chat/completions`), error paths (unknown model, invalid
+  body, oversized body, dispatch failure, n!=1), CORS preflight,
+  auth gate (single key, multi-key allowlist, file-based key),
+  and streaming shape (SSE chunk format + `stream_options.include_usage`)
