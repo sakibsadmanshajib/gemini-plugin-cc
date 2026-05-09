@@ -1,0 +1,107 @@
+/**
+ * Streaming runner registry — module-scoped lazy supervisors keyed by
+ * (backend, cwd). The first call to `getStreamingRunner(backend, cwd)`
+ * creates a fresh supervisor; subsequent calls return the same instance
+ * so the underlying CLI subprocess / ACP connection is reused.
+ *
+ * Why module-scoped (not per-call-site or per-options):
+ *   - The whole point of streaming is "keep one process open across
+ *     turns". A new supervisor per call would defeat that.
+ *   - The dispatcher is the only place in lib/ that constructs
+ *     supervisors today; isolating the singleton store here keeps the
+ *     dispatch surface narrow.
+ *
+ * Tests reset the store via `_resetStreamingRegistryForTest()`.
+ *
+ * @typedef {import("./types.mjs").StreamingRunner} StreamingRunner
+ * @typedef {import("#lib/backends/names.mjs").BackendName} BackendName
+ */
+
+import { BACKEND_NAMES } from "#lib/backends/names.mjs";
+
+import { createGeminiStreamingRunner } from "./gemini-streaming.mjs";
+import { createSupervisor } from "./supervisor.mjs";
+
+/** @type {Map<string, StreamingRunner>} */
+const supervisors = new Map();
+
+/**
+ * Get (or lazily create) the streaming supervisor for the given
+ * backend + cwd. Returns null when streaming is not supported for the
+ * backend (codex / claude until those runners land).
+ *
+ * @param {BackendName} backend
+ * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, idleMs?: number }} [opts]
+ * @returns {StreamingRunner | null}
+ */
+export function getStreamingRunner(backend, opts = {}) {
+  const cwd = opts.cwd ?? process.cwd();
+  const key = `${backend}::${cwd}`;
+  const cached = supervisors.get(key);
+  if (cached) return cached;
+
+  const factory = factoryFor(backend, { cwd, env: opts.env });
+  if (!factory) return null;
+
+  const supervisor = createSupervisor({
+    factory,
+    idleMs: opts.idleMs,
+    onWarning: (msg) => {
+      process.stderr.write(`[streaming:${backend}] ${msg}\n`);
+    }
+  });
+  supervisors.set(key, supervisor);
+  return supervisor;
+}
+
+/**
+ * Backend → runner-factory dispatch. Only GEMINI is wired this
+ * iteration; CODEX (`codex app-server`) and CLAUDE (Path A vs Path B
+ * choice) land in subsequent commits.
+ *
+ * @param {BackendName} backend
+ * @param {{ cwd: string, env?: NodeJS.ProcessEnv }} ctx
+ * @returns {(() => StreamingRunner) | null}
+ */
+function factoryFor(backend, ctx) {
+  switch (backend) {
+    case BACKEND_NAMES.GEMINI:
+      return () => createGeminiStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
+    case BACKEND_NAMES.CLAUDE:
+    case BACKEND_NAMES.CODEX:
+      // Not yet implemented — dispatcher falls back to direct path.
+      return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Close + drop every cached supervisor. Used by tests; also safe to
+ * call from a process-exit handler if a host wants to reap streaming
+ * runners cleanly.
+ *
+ * @returns {Promise<void>}
+ */
+export async function shutdownAllStreamingRunners() {
+  const entries = Array.from(supervisors.values());
+  supervisors.clear();
+  await Promise.all(
+    entries.map((s) =>
+      s.close().catch(() => {
+        // best-effort during shutdown
+      })
+    )
+  );
+}
+
+/**
+ * Test-only: forget all cached supervisors WITHOUT closing them. Use
+ * this when the underlying transport / client are mocks that don't
+ * need real cleanup.
+ *
+ * @internal
+ */
+export function _resetStreamingRegistryForTest() {
+  supervisors.clear();
+}
