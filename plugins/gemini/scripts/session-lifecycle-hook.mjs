@@ -9,6 +9,7 @@
  * SessionEnd: Shuts down the broker, cleans up session jobs.
  */
 
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import process from "node:process";
 
@@ -85,8 +86,12 @@ async function cleanupSessionJobs(cwd, sessionId) {
 async function handleSessionStart(input) {
   const cwd = input.cwd ?? process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
 
-  // Generate a unique session ID.
-  const sessionId = `gemini-session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // Generate a unique session ID. randomUUID() draws from the OS CSPRNG;
+  // we don't use Math.random() here because the session ID gates state-
+  // tree paths under $TMPDIR/gemini-companion (file modes 0700/0600 are
+  // the primary defense, but CSPRNG-derived IDs also defend against an
+  // attacker pre-creating a path before we get there).
+  const sessionId = `gemini-session-${Date.now()}-${randomUUID().slice(0, 8)}`;
 
   // Export session env vars.
   appendEnvVar(SESSION_ID_ENV, sessionId);

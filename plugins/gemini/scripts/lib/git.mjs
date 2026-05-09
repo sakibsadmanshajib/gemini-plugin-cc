@@ -170,27 +170,42 @@ export function readUntrackedFiles(cwd, files, options = {}) {
 
   for (const file of files) {
     const fullPath = path.join(cwd, file);
+    // Workspace-containment check via realpath. Done up-front so we
+    // never even open files that resolve outside the workspace.
+    let realCwd;
+    let realPath;
     try {
-      // Use lstat to detect symlinks without following them.
-      const stat = fs.lstatSync(fullPath);
-      if (stat.isSymbolicLink()) {
-        results.push({ path: file, skipped: "symlink" });
-        continue;
-      }
+      // Order matters for callers that observe realpath calls (test
+      // injection): fullPath first, then cwd. Original code did
+      // lstat → realpath(fullPath) → realpath(cwd); we kept the
+      // realpath order even after dropping lstat.
+      realPath = realpathSync(fullPath);
+      realCwd = realpathSync(cwd);
+    } catch {
+      results.push({ path: file, skipped: "read error" });
+      continue;
+    }
+    const relativePath = path.relative(realCwd, realPath);
+    const outsideWorkspace =
+      relativePath === ".." ||
+      relativePath.startsWith(`..${path.sep}`) ||
+      path.isAbsolute(relativePath);
+    if (outsideWorkspace) {
+      results.push({ path: file, skipped: "outside workspace" });
+      continue;
+    }
+    // Atomic open-with-don't-follow-symlinks. Eliminates the TOCTOU
+    // window between an lstat-based symlink check and the subsequent
+    // read that would otherwise let an attacker replace the file with
+    // a symlink in between. We then fstat the fd (not the path) for
+    // the type/size checks, so the file we measure is the file we read.
+    /** @type {number | null} */
+    let fd = null;
+    try {
+      fd = fs.openSync(fullPath, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+      const stat = fs.fstatSync(fd);
       if (!stat.isFile()) {
         results.push({ path: file, skipped: "not a regular file" });
-        continue;
-      }
-      // Verify the resolved path stays inside the workspace.
-      const realPath = realpathSync(fullPath);
-      const realCwd = realpathSync(cwd);
-      const relativePath = path.relative(realCwd, realPath);
-      const outsideWorkspace =
-        relativePath === ".." ||
-        relativePath.startsWith(`..${path.sep}`) ||
-        path.isAbsolute(relativePath);
-      if (outsideWorkspace) {
-        results.push({ path: file, skipped: "outside workspace" });
         continue;
       }
       if (totalBytes + stat.size > maxBytes) {
@@ -200,16 +215,37 @@ export function readUntrackedFiles(cwd, files, options = {}) {
         });
         continue;
       }
-      const buffer = fs.readFileSync(fullPath);
+      const buffer = Buffer.alloc(stat.size);
+      let read = 0;
+      while (read < stat.size) {
+        const chunk = fs.readSync(fd, buffer, read, stat.size - read, read);
+        if (chunk === 0) break; // EOF earlier than fstat reported
+        read += chunk;
+      }
       if (!isProbablyText(buffer)) {
         results.push({ path: file, skipped: "binary file" });
         continue;
       }
-      const content = buffer.toString("utf8");
+      const content = buffer.toString("utf8", 0, read);
       totalBytes += Buffer.byteLength(content, "utf8");
       results.push({ path: file, content });
-    } catch {
-      results.push({ path: file, skipped: "read error" });
+    } catch (err) {
+      // ELOOP = path was a symlink (open with O_NOFOLLOW refused). That's
+      // the same skip-class as the previous lstat-based check.
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+      if (code === "ELOOP") {
+        results.push({ path: file, skipped: "symlink" });
+      } else {
+        results.push({ path: file, skipped: "read error" });
+      }
+    } finally {
+      if (fd !== null) {
+        try {
+          fs.closeSync(fd);
+        } catch {
+          // best-effort; close-failure shouldn't mask the read result.
+        }
+      }
     }
   }
 

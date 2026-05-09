@@ -83,8 +83,19 @@ export function loadBrokerSession(cwd) {
 
 function saveBrokerSession(cwd, session) {
   const dir = resolveStateDir(cwd);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(resolveBrokerStateFile(cwd), JSON.stringify(session, null, 2), "utf8");
+  // resolveStateDir falls back to $TMPDIR/gemini-companion when no plugin-
+  // data dir is set. /tmp is multi-user on POSIX, so the broker state file
+  // (which contains the broker socket path the runtime trusts to dispatch
+  // ACP requests) MUST be writable only by the current user. mkdir mode is
+  // masked by umask, hence the explicit chmod afterwards.
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.chmodSync(dir, 0o700);
+  const stateFile = resolveBrokerStateFile(cwd);
+  fs.writeFileSync(stateFile, JSON.stringify(session, null, 2), {
+    encoding: "utf8",
+    mode: 0o600
+  });
+  fs.chmodSync(stateFile, 0o600);
 }
 
 export function clearBrokerSession(cwd) {
