@@ -64,9 +64,10 @@ the OpenAI plugin spec; structured
 `interface.displayName`). Both descriptors list all three plugins
 so a user installing into either host can pick any of them.
 
-**Slash command** — A user-facing command invoked in Claude Code as
-`/<plugin>:<verb>`, e.g., `/gemini:review`, `/codex:rescue`.
-Implemented in the plugin shell.
+**Slash command** — A user-facing command invoked in either host
+(Claude Code or Codex CLI) as `/<plugin>:<verb>`, e.g.,
+`/gemini:review`, `/codex:rescue`. Implemented as a markdown file
+in the plugin shell's `commands/` directory.
 
 **Wire log** — Optional JSONL capture of every JSON-RPC frame
 (in either direction). Activated by `ACP_WIRE_LOG=<path>`. Format
@@ -79,10 +80,12 @@ the transport: `active`, `quiet`, `possibly_stalled`, `rate_limited`,
 Surfaces via `health()` method, log lines on transitions, and OTel
 span events.
 
-**Degraded mode** — Translator's fallback when an SDK event cannot
-be translated cleanly. Rather than blocking the session, the
-translator returns null, increments a counter, logs at warn or error,
-and the session continues with reduced fidelity.
+**Degraded mode** — Translator's fallback when a stream-json line
+from the spawned CLI cannot be translated cleanly into a
+`SessionUpdate` shape. Rather than blocking the turn, the
+translator returns null, increments a counter, logs at warn or
+error, and the session continues with reduced fidelity. (Pre-pivot
+this referenced "SDK events" — same semantic, different transport.)
 
 **ACP_PLUGIN_VERSION** — The `v1` / `v2` toggle for plugin behavior.
 v1 is the original single-Gemini-plugin shape. v2 is the multi-plugin,
