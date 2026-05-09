@@ -1,0 +1,9 @@
+{
+  "name": "@artagon/codex-plugin",
+  "private": true,
+  "type": "module",
+  "imports": {
+    "#lib/*": "./lib/*"
+  },
+  "comment": "Plugin-local imports map. Marketplace install copies the plugin tree as-is, so lib/ must be a real directory inside the plugin (not a symlink, not a repo-root reference). pnpm vendor:lib syncs from repo-root lib/."
+}

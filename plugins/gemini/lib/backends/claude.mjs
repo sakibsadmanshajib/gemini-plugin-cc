@@ -70,6 +70,11 @@
  *   `--input-format <format>`: only with `print`.
  * @property {boolean} [includePartialMessages]
  * @property {boolean} [includeHookEvents]
+ * @property {boolean} [verbose] `--verbose`: required when combining
+ *   `--print` with `--output-format=stream-json` (claude rejects the
+ *   pair otherwise: "When using --print, --output-format=stream-json
+ *   requires --verbose"). Caller should pass `verbose: true` whenever
+ *   they request stream-json output.
  * @property {boolean} [bare] `--bare`: minimal mode.
  *
  * --- Misc ---
@@ -168,6 +173,7 @@ export function buildClaudeArgs(config = {}) {
   if (config.inputFormat) args.push("--input-format", config.inputFormat);
   if (config.includePartialMessages) args.push("--include-partial-messages");
   if (config.includeHookEvents) args.push("--include-hook-events");
+  if (config.verbose) args.push("--verbose");
   if (config.noSessionPersistence) args.push("--no-session-persistence");
   if (config.extraArgs?.length) args.push(...config.extraArgs);
   return args;

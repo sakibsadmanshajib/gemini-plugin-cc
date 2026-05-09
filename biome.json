@@ -14,6 +14,8 @@
       "openspec/changes/archive/**",
       ".stryker-tmp/**",
       "reports/**",
+      "plugins/claude/lib/**",
+      "plugins/codex/lib/**",
       "plugins/gemini/lib/**"
     ]
   },

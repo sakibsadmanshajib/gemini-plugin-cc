@@ -82,6 +82,46 @@ export function translateGeminiStreamEvent(event) {
       return makeChunk("agent_message_chunk", update);
     case "agent_thought_chunk":
       return makeChunk("agent_thought_chunk", update);
+    case "message": {
+      // Gemini CLI 0.38+ emits chat-style {type:"message", role, content}
+      // events. role:"user" is the echoed prompt — drop. role:"assistant"
+      // (or "model") is the answer — surface as agent_message_chunk.
+      // role:"reasoning"/"thought" — surface as agent_thought_chunk.
+      // `content` is a plain string in this shape, not the {text} object
+      // form used by the older event taxonomy.
+      const role = String(/** @type {any} */ (update).role ?? "");
+      if (role === "user" || role === "system") return null;
+      const text =
+        typeof (/** @type {any} */ (update).content) === "string"
+          ? /** @type {any} */ (update).content
+          : (update.content?.text ?? update.text ?? null);
+      if (typeof text !== "string" || text === "") return null;
+      const sessionUpdate =
+        role === "reasoning" || role === "thought" ? "agent_thought_chunk" : "agent_message_chunk";
+      return { sessionUpdate, content: { text } };
+    }
+    case "result": {
+      // Gemini CLI 0.38+ emits a {type:"result", status, stats} terminal
+      // event in place of the older `turn_completed`. Translate to the
+      // canonical shape so consumers don't need to special-case.
+      /** @type {SessionUpdate} */
+      const out = { sessionUpdate: "turn_completed" };
+      const u = /** @type {any} */ (update);
+      if (u.status) out.reason = String(u.status);
+      if (u.stats && typeof u.stats === "object") out.usage = { ...u.stats };
+      // Gemini reports the actual model id inside stats.models. We pick
+      // the first entry as the canonical model for cost-attribution.
+      const firstModel =
+        u.stats?.models && typeof u.stats.models === "object"
+          ? Object.keys(u.stats.models)[0]
+          : null;
+      if (firstModel) out.model = firstModel;
+      return out;
+    }
+    case "init":
+      // Session-start event with session_id + model. Not an ACP-visible
+      // update kind; runners read model directly off the result event.
+      return null;
     case "tool_call":
       return {
         sessionUpdate: "tool_call",

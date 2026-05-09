@@ -60,6 +60,13 @@ export function translateCodexStreamEvent(event) {
 
   switch (event.type) {
     case "item.created":
+    case "item.completed":
+      // Codex's TypeScript-emitted runtime ships `item.completed` for
+      // terminal items (agent messages with full text) and `item.created`
+      // for streamed-partial chunks. Older runtimes used `item.created` for
+      // both. We accept either and dedupe at the consumer level (final
+      // text equals last seen text for the same item id, so emitting once
+      // per event lets the consumer choose: collect-all vs. last-wins).
       return translateItemCreated(event);
     case "exec_command.started":
       return translateExecStarted(event);
@@ -85,9 +92,16 @@ function translateItemCreated(event) {
   if (!item || typeof item !== "object") return null;
 
   switch (item.type) {
+    case "agent_message":
     case "assistant_message":
     case "message": {
-      const text = extractText(item.content);
+      // Codex's `agent_message` items put text directly on `item.text`
+      // (string). Older shapes used `item.content` (string or array of
+      // {type:"text", text} blocks). Try both; whichever resolves first.
+      const text =
+        typeof (/** @type {any} */ (item).text) === "string"
+          ? /** @type {any} */ (item).text
+          : extractText(item.content);
       if (text == null) return null;
       // Codex distinguishes assistant role (visible) from reasoning (thought).
       // The runtime treats them as separate ACP update kinds.

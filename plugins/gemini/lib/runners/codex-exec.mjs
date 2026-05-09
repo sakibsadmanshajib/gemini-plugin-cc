@@ -149,6 +149,14 @@ export function runCodexExec(options) {
       return settle(/** @type {Error} */ (err), true);
     }
 
+    // Close stdin immediately. The prompt is already passed positionally;
+    // leaving stdin open makes codex wait indefinitely for additional input
+    // (per `codex exec --help`: "If stdin is piped and a prompt is also
+    // provided, stdin is appended as a <stdin> block"). Without an explicit
+    // end(), the parent never closes the pipe and codex hangs until the
+    // outer timeout fires.
+    child.stdin?.end();
+
     child.on("error", (err) => settle(err, true));
 
     if (typeof child.pid === "number") {

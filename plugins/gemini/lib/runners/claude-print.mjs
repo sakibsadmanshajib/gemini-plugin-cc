@@ -83,10 +83,13 @@ export function runClaudePrint(options) {
   } else {
     // Force the streamed-event path. buildClaudeArgs validates the print-only
     // combination, so passing outputFormat without print would throw.
+    // `verbose: true` is mandatory: claude rejects `--print --output-format=stream-json`
+    // without `--verbose` (claude's runtime check, not ours).
     args = buildClaudeArgs({
       ...rest,
       print: true,
-      outputFormat: "stream-json"
+      outputFormat: "stream-json",
+      verbose: true
     });
     // The prompt is positional in `claude --print` invocations.
     args.push(prompt);
