@@ -34,15 +34,15 @@ The OpenAI request's `model` field selects the backend:
 
 | Pattern                        | → Backend | Examples                                             |
 | ------------------------------ | --------- | ---------------------------------------------------- |
-| `claude*`                      | claude    | `claude`, `claude-sonnet-4-6`, `claude-opus-4-5`     |
-| `sonnet*` / `opus*` / `haiku*` | claude    | `sonnet`, `opus-4`                                   |
+| `claude*`                      | claude    | `claude`, `claude-sonnet-4-6`, `claude-opus-4-7`     |
+| `sonnet*` / `opus*` / `haiku*` | claude    | `sonnet`, `opus`, `haiku`                            |
 | `codex*`                       | codex     | `codex`, `codex-cli-1`                               |
 | `gpt-5*`                       | codex     | `gpt-5`, `gpt-5-codex`                               |
 | `o3*` / `o4*`                  | codex     | `o3`, `o4-mini`                                      |
 | `spark`                        | codex     | exact match                                          |
 | `gemini*`                      | gemini    | `gemini`, `gemini-2.5-pro`, `gemini-3-flash-preview` |
 | `auto-gemini*`                 | gemini    | `auto-gemini-3`                                      |
-| `<backend>:<model-id>`         | explicit  | `claude:opus-4-5`, `codex:gpt-5-codex`               |
+| `<backend>:<model-id>`         | explicit  | `claude:opus-4-7`, `codex:gpt-5-codex`               |
 
 Unknown patterns return **400 invalid_request_error** with a hint at
 the supported families.
