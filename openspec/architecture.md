@@ -1,15 +1,22 @@
-# acp-plugins-cc — Architecture Overview
+# artagon-agent-cli-plugin — Architecture Overview
+
+(Project history: started as `gemini-plugin-cc`, briefly known as
+`acp-plugins-cc` during the modernization, now
+`artagon-agent-cli-plugin`. Older proposals + reviews still
+reference the earlier names — those are intentionally preserved
+as historical record.)
 
 A 1-page summary of the system. For deep detail, see the OpenSpec
 change proposals and the per-capability spec files.
 
 ## What this is
 
-A Claude Code plugin suite that lets Claude delegate, review, and
-collaborate with three AI coding agents — Gemini, Codex, and Claude
-itself — through a uniform interface. The user invokes
+A multi-host plugin suite that lets Claude Code, Codex CLI, and
+Gemini hosts each delegate, review, and collaborate with the OTHER
+two AI coding agents through a uniform interface. The user invokes
 `/<backend>:review`, `/<backend>:rescue`, etc., and the plugin
-dispatches to the chosen backend.
+dispatches to the chosen backend via stateless CLI runners or the
+OpenAI Chat Completions HTTP facade.
 
 ## Layered architecture
 
@@ -55,14 +62,14 @@ dispatches to the chosen backend.
 
 ## Where to add things
 
-| Want to add… | Touch… |
-|---|---|
+| Want to add…                  | Touch…                                                                                                                |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | A new backend (e.g., Bedrock) | `lib/backends/<name>/`, declare `<name>Backend` in the same shape as existing ones; pick which transports it supports |
-| A new transport (e.g., gRPC) | `lib/transport/<name>.mjs`, conform to `AcpSession`, pass the conformance suite |
-| A new translator (for an SDK) | `lib/backends/<name>/translator.mjs`, function `(event) => SessionUpdate \| null` |
-| A new middleware concern | `lib/middleware/<name>.mjs`, slot into the canonical chain order; redaction MUST be index 0 |
-| A new slash command | `plugins/<backend>/commands/<verb>.md` and a handler in `scripts/companion.mjs` |
-| A new plugin shell | `plugins/<name>/` with manifest, commands, agents, scripts |
+| A new transport (e.g., gRPC)  | `lib/transport/<name>.mjs`, conform to `AcpSession`, pass the conformance suite                                       |
+| A new translator (for an SDK) | `lib/backends/<name>/translator.mjs`, function `(event) => SessionUpdate \| null`                                     |
+| A new middleware concern      | `lib/middleware/<name>.mjs`, slot into the canonical chain order; redaction MUST be index 0                           |
+| A new slash command           | `plugins/<backend>/commands/<verb>.md` and a handler in `scripts/companion.mjs`                                       |
+| A new plugin shell            | `plugins/<name>/` with manifest, commands, agents, scripts                                                            |
 
 ## Key invariants
 
