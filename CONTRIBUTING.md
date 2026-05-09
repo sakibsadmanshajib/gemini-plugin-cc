@@ -2,13 +2,14 @@
 
 ## Toolchain
 
-| Tool    | Version          | Purpose                                             |
-| ------- | ---------------- | --------------------------------------------------- |
-| Node.js | ≥ 18.18          | Runtime; tests use `node --test`                    |
-| pnpm    | ≥ 9              | Package manager (formerly npm)                      |
-| tsgo    | pinned (pre-1.0) | Type-check via `@typescript/native-preview` + JSDoc |
-| Biome   | 1.9.4            | Lint + format                                       |
-| husky   | 9.1.x            | Git hooks                                           |
+| Tool    | Version         | Purpose                                               |
+| ------- | --------------- | ----------------------------------------------------- |
+| Node.js | ≥ 18.18         | Runtime (CI matrix: 20.x + 22.x; engines floor 18.18) |
+| pnpm    | ≥ 9             | Package manager                                       |
+| vitest  | 2.x             | Test runner (unit + integration + property)           |
+| tsgo    | pre-1.0 preview | Type-check via `@typescript/native-preview` + JSDoc   |
+| Biome   | 1.9.x           | Lint + format                                         |
+| husky   | 9.1.x           | Git hooks                                             |
 
 Activate pnpm via corepack (preferred) or install globally:
 
@@ -20,12 +21,16 @@ corepack prepare pnpm@9.15.0 --activate
 ## Local setup
 
 ```sh
-pnpm install            # devDeps only; plugin has zero runtime deps
-pnpm test               # node --test across tests/{unit,integration}
+pnpm install            # installs runtime deps (commander, raw-body) + devDeps
+pnpm test               # vitest run (unit + integration + property)
+pnpm test:unit          # unit only (fast — ~60s; useful inner loop)
+pnpm test:int           # integration only
+pnpm test:property      # fast-check property tests
 pnpm typecheck          # tsgo --noEmit (fast; pre-1.0)
 pnpm lint               # biome check
-pnpm lint:fix           # biome check --apply
+pnpm lint:fix           # biome check --write (formatter + safe lint autofixes)
 pnpm format             # biome format --write
+pnpm pack:check         # `npm pack --dry-run` — preview the publish tarball
 ```
 
 If `pnpm typecheck` regresses unexpectedly, fall back to stable tsc:
@@ -38,7 +43,7 @@ The weekly CI job at `.github/workflows/tsgo-fallback.yml` runs the same fallbac
 
 ## Pre-commit
 
-`.husky/pre-commit` runs `biome check --apply --staged` and re-stages any formatter fixes. To skip on CI, set `HUSKY=0` (already done in `.github/workflows/{install,test,tsgo-fallback}.yml`).
+`.husky/pre-commit` runs `biome check --write --staged` and re-stages any formatter fixes. To skip on CI, set `HUSKY=0` (already done in `.github/workflows/{install,test,tsgo-fallback,mutation-testing,npm-publish}.yml`).
 
 ## Type-check debt
 
@@ -53,8 +58,13 @@ The weekly CI job at `.github/workflows/tsgo-fallback.yml` runs the same fallbac
 ```
 lib/
 ├── acp/             — JSON-RPC core (types, framing, generic client)
-├── transport/       — Transport implementations (cli; sdk + http planned)
-├── backends/        — Per-backend declarations (gemini; codex + claude planned)
+├── transport/       — CliTransport (the only transport since the 2026-05-08 CLI-only pivot)
+├── backends/        — Per-backend declarations (gemini, codex, claude — all three exist)
+├── runners/         — Stateless one-shot runners + dispatcher (claude-print/codex-exec/gemini-print)
+├── server/          — OpenAI Chat Completions HTTP facade (openai-facade.mjs)
+├── middleware/      — composeMiddleware + redaction/audit/cost/retry/fallback/cache
+├── translate/       — Per-backend stream-json → SessionUpdate translators
+├── cost/            — Cost recorder + aggregator + pricing
 ├── state/           — State-file schema + migrations
 ├── test-utils/      — MockBackend, conformance suite, in-memory transports, fixture replay
 ├── feature-flags.mjs
@@ -62,7 +72,9 @@ lib/
 ├── tracing.mjs      — OpenTelemetry, lazy-loaded, opt-in
 └── wire-log.mjs     — JSONL wire capture (env-gated by ACP_WIRE_LOG)
 
-plugins/gemini/      — Plugin shell + legacy runtime (drives production today)
+bin/                 — Three CLI entry points (artagon-agent, artagon-openai-server, artagon-stats)
+
+plugins/{gemini,codex,claude}/  — Three host-installable plugin shells
 ├── .claude-plugin/
 ├── .codex-plugin/
 ├── commands/
