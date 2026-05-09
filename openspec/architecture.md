@@ -22,14 +22,14 @@ OpenAI Chat Completions HTTP facade.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  Claude Code (host)                                          │
-│  - registers plugins discovered from marketplace.json        │
+│  Host: Claude Code OR Codex CLI                              │
+│  - registers plugins from marketplace.json (both formats)    │
 │  - issues slash commands                                     │
 └─────────────────┬────────────────────────────────────────────┘
                   │
 ┌─────────────────▼────────────────────────────────────────────┐
 │  Plugin shells       plugins/{gemini,codex,claude}/          │
-│  - .claude-plugin/plugin.json                                │
+│  - .claude-plugin/plugin.json + .codex-plugin/plugin.json    │
 │  - commands/<verb>.md                                        │
 │  - scripts/companion.mjs (thin orchestrator)                 │
 └─────────────────┬────────────────────────────────────────────┘
@@ -47,9 +47,10 @@ OpenAI Chat Completions HTTP facade.
                   │ creates a transport per session
 ┌─────────────────▼────────────────────────────────────────────┐
 │  Transports          lib/transport/                          │
-│  - cli.mjs    — subprocess + stdio framing                   │
-│  - sdk.mjs    — in-process SDK + translator                  │
-│  - http.mjs   — long-running App Server + SSE                │
+│  - cli.mjs    — subprocess + stdio framing (the only         │
+│                 surviving transport after the 2026-05-08      │
+│                 CLI-only pivot; sdk.mjs + http.mjs were       │
+│                 prototyped then deleted)                      │
 └─────────────────┬────────────────────────────────────────────┘
                   │ all conform to AcpSession (lib/acp/types.mjs)
 ┌─────────────────▼────────────────────────────────────────────┐
