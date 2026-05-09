@@ -256,6 +256,22 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
   invocation would have failed for every new user who copy-pasted
   from the front-page TL;DR.
 
+- **CI flake on Node 20: `__proto__` prototype-pollution edge case
+  in a property test.** The new
+  `tests/property/redaction-field-level.test.mjs` "non-credential
+  field names pass through unchanged" property used a generic
+  `fc.string` generator. fast-check's seed sequence on Node 20
+  surfaced `["__proto__", ""]` as a counterexample —
+  `{ ["__proto__"]: "" }` doesn't create an own-property in JS
+  object literals (special semantics set the prototype chain),
+  so reading `out.__proto__` returned the actual prototype object
+  (~12 inherited props) instead of the empty string the test
+  expected. Self-test bug, not a runtime defect — production
+  `redactValue` correctly uses `Object.entries` (own-properties
+  only). Fixed by excluding `__proto__`/`constructor`/`prototype`
+  from the generator. Both Node 20 + 22 lanes deterministically
+  pass after the fix.
+
 ### CI
 
 - **`pnpm pack:check` script** for tarball verification before
