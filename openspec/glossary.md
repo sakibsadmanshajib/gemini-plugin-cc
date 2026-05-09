@@ -87,11 +87,19 @@ translator returns null, increments a counter, logs at warn or
 error, and the session continues with reduced fidelity. (Pre-pivot
 this referenced "SDK events" — same semantic, different transport.)
 
-**ACP_PLUGIN_VERSION** — The `v1` / `v2` toggle for plugin behavior.
-v1 is the original single-Gemini-plugin shape. v2 is the multi-plugin,
-multi-backend shape. Default flips from v1 to v2 in
-`add-app-server-transport-and-marketplace-split`. v1 remains opt-in
-for 30 calendar days after flip.
+**ACP_PLUGIN_VERSION** — The `v1` / `v2` toggle for plugin behavior,
+plumbed at `lib/feature-flags.mjs::getPluginVersion`. v1 is the
+original single-Gemini-plugin shape. v2 is the multi-plugin,
+multi-backend shape. Originally designed to flip default from v1 to
+v2 in `add-app-server-transport-and-marketplace-split`, with v1
+remaining opt-in for 30 calendar days after flip.
+
+Current status: the multi-backend behavior shipped via the rebrand
+(plugins/{gemini,codex,claude}/, the dispatcher, the OpenAI facade)
+without going through the flag-gated cutover the proposal designed.
+The flag is still default v1 and inert — `getPluginVersion()` resolves
+correctly but no caller branches on the result. The flag's lifecycle
+is preserved for future opt-in changes that need a behavior toggle.
 
 **Stage gate** — The go/no-go decision point between Stage 1 and
 Stage 2. Criteria include test coverage, mutation score, conformance
