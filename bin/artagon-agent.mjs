@@ -18,7 +18,7 @@
  *   2  usage error (missing/invalid args)
  *
  * Run via:
- *   npx artagon-agent-cli-plugin <backend> "..."
+ *   npx -p artagon-agent-cli-plugin artagon-agent <backend> "..."
  *   pnpm exec artagon-agent <backend> "..."
  *   (after `npm i -g artagon-agent-cli-plugin`) artagon-agent <backend> "..."
  */

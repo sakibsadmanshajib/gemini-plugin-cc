@@ -13,7 +13,7 @@
 > **TL;DR** — Get an OpenAI-compatible endpoint that routes to whichever underlying CLI you have installed:
 >
 > ```sh
-> npx artagon-agent-cli-plugin artagon-openai-server --port 3000
+> npx -p artagon-agent-cli-plugin artagon-openai-server --port 3000
 > # In any OpenAI SDK:  base_url=http://localhost:3000/v1, model="claude-sonnet-4-6"
 > ```
 
@@ -32,7 +32,7 @@ The major coding-agent CLIs (`claude`, `codex`, `gemini`) speak different protoc
 | Use case                                                     | Install                                                                                                                                                                                       |
 | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Library / one-off CLI**                                    | `npm i -g artagon-agent-cli-plugin` (or `npx`)                                                                                                                                                |
-| **OpenAI-compatible HTTP server**                            | `npx artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                                                                                              |
+| **OpenAI-compatible HTTP server**                            | `npx -p artagon-agent-cli-plugin artagon-openai-server --port 3000`                                                                                                                           |
 | **Claude Code plugin** (drive Codex+Gemini from Claude Code) | `claude plugin marketplace add artagon/artagon-agent-cli-plugin` then `/plugin install claude@artagon-agent-cli-plugin`                                                                       |
 | **Codex CLI plugin** (drive Gemini+Claude from Codex CLI)    | Add to `~/.agents/plugins/marketplace.json` (see [`docs/plugins.md`](docs/plugins.md))                                                                                                        |
 | **Legacy gemini-driving plugin**                             | See [`docs/legacy-gemini-plugin.md`](docs/legacy-gemini-plugin.md)                                                                                                                            |
