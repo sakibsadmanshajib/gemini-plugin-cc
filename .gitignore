@@ -17,6 +17,13 @@ coverage/
 dist/
 .generated/
 
+# Packed tarballs — `pnpm pack` (without --dry-run) emits
+# `<pkg>-<version>.tgz` at repo root for inspection / local install.
+# Not source; shouldn't be committed. The npm-publish workflow handles
+# the real release tarball directly. (pnpm pack:check uses --dry-run
+# so it doesn't create a file at all — see package.json scripts.)
+*.tgz
+
 # IDE
 .vscode/
 .idea/
