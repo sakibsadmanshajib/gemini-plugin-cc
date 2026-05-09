@@ -139,6 +139,38 @@ test("redactValue: recurses into arrays + nested objects", () => {
   expect(JSON.stringify(out)).not.toContain("sk-foo123456789012345");
 });
 
+test("redactValue: __proto__ as own-property round-trips correctly (Object.fromEntries)", () => {
+  // Regression test for the prototype-pollution-adjacent bug fixed by
+  // switching the rebuild path from `out[key] = ...` to
+  // `Object.fromEntries`. JSON.parse is the canonical way to get
+  // __proto__ as an OWN-property (literal-syntax `{__proto__: ...}`
+  // sets the prototype instead, but `JSON.parse('{"__proto__":"x"}')`
+  // creates an own-property). Pre-fix: the redactor's output was `{}`
+  // (the field silently vanished into the prototype setter). Post-fix:
+  // the field round-trips as an own-property in the output.
+  const config = {
+    patterns: [],
+    fieldNames: new Set(["api_key"]),
+    replacement: "[redacted]"
+  };
+  const input = JSON.parse('{"__proto__":"benign","api_key":"sk-leak"}');
+  const out = /** @type {Record<string, unknown>} */ (redactValue(input, config));
+
+  // The credential gets redacted (as before).
+  expect(out.api_key).toBe("[redacted]");
+  // The __proto__ field round-trips as an own-property (the new
+  // behavior). Object.hasOwn is the literal way to assert "this is an
+  // own-property, not the prototype" — note that the literal-syntax
+  // expected value `{ __proto__: "benign", api_key: "[redacted]" }`
+  // would NOT work in `.toEqual` because that syntax sets the
+  // prototype, not an own-property. Hence the explicit hasOwn +
+  // string-content checks below.
+  expect(Object.hasOwn(out, "__proto__")).toBe(true);
+  expect(out.__proto__).toBe("benign");
+  expect(JSON.stringify(out)).toContain('"__proto__":"benign"');
+  expect(JSON.stringify(out)).toContain('"api_key":"[redacted]"');
+});
+
 test("property: redaction never lets known secret patterns through", () => {
   fc.assert(
     fc.property(
