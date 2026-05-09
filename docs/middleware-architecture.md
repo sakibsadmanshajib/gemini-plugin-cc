@@ -8,7 +8,7 @@ Middleware wraps an `AcpSession` to add cross-cutting concerns (redaction, audit
 client → redaction → audit → cost → retry → fallback → cache → backend
 ```
 
-Order matters. The composition machinery validates the redaction-first invariant — anything else throws `MiddlewareOrderError` in dev (warns in production via `NODE_ENV=production`).
+Order matters. The composition machinery validates the redaction-first invariant — anything else throws `MiddlewareOrderError`, in **every** environment. (An earlier revision downgraded the production case to a stderr WARN; that failed-open in exactly the deployment where un-redacted secrets through audit/observability are most damaging, and was reverted.)
 
 ## Why the order
 
