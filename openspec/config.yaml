@@ -1,23 +1,31 @@
 schema: spec-driven
 
 context: |
-  # acp-plugins-cc
+  # artagon-agent-cli-plugin (formerly acp-plugins-cc, originally gemini-plugin-cc)
 
-  Modernization of `gemini-plugin-cc` (single-Gemini Claude Code plugin)
-  into `acp-plugins-cc` — a multi-backend ACP plugin suite that lets
-  Claude Code delegate to Gemini, Codex, and Claude itself through one
-  interface (`/<backend>:review`, `/<backend>:rescue`, …).
+  Multi-backend ACP plugin suite that lets Claude Code, Codex CLI, and
+  Gemini hosts each delegate to the OTHER backends via stateless CLI
+  runners + an OpenAI Chat Completions HTTP facade
+  (`/<backend>:review`, `/<backend>:rescue`, …).
 
-  ## Current vs target shape
+  ## Current shape (as of 2026-05-08 CLI-only pivot + rebrand)
 
-  Today: Node ≥18.18 ESM (`.mjs`), `node --test`, single shell
-  `plugins/gemini/`, no monorepo, no TypeScript, no shared `lib/`.
+  Node ≥18.18 ESM (`.mjs`), pnpm workspace, vitest test runner,
+  shared `lib/` (acp/ backends/ middleware/ runners/ server/ state/
+  test-utils/ translate/ transport/), three plugin shells under
+  `plugins/{gemini,codex,claude}/`. JSDoc-typed via `@typescript/native-preview`
+  (tsgo) for full check; `tsc` as the weekly fallback. Biome 1.9 for
+  lint+format. CLI-only adapters (no SDK/HTTP transports — those were
+  scaffolded then removed in the pivot, see docs/architecture.md +
+  docs/agent-cli-design.md for history). Middleware chain wraps each
+  session: redaction → audit → cost → retry → fallback → cache (all
+  in `lib/middleware/`).
 
-  Target: pnpm workspace with `lib/` (shared `@artagon/acp-plugin-lib`)
-  + `plugins/{gemini,codex,claude}/` shells. Transports: `cli.mjs`,
-  `sdk.mjs`, `http.mjs`, all conforming to a single `AcpSession`
-  (`lib/acp/types.mjs`). Middleware chain wraps each session:
-  redaction → audit → cost → retry → fallback → cache.
+  ## Target (still in motion)
+
+  Some change-ladder items below remain in flight. Where current
+  shape disagrees with what a proposal targets, the proposal is the
+  authoritative source for "what comes next."
 
   ## Change ladder (each arrow is a hard prerequisite)
 
