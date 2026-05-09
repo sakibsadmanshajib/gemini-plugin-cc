@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command, InvalidArgumentError } from "commander";
 
+import { provisionApiKey } from "#lib/server/api-key-store.mjs";
 import { createOpenAiFacadeServer } from "#lib/server/openai-facade.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -66,6 +67,24 @@ program
   .option(
     "--api-key-file <path>",
     "read the key(s) from a file (one per line OR comma-separated). Safer than --api-key — key isn't visible in `ps` output. Mutually exclusive with --api-key."
+  )
+  .option(
+    "--auto-key",
+    "self-provision a 512-byte CSPRNG bearer key. Stored in macOS Keychain (service=artagon-agent-cli-plugin) on darwin, otherwise in $XDG_STATE_HOME/artagon-agent-cli-plugin/api-key with mode 0600 under a 0700 dir. Idempotent — re-running returns the same key. The key is NEVER printed; the server only emits the retrieve-command for the operator to run separately."
+  )
+  .option(
+    "--auto-key-rotate",
+    "force generation of a fresh --auto-key, overwriting any existing entry. Implies --auto-key."
+  )
+  .option(
+    "--auto-key-store <kind>",
+    'override the auto-key backend: "keychain" or "file". Default is keychain on macOS, file elsewhere.',
+    (value) => {
+      if (value !== "keychain" && value !== "file") {
+        throw new InvalidArgumentError('must be "keychain" or "file"');
+      }
+      return value;
+    }
   );
 
 program.exitOverride((err) => {
@@ -99,16 +118,56 @@ if (opts.cors !== undefined) {
   }
 }
 
-// CLI --api-key / --api-key-file resolution. The file path wins
-// when both are passed so users debugging can override their env
-// setup; --api-key alone is supported but exposes the key in
-// `ps` output, so it's documented as the less-secure path.
+// CLI --api-key / --api-key-file / --auto-key resolution. The three
+// options are mutually exclusive — picking one is a deliberate operator
+// choice about how the key gets into the process.
+//   --api-key        : key on argv (less secure: visible in `ps`)
+//   --api-key-file   : key in a file the operator manages
+//   --auto-key       : self-provision via Keychain (macOS) or 0o600 file
 let apiKey;
+const autoKeyRequested = Boolean(opts.autoKey || opts.autoKeyRotate);
+const explicitKeySources = [opts.apiKey !== undefined, opts.apiKeyFile !== undefined].filter(
+  Boolean
+).length;
+if (autoKeyRequested && explicitKeySources > 0) {
+  process.stderr.write(
+    "artagon-openai-server: --auto-key cannot be combined with --api-key or --api-key-file\n"
+  );
+  process.exit(2);
+}
 if (opts.apiKey !== undefined && opts.apiKeyFile !== undefined) {
   process.stderr.write(
     "artagon-openai-server: --api-key and --api-key-file are mutually exclusive\n"
   );
   process.exit(2);
+}
+if (autoKeyRequested) {
+  // Provision (or re-read) the persistent key via Keychain or 0600 file.
+  // We pass the resulting key into the facade as the bearer-allowlist
+  // entry. The retrieve-command (NOT the key itself) is printed below.
+  try {
+    const provisioned = provisionApiKey({
+      rotate: Boolean(opts.autoKeyRotate),
+      force: opts.autoKeyStore
+    });
+    apiKey = provisioned.key;
+    process.stderr.write(
+      "\n" +
+        "─── auto-key ──────────────────────────────────────────────────\n" +
+        `  store     : ${provisioned.source} (${provisioned.location})\n` +
+        `  status    : ${provisioned.rotated ? "freshly generated" : "reused existing"}\n` +
+        "  retrieve  : (run this on the same machine to read the key)\n" +
+        `              ${provisioned.retrieveCommand}\n` +
+        "  use it    : Authorization: Bearer <retrieved-key>\n" +
+        "  NOTE      : the key is never printed by this server. Use the\n" +
+        "              retrieve command above to copy it into your client.\n" +
+        "───────────────────────────────────────────────────────────────\n\n"
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    process.stderr.write(`artagon-openai-server: --auto-key provisioning failed: ${message}\n`);
+    process.exit(2);
+  }
 }
 if (opts.apiKeyFile !== undefined) {
   /** @type {string} */
