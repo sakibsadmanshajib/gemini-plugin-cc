@@ -12,6 +12,18 @@ Selects the plugin's behavior generation. The flag is plumbed through `lib/featu
   - `align-gemini-plugin-cli-schema-with-codex`: emits nested `--json` shape with `schemaVersion: "v1"` field.
   - `add-app-server-transport-and-marketplace-split`: alternative App Server transport for backends that support it.
 
+**Current status (post-rebrand):** the flag is plumbed at
+`lib/feature-flags.mjs::getPluginVersion` but no caller branches
+on the result yet — the only consumer at
+`plugins/gemini/scripts/gemini-companion.mjs` reads the value
+purely to log it under `DEBUG=1`. The multi-backend behavior (the
+original v2 design intent) shipped via the
+`artagon-agent-cli-plugin` rebrand without going through the
+flag-gated cutover this doc describes. The flag's lifecycle is
+preserved for future opt-in toggles that genuinely need an
+env-controlled switch — see `openspec/glossary.md`'s
+`ACP_PLUGIN_VERSION` entry for the longer treatment.
+
 ## Resolution
 
 ```sh
