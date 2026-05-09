@@ -244,6 +244,18 @@ message-roundtrip.test.mjs` used `wire.includes('"id"')` to assert
   tracing failures still don't propagate up the chain, mock-backend
   notifications still complete). Just no longer invisible.
 
+- **README's `npx artagon-agent-cli-plugin <bin>` invocation was
+  broken.** The TL;DR + Install table told users to run
+  `npx artagon-agent-cli-plugin artagon-openai-server --port 3000`,
+  but verified locally that this errors with "could not determine
+  executable to run" — npx can't resolve which bin to run for a
+  multi-bin package when no bin name matches the package name.
+  Fixed all three sites (README TL;DR, README install table,
+  bin/artagon-agent.mjs docstring) to use
+  `npx -p artagon-agent-cli-plugin <bin>`. The previously-broken
+  invocation would have failed for every new user who copy-pasted
+  from the front-page TL;DR.
+
 ### CI
 
 - **`pnpm pack:check` script** for tarball verification before
