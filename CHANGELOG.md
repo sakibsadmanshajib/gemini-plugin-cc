@@ -569,6 +569,29 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   rejection, and a fetch-failure path. Used `mkdtempSync` for
   temp paths (CodeQL hygiene).
 
+- **Anti-drift status lines across docs.** Hardcoded test counts
+  (`587 tests passing`, `61 tests covering`, `pinned by 30 tests`)
+  appeared in README, ABOUT, `docs/openai-facade.md`, and
+  `docs/backends/claude.md` — each guaranteed to drift on the next
+  test addition. Replaced with structural status lines that
+  describe what's covered rather than count it; the live CI badge
+  in README already conveys actual pass/fail. Net: zero
+  doc-maintenance burden when a test lands.
+
+- **Post-rebrand stale-reference cleanup in OpenSpec narrative
+  files.** `openspec/config.yaml` `context` field said
+  "Today: Node ≥18.18 ESM (.mjs), `node --test`, single shell
+  `plugins/gemini/`, no monorepo, no TypeScript, no shared `lib/`"
+  — none of which had matched reality for many months. Refreshed
+  to the post-pivot shape (vitest, pnpm workspace, populated
+  `lib/`, three plugin shells, JSDoc-typed via tsgo, CLI-only
+  adapters). Same fix to `openspec/architecture.md` which still
+  used the abandoned interim name `acp-plugins-cc` in its title
+  and called the project "A Claude Code plugin suite" rather than
+  the actual multi-host scope. OpenSpec consumes this `context`
+  field to orient AI tooling that generates proposals — stale
+  orientation produces stale proposals.
+
 ### Documentation
 
 - **README badges** — replaced the stale hardcoded
