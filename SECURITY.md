@@ -102,6 +102,16 @@ Reviewable in the codebase:
 - **Audit log** is append-only JSONL keyed by cryptographically
   random session ID, default mode 0o600
   (`~/.acp-plugins/audit/<session>/audit.jsonl`).
+- **Defense-in-depth credential redaction across three layers** —
+  `lib/middleware/redaction.mjs` `DEFAULT_FIELD_NAMES` (primary,
+  applied at session entry, redaction-first invariant enforced by
+  `composeMiddleware`), `lib/wire-log.mjs` `REDACT_TOKENS` (regex
+  scrubbing of serialized JSON-RPC frames captured to the
+  env-gated wire log), and `lib/logger.mjs` `REDACTED_PATHS` (pino
+  redact paths for structured stderr logs). The credential
+  field-name set must agree across all three; mechanically enforced
+  by `tests/unit/cross-layer-redaction.test.mjs` so a regression
+  in any of the three lists fails CI immediately.
 
 ## Acknowledgements
 
