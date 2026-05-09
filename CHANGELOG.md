@@ -573,6 +573,24 @@ update-index --chmod=+x` so blob SHAs are unchanged, only the
   to `/v1/models`; URL-encoded id (`claude%3Aopus-4-7`) → decode
   step runs and the error message contains the decoded form.
 
+- **`tests/unit/cross-layer-redaction.test.mjs`** — 2 tests locking
+  the cross-layer invariant in CI. The project ships THREE
+  independent redaction layers (`redaction.mjs DEFAULT_FIELD_NAMES`
+  primary, `wire-log.mjs REDACT_TOKENS` defense-in-depth,
+  `logger.mjs REDACTED_PATHS` defense-in-depth) whose comments
+  remind maintainers to keep the field-name set in sync — but
+  until now no test verified it. The new test extracts each
+  layer's name-set via per-shape parsing (regex group-1
+  alternation extraction for wire-log; bare/non-`*.`/non-`.`
+  filter for logger; identity for redaction) and asserts set
+  equivalence with per-name diagnostics. Future divergence between
+  the three lists fails CI immediately. Both prior production bugs
+  in this area (wire-log password capture-group + logger
+  top-level credential leak) would have been caught earlier by
+  this invariant. Required exports added: `DEFAULT_FIELD_NAMES`
+  (redaction), `REDACT_TOKENS` (wire-log); `REDACTED_PATHS` was
+  already exported in 367feea.
+
 ### Repository hygiene
 
 - **`.editorconfig`** already in place; added complementary
