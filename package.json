@@ -65,10 +65,19 @@
     "url": "https://github.com/artagon/artagon-agent-cli-plugin.git"
   },
   "keywords": [
+    "agent-cli",
     "claude-code",
-    "claude-code-plugin",
-    "gemini",
+    "codex-cli",
     "gemini-cli",
+    "openai-compatible",
+    "openai-api",
+    "chat-completions-api",
+    "multi-backend",
+    "acp",
+    "cli-plugin",
+    "plugin-marketplace",
+    "stream-json",
+    "sse-streaming",
     "code-review",
     "ai-delegation"
   ],
