@@ -16,17 +16,24 @@ needed to talk to it: model aliases, supported transports, env
 contributors, error mapping. Examples: `geminiBackend`,
 `codexBackend`, `claudeBackend`. Lives in `lib/backends/`.
 
-**Transport** — The wire mechanism for an `AcpSession`. Three kinds
-exist: `CliTransport` (subprocess with stdio framing), `SdkTransport`
-(in-process vendor SDK plus translator), `HttpTransport` (long-running
-HTTP+SSE server). Transports do not know vendor specifics; they call
-backend-supplied hooks.
+**Transport** — The wire mechanism for an `AcpSession`. After the
+2026-05-08 CLI-only pivot, the project ships exactly one transport
+in production: `CliTransport` (subprocess with stdio framing). The
+`SdkTransport` (in-process vendor SDK + translator) and
+`HttpTransport` (long-running HTTP+SSE) prototypes were scaffolded
+in earlier proposals then deleted; the OpenAI Chat Completions HTTP
+facade at `lib/server/openai-facade.mjs` is a SERVER, not an
+`AcpSession` transport — it sits in front of the dispatcher and
+routes requests to the appropriate `runStatelessTurn(...)` runner.
 
-**Translator** — A pure function used by `SdkTransport` to convert
-vendor SDK events to ACP `session/update` shapes. Type:
-`(event) => SessionUpdate | null`. Returning null indicates an
-event with no ACP-level meaning. Errors during translation throw,
-returning to the transport's error handler.
+**Translator** — Originally defined as a pure function used by
+`SdkTransport` to map vendor SDK events to ACP `session/update`
+shapes. After the CLI-only pivot the same role is filled by the
+per-runner `translate<Backend>StreamEvent` functions in
+`lib/translate/` (e.g. `translateClaudeStreamEvent`,
+`translateCodexStreamEvent`, `translateGeminiStreamEvent`). They
+take a parsed stream-json line and return a `SessionUpdate`-shaped
+object or null.
 
 **Conformance test suite** — A fixed set of tests in
 `lib/test-utils/conformance.mjs` that any `AcpSession` implementation
@@ -39,13 +46,23 @@ cross-cutting concern: redaction, audit, cost tracking, retry,
 fallback, cache. Composed in canonical order via
 `composeMiddleware([...])`. Redaction is always index 0.
 
-**Plugin shell** — A Claude Code plugin: a directory with
-`.claude-plugin/plugin.json`, `commands/<verb>.md` files, optional
-`agents/` and `scripts/`. Three shells exist:
-`plugins/{gemini,codex,claude}/`. Each is independently installable.
+**Plugin shell** — A host-installable plugin: a directory with
+either `.claude-plugin/plugin.json` (Claude Code) or
+`.codex-plugin/plugin.json` (Codex CLI) — both files are
+byte-identical and CI enforces parity. `commands/<verb>.md` files,
+optional `agents/` and `scripts/`. Three shells exist:
+`plugins/{gemini,codex,claude}/`. Each is independently installable
+into either host that supports the plugin contract.
 
-**Marketplace** — Claude Code's plugin distribution mechanism.
-Listed via a top-level `.claude-plugin/marketplace.json`.
+**Marketplace** — A host's plugin discovery mechanism. The project
+ships TWO marketplace descriptors at the repo root:
+`.claude-plugin/marketplace.json` (Claude Code's path; string-form
+`source: "./plugins/<name>"`, no `policy` block) and
+`.agents/plugins/marketplace.json` (Codex CLI's canonical path per
+the OpenAI plugin spec; structured
+`source: { source: "local", path: ... }` with `policy` and
+`interface.displayName`). Both descriptors list all three plugins
+so a user installing into either host can pick any of them.
 
 **Slash command** — A user-facing command invoked in Claude Code as
 `/<plugin>:<verb>`, e.g., `/gemini:review`, `/codex:rescue`.
