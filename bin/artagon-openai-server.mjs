@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import { Command, InvalidArgumentError } from "commander";
 
 import { provisionApiKey } from "#lib/server/api-key-store.mjs";
+import { deleteManifest, writeManifest } from "#lib/server/facade-endpoint.mjs";
 import { createOpenAiFacadeServer } from "#lib/server/openai-facade.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -225,6 +226,43 @@ try {
   process.exit(1);
 }
 
+// Endpoint manifest: where we're listening + (optionally) the auto-key
+// retrieve command. Other tools (the dispatcher's ARTAGON_USE_FACADE=1
+// path, future `artagon-agent --via-facade`) read this to find a
+// running server without prior knowledge of the port. NEVER contains
+// the bearer key itself — only the command to fetch it.
+let autoKeyManifest = null;
+if (autoKeyRequested) {
+  try {
+    // Read back the persistent key location (no rotation; just discover
+    // where the key lives so the manifest can point a consumer at it).
+    const probed = provisionApiKey({
+      rotate: false,
+      force: opts.autoKeyStore
+    });
+    autoKeyManifest = {
+      store: probed.source,
+      retrieveCommand: probed.retrieveCommand
+    };
+  } catch {
+    // Best-effort: if reading the persistent store back fails the server
+    // still runs, just without the manifest entry that points at it.
+    autoKeyManifest = null;
+  }
+}
+try {
+  writeManifest({
+    host: address.host,
+    port: address.port,
+    pid: process.pid,
+    autoKey: autoKeyManifest
+  });
+} catch (err) {
+  // Don't fail listen on manifest-write errors — observability nicety,
+  // not a hard requirement. Log once and continue.
+  process.stderr.write(`artagon-openai-server: manifest write failed: ${String(err)}\n`);
+}
+
 process.stdout.write(
   `artagon-openai-server listening at http://${address.host}:${address.port}\n` +
     "  POST /v1/chat/completions   — OpenAI Chat Completions API\n" +
@@ -261,6 +299,9 @@ const shutdown = async (/** @type {string} */ signal) => {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`artagon-openai-server: error during shutdown: ${message}\n`);
   }
+  // Best-effort manifest cleanup. ENOENT is silent; other errors warn
+  // but don't block exit.
+  deleteManifest();
   process.exit(0);
 };
 

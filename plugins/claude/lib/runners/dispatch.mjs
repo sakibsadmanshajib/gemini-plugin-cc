@@ -27,6 +27,7 @@ import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { findActiveBroker } from "#lib/transport/broker-probe.mjs";
 import { runClaudePrint } from "./claude-print.mjs";
 import { runCodexExec } from "./codex-exec.mjs";
+import { runViaFacade } from "./facade-dispatch.mjs";
 import { runGeminiViaBroker } from "./gemini-broker.mjs";
 import { runGeminiPrint } from "./gemini-print.mjs";
 
@@ -39,21 +40,23 @@ import { runGeminiPrint } from "./gemini-print.mjs";
  */
 
 /**
- * One-shot warning latch — log "broker probe failed" only once per
- * process lifetime so a stale broker session doesn't spam stderr on
- * every dispatch. Subsequent fallbacks are silent.
+ * One-shot warning latches — log a fallback message only once per
+ * process lifetime so stale state doesn't spam stderr on every dispatch.
+ * Subsequent fallbacks are silent.
  */
 let warnedBrokerFallback = false;
+let warnedFacadeFallback = false;
 
 /**
- * Reset the broker-fallback warning latch. Used by tests that need a
- * fresh dispatcher state to assert the warning fires exactly once. Not
- * part of the public API.
+ * Reset the warning latches. Used by tests that need a fresh dispatcher
+ * state to assert each warning fires exactly once. Not part of the
+ * public API.
  *
  * @internal
  */
 export function _resetBrokerWarningForTest() {
   warnedBrokerFallback = false;
+  warnedFacadeFallback = false;
 }
 
 /**
@@ -74,6 +77,24 @@ export function _resetBrokerWarningForTest() {
  * @returns {Promise<TurnResult>}
  */
 export function runStatelessTurn(backendName, options) {
+  // Facade path: when opted in, ALL backends try the facade first. The
+  // facade has its own backend dispatch internally; we forward the
+  // prompt + model hint and accept its TurnResult. On any error we fall
+  // back to the per-backend cold-start (or broker-aware) path.
+  if (shouldUseFacade(options)) {
+    return runWithFacadeFallback(backendName, options);
+  }
+  return runDirect(backendName, options);
+}
+
+/**
+ * Direct dispatch (non-facade path). Each backend's per-runner logic.
+ *
+ * @param {BackendName} backendName
+ * @param {RunClaudePrintOptions | RunCodexExecOptions | RunGeminiPrintOptions} options
+ * @returns {Promise<TurnResult>}
+ */
+function runDirect(backendName, options) {
   switch (backendName) {
     case BACKEND_NAMES.CLAUDE:
       return runClaudePrint(/** @type {RunClaudePrintOptions} */ (options));
@@ -87,6 +108,55 @@ export function runStatelessTurn(backendName, options) {
       return Promise.reject(
         new Error(`runStatelessTurn: unknown backend "${String(backendName)}"`)
       );
+  }
+}
+
+/**
+ * Should the dispatcher route this turn through the facade?
+ *
+ *   options.useFacade === true              → opt-in
+ *   process.env.ARTAGON_USE_FACADE === "1"  → opt-in
+ *   options.disableFacade === true          → veto (e.g. for benchmarking)
+ *
+ * @param {any} options
+ * @returns {boolean}
+ */
+function shouldUseFacade(options) {
+  if (options?.disableFacade === true) return false;
+  if (options?.useFacade === true) return true;
+  return process.env.ARTAGON_USE_FACADE === "1";
+}
+
+/**
+ * Try the facade; on any error fall back to the direct path.
+ *
+ * @param {BackendName} backendName
+ * @param {RunClaudePrintOptions | RunCodexExecOptions | RunGeminiPrintOptions} options
+ * @returns {Promise<TurnResult>}
+ */
+async function runWithFacadeFallback(backendName, options) {
+  /** @type {any} */
+  const opts = options;
+  try {
+    return await runViaFacade(backendName, {
+      prompt: opts.prompt,
+      cwd: opts.cwd,
+      env: opts.env,
+      model: opts.model,
+      timeoutMs: opts.timeoutMs,
+      bearerToken: opts.bearerToken,
+      onUpdate: opts.onUpdate
+    });
+  } catch (err) {
+    if (!warnedFacadeFallback) {
+      warnedFacadeFallback = true;
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `[dispatch] facade call failed (${message}); falling back to direct path. ` +
+          "Subsequent facade-fallback events this session will be silent.\n"
+      );
+    }
+    return runDirect(backendName, options);
   }
 }
 
