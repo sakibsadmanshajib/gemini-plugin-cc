@@ -1,7 +1,7 @@
 {
   "name": "gemini",
-  "version": "1.0.1",
-  "description": "Use Gemini from Claude Code or Codex CLI to review code or delegate tasks.",
+  "version": "0.1.0",
+  "description": "Installed in Gemini; drives Codex and Claude backends via stateless CLI runners.",
   "author": {
     "name": "Artagon & Giedrius Trumpickas"
   }

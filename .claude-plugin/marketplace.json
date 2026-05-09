@@ -10,8 +10,8 @@
   "plugins": [
     {
       "name": "gemini",
-      "description": "Use Gemini from Claude Code to review code or delegate tasks.",
-      "version": "1.0.1",
+      "description": "Installed in Gemini; drives Codex and Claude backends via stateless CLI runners.",
+      "version": "0.1.0",
       "author": {
         "name": "Artagon & Giedrius Trumpickas"
       },

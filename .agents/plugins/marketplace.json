@@ -20,7 +20,7 @@
       },
       "category": "Productivity",
       "interface": {
-        "displayName": "Gemini Integration"
+        "displayName": "Gemini Cross-Driver (drives Codex + Claude)"
       }
     },
     {
