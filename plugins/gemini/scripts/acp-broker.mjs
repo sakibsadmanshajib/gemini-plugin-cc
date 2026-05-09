@@ -11,16 +11,26 @@
  * Returns BROKER_BUSY_RPC_CODE (-32001) when another request is in flight.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
+import readline from "node:readline";
 import { pathToFileURL } from "node:url";
 
 import { openWireLog } from "#lib/wire-log.mjs";
+import {
+  BROKER_DIAGNOSTIC_METHOD,
+  attachStderrDiagnosticCollector,
+  buildBrokerDiagnosticNotification,
+  sanitizeDiagnosticMessage
+} from "./lib/acp-diagnostics.mjs";
 import { parseArgs } from "./lib/args.mjs";
 import { ACP_MAX_LINE_BUFFER, BROKER_BUSY_RPC_CODE } from "./lib/broker-constants.mjs";
+import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
 import { getPluginInfo } from "./lib/plugin-info.mjs";
+import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
 
 // Wire log captures every JSON-RPC frame the broker proxies (in either
 // direction) when ACP_WIRE_LOG is set. No-op singleton when the env var
@@ -29,18 +39,11 @@ const wireLog = openWireLog();
 
 // Broker advertises itself as "<plugin-name>-broker" so peers can distinguish
 // the broker layer from the direct ACP client. Version follows the plugin's.
-const _info = getPluginInfo();
-const BROKER_INFO = { name: `${_info.name}-broker`, version: _info.version };
-import { spawn } from "node:child_process";
-import readline from "node:readline";
-import {
-  BROKER_DIAGNOSTIC_METHOD,
-  attachStderrDiagnosticCollector,
-  buildBrokerDiagnosticNotification,
-  sanitizeDiagnosticMessage
-} from "./lib/acp-diagnostics.mjs";
-import { parseBrokerEndpoint } from "./lib/broker-endpoint.mjs";
-import { listenOnRestrictedUnixSocket } from "./lib/socket-permissions.mjs";
+const pluginInfo = getPluginInfo();
+const BROKER_INFO = {
+  name: `${pluginInfo.name}-broker`,
+  version: pluginInfo.version
+};
 
 const SHUTDOWN_GRACE_MS = 500;
 const MAX_DIAGNOSTIC_RING = 25;
