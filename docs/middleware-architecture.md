@@ -26,14 +26,14 @@ Order matters. The composition machinery validates the redaction-first invariant
 
 ## Per-middleware contract summary
 
-| Middleware | Position | Reads                                                  | Writes                                                                 | Failure mode                                   |
-| ---------- | -------- | ------------------------------------------------------ | ---------------------------------------------------------------------- | ---------------------------------------------- |
-| redaction  | 0        | request params, notification params                    | replaces secret patterns with `[redacted]`                             | never throws (transformation always succeeds)  |
-| audit      | ≥1       | every method call                                      | append-only JSONL under `~/.acp-plugins/audit/<sessionId>/audit.jsonl` | swallows errors; logs disabled-state to stderr |
-| cost       | ≥1       | `session/prompt` requests, results, `tool_call` notifs | in-memory `record()` snapshot; optional `onUpdate(record)` callback    | swallows extractor errors; counts marked 0     |
-| retry      | ≥1       | thrown errors from `next.request`                      | nothing                                                                | re-raises the last error after max attempts    |
-| fallback   | ≥1       | thrown errors with overload signal                     | nothing                                                                | re-raises if chain exhausts                    |
-| cache      | last     | request method + params + git HEAD                     | `~/.acp-plugins/cache/<sha256>.json`                                   | best-effort; swallows IO errors                |
+| Middleware | Position | Reads                                                  | Writes                                                                 | Failure mode                                                                                                                    |
+| ---------- | -------- | ------------------------------------------------------ | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| redaction  | 0        | request params, notification params                    | replaces secret patterns with `[redacted]`                             | never throws (transformation always succeeds)                                                                                   |
+| audit      | ≥1       | every method call                                      | append-only JSONL under `~/.acp-plugins/audit/<sessionId>/audit.jsonl` | swallows errors but the FIRST open/write failure surfaces to stderr with reason; subsequent failures silenced via one-shot flag |
+| cost       | ≥1       | `session/prompt` requests, results, `tool_call` notifs | in-memory `record()` snapshot; optional `onUpdate(record)` callback    | swallows extractor errors; counts marked 0; cost-record append failures surface to stderr (one-shot)                            |
+| retry      | ≥1       | thrown errors from `next.request`                      | nothing                                                                | re-raises the last error after max attempts                                                                                     |
+| fallback   | ≥1       | thrown errors with overload signal                     | nothing                                                                | re-raises if chain exhausts                                                                                                     |
+| cache      | last     | request method + params + git HEAD                     | `~/.acp-plugins/cache/<sha256>.json`                                   | best-effort; FIRST mkdir/write failure surfaces to stderr with reason; subsequent silenced                                      |
 
 ## When to add a new middleware
 
