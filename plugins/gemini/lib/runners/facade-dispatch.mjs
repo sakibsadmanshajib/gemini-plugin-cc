@@ -80,9 +80,15 @@ function resolveBearer(options) {
  *
  * @param {BackendName} backend
  * @param {RunViaFacadeOptions} options
+ * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
+ *   Phase 2: accepts AgentContext for forward compat. Phase 4 will
+ *   route `bearerToken`, `cwd`, `env`, `model`, and `timeoutMs` from
+ *   `context` so the facade picks up flag-supplied auth without the
+ *   env-var fallback.
  * @returns {Promise<TurnResult>}
  */
-export async function runViaFacade(backend, options) {
+// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
+export async function runViaFacade(backend, options, _context) {
   const manifest = readManifest(options.env ?? process.env);
   if (!manifest) {
     throw new Error("runViaFacade: no running facade found (manifest absent or stale)");

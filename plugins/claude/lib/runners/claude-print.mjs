@@ -69,9 +69,15 @@ import { consumeStreamJson } from "#lib/translate/stream-runner.mjs";
  * Run a single Claude print-mode turn and return the accumulated TurnResult.
  *
  * @param {RunClaudePrintOptions} options
+ * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
+ *   Phase 2: signature accepts an optional AgentContext for forward
+ *   compatibility with the boundary builder. Phase 4 will route the
+ *   transport's wire-log + cost-record paths through this context;
+ *   today the runner still uses env-var defaults internally.
  * @returns {Promise<TurnResult>}
  */
-export function runClaudePrint(options) {
+// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
+export function runClaudePrint(options, _context) {
   const { prompt, signal, timeoutMs, onUpdate, _argsOverride, ...rest } = options;
   if (!prompt) {
     return Promise.reject(new Error("runClaudePrint: prompt is required"));

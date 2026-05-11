@@ -8,19 +8,15 @@
  *   <backend>   one of: claude, codex, gemini
  *   <prompt>    the natural-language prompt; quote it
  *
- * Wraps `runStatelessTurn(BACKEND_NAMES.<X>, options)` from
- * `lib/runners/dispatch.mjs`. Argv parsing uses commander — the
- * canonical Node CLI library — instead of a hand-rolled parser.
+ * Wraps `runStatelessTurn(BACKEND_NAMES.<X>, options, context)` from
+ * `lib/runners/dispatch.mjs`. Commander parses the positional + flags;
+ * the resulting `AgentContext` is built once at this boundary and
+ * threaded through `lib/`.
  *
  * Exit codes:
  *   0  success
  *   1  runtime error (spawn failed, CLI exited non-zero, abort, etc.)
  *   2  usage error (missing/invalid args)
- *
- * Run via:
- *   npx -p artagon-agent-cli-plugin artagon-agent <backend> "..."
- *   pnpm exec artagon-agent <backend> "..."
- *   (after `npm i -g artagon-agent-cli-plugin`) artagon-agent <backend> "..."
  */
 
 import fs from "node:fs";
@@ -30,6 +26,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command, InvalidArgumentError } from "commander";
 
+import { createAgentContext } from "#lib/agent-context.mjs";
 import { ALL_BACKEND_NAMES, isBackendName } from "#lib/backends/names.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
 
@@ -64,6 +61,7 @@ program
   .version(PKG.version, "-v, --version")
   .argument("<backend>", `backend (${ALL_BACKEND_NAMES.join(", ")})`, parseBackend)
   .argument("<prompt...>", "natural-language prompt; quote it (or pass multiple words unquoted)")
+  // ── per-turn ──
   .option("--model <id>", "per-invocation model id passed through to the runner")
   .option(
     "--timeout-ms <n>",
@@ -71,7 +69,25 @@ program
     parsePositiveInt
   )
   .option("--cwd <path>", "working dir for the spawned CLI")
-  .option("--json", "emit the full TurnResult as JSON instead of formatted text");
+  .option("--json", "emit the full TurnResult as JSON instead of formatted text")
+  // ── dispatch (tri-state via paired flags; commander synthesizes --no-*) ──
+  .option("--streaming", "route via the streaming warm-path runner")
+  .option("--no-streaming", "veto the streaming runner")
+  .option("--facade", "route via the OpenAI facade")
+  .option("--no-facade", "veto the facade")
+  .option("--no-broker", "gemini: skip the legacy broker probe")
+  // ── observability ──
+  .option("--wire-log <path>", "capture every JSON-RPC frame to <path>")
+  .option("--wire-log-raw", "disable secret redaction in wire log")
+  .option("--trace-id <id>", "correlation id surfaced to wire log + cost record")
+  // ── cost ──
+  .option("--cost-log <path>", "override cost.jsonl path")
+  .option("--no-cost-log", "suppress cost recording for this invocation")
+  .option("--pricing <path>", "override pricing table JSON")
+  // ── facade ──
+  .option("--facade-key <token>", "bearer token for the OpenAI facade")
+  // ── diagnostics ──
+  .option("--debug", "enable verbose diagnostics");
 
 program.exitOverride((err) => {
   if (err.code === "commander.helpDisplayed" || err.code === "commander.version") {
@@ -82,10 +98,6 @@ program.exitOverride((err) => {
 
 program.parse(process.argv);
 const opts = program.opts();
-// commander types program.args as string[] — narrow back to BackendName
-// here. parseBackend (the .argument() validator) already enforced the
-// runtime constraint and would have exited 2 on bad input, so the cast
-// is sound even though the static types don't reflect it.
 const [rawBackend, ...promptParts] = program.args;
 const backend = /** @type {import("#lib/backends/names.mjs").BackendName} */ (rawBackend);
 const prompt = promptParts.join(" ");
@@ -96,13 +108,48 @@ if (!prompt) {
   process.exit(2);
 }
 
-// Plumb SIGINT/SIGTERM into an AbortController so a Ctrl-C cleanly
-// cancels the in-flight backend turn (each runner SIGTERMs its child
-// + rejects with the abort reason on signal.aborted). Without this,
-// cancellation relies entirely on shell process-group signal propagation,
-// which is fragile — e.g., if the backend CLI sets its own process group
-// or briefly ignores SIGINT during cleanup, the child can outlive the
-// parent.
+// Commander uses opts.streaming / opts.noStreaming pairs (camelCase
+// inference). Translate to the AgentContext tri-state shape.
+/** @type {"on" | "off" | "default"} */
+const streaming = opts.streaming === true ? "on" : opts.streaming === false ? "off" : "default";
+/** @type {"on" | "off" | "default"} */
+const facade = opts.facade === true ? "on" : opts.facade === false ? "off" : "default";
+
+let context;
+try {
+  context = createAgentContext({
+    cwd: opts.cwd ?? process.cwd(),
+    env: process.env,
+    dispatch: {
+      streaming,
+      facade,
+      broker: opts.broker === false ? "disabled" : "auto"
+    },
+    logging: {
+      ...(opts.wireLog !== undefined && { wireLogPath: opts.wireLog }),
+      ...(opts.wireLogRaw === true && { wireLogRaw: true }),
+      ...(opts.traceId !== undefined && { traceId: opts.traceId })
+    },
+    cost: {
+      ...(opts.costLog === false && { disabled: true }),
+      ...(opts.costLog !== undefined && opts.costLog !== false && { logPath: opts.costLog }),
+      ...(opts.pricing !== undefined && { pricingOverride: opts.pricing })
+    },
+    facade: {
+      ...(opts.facadeKey !== undefined && { apiKey: opts.facadeKey })
+    },
+    model: opts.model,
+    timeoutMs: opts.timeoutMs,
+    debug: opts.debug === true ? true : undefined
+  });
+} catch (err) {
+  process.stderr.write(`artagon-agent: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(2);
+}
+
+// SIGINT/SIGTERM → AbortController so Ctrl-C cancels the in-flight
+// backend turn. Each runner SIGTERMs its child and rejects with the
+// abort reason on signal.aborted.
 const ac = new AbortController();
 const abortOnSignal = (/** @type {string} */ sig) => {
   process.stderr.write(`\nartagon-agent: ${sig} received, aborting backend turn...\n`);
@@ -112,14 +159,18 @@ process.on("SIGINT", () => abortOnSignal("SIGINT"));
 process.on("SIGTERM", () => abortOnSignal("SIGTERM"));
 
 try {
-  const turn = await runStatelessTurn(backend, {
-    prompt,
-    cwd: opts.cwd ?? process.cwd(),
-    env: process.env,
-    model: opts.model,
-    timeoutMs: opts.timeoutMs ?? 5 * 60 * 1000,
-    signal: ac.signal
-  });
+  const turn = await runStatelessTurn(
+    backend,
+    {
+      prompt,
+      cwd: context.cwd,
+      env: context.env,
+      model: context.model,
+      timeoutMs: context.timeoutMs ?? 5 * 60 * 1000,
+      signal: ac.signal
+    },
+    context
+  );
 
   if (opts.json) {
     process.stdout.write(`${JSON.stringify(turn, null, 2)}\n`);

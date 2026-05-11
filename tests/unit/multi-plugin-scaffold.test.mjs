@@ -64,18 +64,18 @@ describe("plugins/claude (installed in Claude Code)", () => {
     expect(cmd).toMatch(/scripts\/gemini-prompt\.mjs/);
   });
 
-  test("scripts/codex-prompt.mjs uses runStatelessTurn(CODEX)", () => {
+  test("scripts/codex-prompt.mjs drives via runSlashCommandScript(CODEX)", () => {
     const script = readText("plugins/claude/scripts/codex-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.CODEX/);
     // Must NOT reference its own host backend name (claude installed in
     // Claude Code drives codex/gemini, not claude itself).
     expect(script).not.toMatch(/BACKEND_NAMES\.CLAUDE/);
   });
 
-  test("scripts/gemini-prompt.mjs uses runStatelessTurn(GEMINI) — never CLAUDE", () => {
+  test("scripts/gemini-prompt.mjs drives via runSlashCommandScript(GEMINI) — never CLAUDE", () => {
     const script = readText("plugins/claude/scripts/gemini-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.GEMINI/);
     expect(script).not.toMatch(/BACKEND_NAMES\.CLAUDE/);
   });
@@ -112,16 +112,16 @@ describe("plugins/codex (installed in Codex CLI)", () => {
     expect(cmd).toMatch(/scripts\/gemini-prompt\.mjs/);
   });
 
-  test("scripts/claude-prompt.mjs uses runStatelessTurn(CLAUDE)", () => {
+  test("scripts/claude-prompt.mjs drives via runSlashCommandScript(CLAUDE)", () => {
     const script = readText("plugins/codex/scripts/claude-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.CLAUDE/);
     expect(script).not.toMatch(/BACKEND_NAMES\.CODEX/);
   });
 
-  test("scripts/gemini-prompt.mjs uses runStatelessTurn(GEMINI) — never CODEX", () => {
+  test("scripts/gemini-prompt.mjs drives via runSlashCommandScript(GEMINI) — never CODEX", () => {
     const script = readText("plugins/codex/scripts/gemini-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.GEMINI/);
     expect(script).not.toMatch(/BACKEND_NAMES\.CODEX/);
   });
@@ -161,17 +161,17 @@ describe("plugins/gemini cross-pollination commands", () => {
     expect(cmd).toMatch(/scripts\/codex-prompt\.mjs/);
   });
 
-  test("scripts/claude-prompt.mjs uses runStatelessTurn(CLAUDE) — never GEMINI", () => {
+  test("scripts/claude-prompt.mjs drives via runSlashCommandScript(CLAUDE) — never GEMINI", () => {
     const script = readText("plugins/gemini/scripts/claude-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.CLAUDE/);
     // The cross-pollination invariant: must NOT reference its own host.
     expect(script).not.toMatch(/BACKEND_NAMES\.GEMINI/);
   });
 
-  test("scripts/codex-prompt.mjs uses runStatelessTurn(CODEX) — never GEMINI", () => {
+  test("scripts/codex-prompt.mjs drives via runSlashCommandScript(CODEX) — never GEMINI", () => {
     const script = readText("plugins/gemini/scripts/codex-prompt.mjs");
-    expect(script).toMatch(/runStatelessTurn/);
+    expect(script).toMatch(/runSlashCommandScript/);
     expect(script).toMatch(/BACKEND_NAMES\.CODEX/);
     expect(script).not.toMatch(/BACKEND_NAMES\.GEMINI/);
   });

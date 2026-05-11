@@ -19,6 +19,8 @@
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 
+import { createClaudeStreamingRunner } from "./claude-streaming.mjs";
+import { createCodexStreamingRunner } from "./codex-streaming.mjs";
 import { createGeminiStreamingRunner } from "./gemini-streaming.mjs";
 import { createSupervisor } from "./supervisor.mjs";
 
@@ -27,20 +29,34 @@ const supervisors = new Map();
 
 /**
  * Get (or lazily create) the streaming supervisor for the given
- * backend + cwd. Returns null when streaming is not supported for the
- * backend (codex / claude until those runners land).
+ * backend + cwd. All three backends are wired today; returns null
+ * only for unknown backend names.
  *
  * @param {BackendName} backend
- * @param {{ cwd?: string, env?: NodeJS.ProcessEnv, idleMs?: number }} [opts]
+ * @param {{
+ *   cwd?: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   idleMs?: number,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * }} [opts]
+ *   `context` is plumbed through to factoryFor (Phase 2) but per the
+ *   design the supervisor caches per (backend, cwd) — context is then
+ *   threaded per-turn via `runTurn(opts, context)` instead of frozen
+ *   at supervisor-construction time. Wire-log path is the documented
+ *   exception (captured at construction).
  * @returns {StreamingRunner | null}
  */
 export function getStreamingRunner(backend, opts = {}) {
-  const cwd = opts.cwd ?? process.cwd();
+  const cwd = opts.context?.cwd ?? opts.cwd ?? process.cwd();
   const key = `${backend}::${cwd}`;
   const cached = supervisors.get(key);
   if (cached) return cached;
 
-  const factory = factoryFor(backend, { cwd, env: opts.env });
+  const factory = factoryFor(backend, {
+    cwd,
+    env: opts.context?.env ?? opts.env,
+    context: opts.context
+  });
   if (!factory) return null;
 
   const supervisor = createSupervisor({
@@ -55,22 +71,31 @@ export function getStreamingRunner(backend, opts = {}) {
 }
 
 /**
- * Backend → runner-factory dispatch. Only GEMINI is wired this
- * iteration; CODEX (`codex app-server`) and CLAUDE (Path A vs Path B
- * choice) land in subsequent commits.
+ * Backend → runner-factory dispatch.
+ *   GEMINI  → connects to the existing `gemini --acp` broker socket.
+ *   CODEX   → spawns `codex app-server` directly via the inline
+ *             translator in `codex-streaming.mjs`.
+ *   CLAUDE  → spawns `@agentclientprotocol/claude-agent-acp` (Zed's
+ *             ACP server backed by the Claude Agent SDK). Auth uses
+ *             whatever credentials the host already has (claude login
+ *             session or ANTHROPIC_API_KEY).
  *
  * @param {BackendName} backend
- * @param {{ cwd: string, env?: NodeJS.ProcessEnv }} ctx
+ * @param {{
+ *   cwd: string,
+ *   env?: NodeJS.ProcessEnv,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * }} ctx
  * @returns {(() => StreamingRunner) | null}
  */
 function factoryFor(backend, ctx) {
   switch (backend) {
     case BACKEND_NAMES.GEMINI:
       return () => createGeminiStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
-    case BACKEND_NAMES.CLAUDE:
     case BACKEND_NAMES.CODEX:
-      // Not yet implemented — dispatcher falls back to direct path.
-      return null;
+      return () => createCodexStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
+    case BACKEND_NAMES.CLAUDE:
+      return () => createClaudeStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
     default:
       return null;
   }

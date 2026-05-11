@@ -70,7 +70,7 @@ import { defaultExtractTokens } from "#lib/middleware/cost.mjs";
  *   durationMs: number,
  *   reason: string | null,
  *   ok: boolean,
- *   transport?: "cli" | "broker" | "facade" | "acp-server"
+ *   transport?: "cli" | "broker" | "facade" | "acp-server" | "codex-app-server" | "claude-agent-acp"
  * }} CostRecord
  *
  * The `transport` field describes HOW the turn reached the backend:
@@ -78,7 +78,19 @@ import { defaultExtractTokens } from "#lib/middleware/cost.mjs";
  *   - "broker": connected to a long-running gemini --acp broker via Unix
  *               socket (Phase 0 of add-unified-acp-server-with-mcp-aggregation)
  *   - "facade": routed through artagon-openai-server (cache-friendly)
- *   - "acp-server": routed through artagon-acp-server (Phase 1+)
+ *   - "acp-server": routed through artagon-acp-server (Phase 1+) OR the
+ *                   gemini streaming runner that owns its own ACP session
+ *                   over the legacy broker socket
+ *   - "codex-app-server": routed through `codex app-server` JSON-RPC 2.0
+ *                   (codex's own thread/turn/item schema, NOT Zed's ACP
+ *                   wire format — kept distinct so per-backend warm-path
+ *                   latency stays separable in aggregations)
+ *   - "claude-agent-acp": routed through `@agentclientprotocol/claude-agent-acp`
+ *                   (Zed's ACP wrapper around the Claude Agent SDK). Wire
+ *                   format IS standard ACP; label is distinct because the
+ *                   underlying auth + tool surface differs from the `claude`
+ *                   CLI path (Anthropic API + agent-SDK tools rather than
+ *                   the CLI's tool set).
  *
  * Absent on legacy records (introduced 2026-05); aggregation tooling
  * treats absent as "cli" for back-compat.
@@ -87,16 +99,23 @@ import { defaultExtractTokens } from "#lib/middleware/cost.mjs";
 let warnedOnce = false;
 
 /**
- * Resolve the cost log path. `$ARTAGON_COST_LOG` overrides; otherwise
- * `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` (default
- * `~/.local/state/...`).
+ * Resolve the cost log path. Precedence:
+ *   1. `context.cost.logPath` (preferred — Phase 2+ context-aware callers)
+ *   2. `$ARTAGON_COST_LOG`
+ *   3. `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`
+ *      (default `~/.local/state/...`)
  *
- * @param {NodeJS.ProcessEnv} [env]
+ * Phase 4 will remove the env-fallback step.
+ *
+ * @param {NodeJS.ProcessEnv | undefined} [env]
+ * @param {import("#lib/agent-context.mjs").AgentContext} [context]
  * @returns {string}
  */
-export function getCostLogPath(env = process.env) {
-  if (env.ARTAGON_COST_LOG) return env.ARTAGON_COST_LOG;
-  const stateHome = env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
+export function getCostLogPath(env, context) {
+  const e = env ?? process.env;
+  if (context?.cost?.logPath) return context.cost.logPath;
+  if (e.ARTAGON_COST_LOG) return e.ARTAGON_COST_LOG;
+  const stateHome = e.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
   return path.join(stateHome, "artagon-agent-cli-plugin", "cost.jsonl");
 }
 
@@ -139,6 +158,43 @@ export function normalizeUsage(usage) {
     };
     if (cacheCreate > 0) out.cache_creation_tokens = cacheCreate;
     if (cacheRead > 0) out.cache_read_tokens = cacheRead;
+    return out;
+  }
+
+  // ACP-server camelCase shape, used by both:
+  //   - codex `thread/tokenUsage/updated`'s `last`/`total` objects:
+  //       { inputTokens, outputTokens, cachedInputTokens, reasoningOutputTokens, totalTokens }
+  //     (cachedInputTokens is a SUBSET of inputTokens — already counted)
+  //   - claude-agent-acp `session/prompt` response.usage:
+  //       { inputTokens, outputTokens, cachedReadTokens, cachedWriteTokens, totalTokens }
+  //     (cached* are SEPARATE from inputTokens — additive, per Anthropic billing)
+  //
+  // Two distinct shapes share the same family, so this branch detects
+  // them together and uses the field names that are actually present.
+  // The semantic difference (subset vs additive cache) only matters for
+  // the totalTokens fallback computation, which we sidestep by
+  // preferring the vendor-reported totalTokens whenever present.
+  if (typeof u.inputTokens === "number" || typeof u.outputTokens === "number") {
+    const p = Number(u.inputTokens ?? 0);
+    const c = Number(u.outputTokens ?? 0);
+    // claude-agent-acp pattern (cache fields separate from input)
+    const claudeCacheRead = Number(u.cachedReadTokens ?? 0);
+    const claudeCacheCreate = Number(u.cachedWriteTokens ?? 0);
+    // codex pattern (cached is subset of input — surface as cache_read for
+    // visibility but do NOT add to total)
+    const codexCacheRead = Number(u.cachedInputTokens ?? 0);
+    /** @type {NormalizedUsage} */
+    const out = {
+      prompt_tokens: p,
+      completion_tokens: c,
+      total_tokens:
+        typeof u.totalTokens === "number"
+          ? u.totalTokens
+          : p + c + claudeCacheCreate + claudeCacheRead
+    };
+    if (claudeCacheCreate > 0) out.cache_creation_tokens = claudeCacheCreate;
+    if (claudeCacheRead > 0) out.cache_read_tokens = claudeCacheRead;
+    else if (codexCacheRead > 0) out.cache_read_tokens = codexCacheRead;
     return out;
   }
 
@@ -194,13 +250,24 @@ export function normalizeUsage(usage) {
  * warned once on stderr and silently ignored thereafter (cost recording
  * is observability, not load-bearing).
  *
+ * Precedence for resolving the log destination:
+ *   1. `options.context.cost.disabled === true` → skip entirely
+ *   2. `options.context.cost.logPath`           → override
+ *   3. `options.env.ARTAGON_COST_LOG`           → env fallback (Phase 4 removes)
+ *   4. `$XDG_STATE_HOME/.../cost.jsonl`         → default
+ *
  * @param {Omit<CostRecord, "timestamp">} record
- * @param {{ env?: NodeJS.ProcessEnv, now?: () => Date }} [options]
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   now?: () => Date,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * }} [options]
  */
 export function appendCostRecord(record, options = {}) {
-  const env = options.env ?? process.env;
+  if (options.context?.cost?.disabled === true) return;
+  const env = options.context?.env ?? options.env ?? process.env;
   const now = options.now ?? (() => new Date());
-  const logPath = getCostLogPath(env);
+  const logPath = getCostLogPath(env, options.context);
   try {
     fs.mkdirSync(path.dirname(logPath), { recursive: true });
     /** @type {CostRecord} */

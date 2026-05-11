@@ -41,7 +41,10 @@
  *
  * @typedef {{
  *   start(): Promise<void>,
- *   runTurn(options: StreamingTurnOptions): Promise<TurnResult>,
+ *   runTurn(
+ *     options: StreamingTurnOptions,
+ *     context?: import("#lib/agent-context.mjs").AgentContext
+ *   ): Promise<TurnResult>,
  *   close(): Promise<void>,
  *   health(): StreamingHealth
  * }} StreamingRunner

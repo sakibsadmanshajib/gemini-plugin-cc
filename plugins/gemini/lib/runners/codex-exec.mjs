@@ -93,9 +93,14 @@ export function buildCodexExecArgs(options) {
  * Run a single codex exec turn and return the accumulated TurnResult.
  *
  * @param {RunCodexExecOptions} options
+ * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
+ *   Phase 2: accepts AgentContext for forward compat; today the runner
+ *   still uses env-var defaults internally. Phase 4 will route the
+ *   transport + recorder through `context`.
  * @returns {Promise<TurnResult>}
  */
-export function runCodexExec(options) {
+// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
+export function runCodexExec(options, _context) {
   const { prompt, signal, timeoutMs, onUpdate, _argsOverride, ...rest } = options;
   if (!prompt) {
     return Promise.reject(new Error("runCodexExec: prompt is required"));

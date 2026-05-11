@@ -1,13 +1,24 @@
 /**
  * Codex backend declaration — CLI-only.
  *
- * Per the CLI-only architecture, the Codex backend launches the `codex`
- * binary in ACP mode (`codex acp`). SDK and app-server transports were
- * removed in favor of a single uniform shape across backends.
+ * STATUS (2026-05-11): This backend's transport is currently dead-code
+ * against upstream codex 0.130.0+. `buildCodexArgs` emits `["acp", ...]`
+ * but the `codex acp` subcommand was removed upstream — codex now
+ * exposes a long-running server only via `codex app-server` (its own
+ * JSON-RPC 2.0 schema, NOT Zed's ACP wire format). The slash-command
+ * hot path (`/codex:prompt`) doesn't reach this declaration; it uses
+ * the stateless `runCodexExec` runner (`codex exec --json`). The
+ * Codex ACP warm path will return once `lib/translate/codex-app-server.mjs`
+ * lands (Option A — see `openspec/changes/add-unified-acp-server-with-mcp-aggregation/`
+ * tasks T1.10 + T1.11). Until then the declaration is kept for parity
+ * with the gemini/claude backend shape so the migration is a one-file
+ * swap (`["acp", ...]` → `["app-server", "--listen", "stdio://", ...]`
+ * plus a protocol translator).
  *
  * CLI-specific optimization options are exposed at the factory level:
  *   - `effort`: maps to `codex --effort {low|medium|high|max}` for
- *     reasoning-budget control (Codex 0.42+).
+ *     reasoning-budget control (Codex 0.42+; lives on subcommands, not
+ *     top-level — see docs/backends/codex.md).
  *   - `model`: maps to `codex --model <id>` for per-invocation model
  *     selection without modifying the user's `~/.codex/config.toml`.
  *   - `quiet`: passes `--quiet` to suppress the banner/version preamble

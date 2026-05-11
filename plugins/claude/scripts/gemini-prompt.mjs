@@ -2,53 +2,17 @@
 /**
  * Entry script for `/gemini:prompt` (installed in Claude Code).
  *
- * Reads the prompt from argv (joined with spaces), dispatches to the
- * Gemini stateless runner via `runStatelessTurn(BACKEND_NAMES.GEMINI, ...)`,
- * prints the accumulated text + tool call summary on stdout.
+ * Boundary: argv + env are read here exactly once to construct an
+ * `AgentContext`. Lib code downstream reads from the context, not
+ * from process.env.
+ *
+ * Run `node gemini-prompt.mjs --help` for the full flag list.
  */
 
-import process from "node:process";
-
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
-import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
+import { runSlashCommandScript } from "#lib/cli/script-entry.mjs";
 
-const prompt = process.argv.slice(2).join(" ").trim();
-
-if (!prompt) {
-  process.stderr.write(
-    "gemini-prompt: usage: /gemini:prompt <prompt>\n" +
-      "(prompt was empty after argv concatenation)\n"
-  );
-  process.exit(2);
-}
-
-try {
-  const turn = await runStatelessTurn(BACKEND_NAMES.GEMINI, {
-    prompt,
-    cwd: process.cwd(),
-    env: process.env,
-    approvalMode: "plan",
-    timeoutMs: 5 * 60 * 1000
-  });
-
-  process.stdout.write(turn.text);
-  if (turn.toolCalls.length > 0) {
-    process.stdout.write(
-      `\n\n— ${turn.toolCalls.length} tool call(s) ` +
-        `(${turn.toolCalls.map((t) => t.toolName).join(", ")})\n`
-    );
-  }
-  if (turn.usage) {
-    process.stdout.write(`— usage: ${JSON.stringify(turn.usage)}\n`);
-  }
-  process.exit(0);
-} catch (err) {
-  const message =
-    err instanceof Error
-      ? err.message
-      : typeof err === "object" && err !== null && "exitCode" in err
-        ? `gemini exited ${/** @type {any} */ (err).exitCode}: ${/** @type {any} */ (err).stderr}`
-        : String(err);
-  process.stderr.write(`gemini-prompt error: ${message}\n`);
-  process.exit(1);
-}
+await runSlashCommandScript({
+  backend: BACKEND_NAMES.GEMINI,
+  scriptName: "gemini-prompt"
+});

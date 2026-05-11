@@ -148,7 +148,7 @@ export function createSupervisor(opts) {
       armIdleTimer();
     },
 
-    async runTurn(turnOpts) {
+    async runTurn(turnOpts, context) {
       if (dead) {
         throw new Error("supervisor: runner is dead (max restarts exceeded)");
       }
@@ -158,7 +158,7 @@ export function createSupervisor(opts) {
       }
       armIdleTimer();
       try {
-        const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts);
+        const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts, context);
         armIdleTimer();
         return result;
       } catch (err) {

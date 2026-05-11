@@ -58,9 +58,13 @@ const DEFAULT_PROTOCOL_VERSION = 1;
  * Run a single turn through an existing gemini broker.
  *
  * @param {RunGeminiBrokerOptions} options
+ * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
+ *   Phase 2: accepts AgentContext for forward compat. Phase 4 will
+ *   read wire-log + cost-record settings from `context`.
  * @returns {Promise<TurnResult>}
  */
-export async function runGeminiViaBroker(options) {
+// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
+export async function runGeminiViaBroker(options, _context) {
   const { endpoint, prompt } = options;
   if (typeof endpoint !== "string" || endpoint === "") {
     throw new Error("runGeminiViaBroker: endpoint is required");

@@ -37,6 +37,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command, InvalidArgumentError } from "commander";
 
+import { createAgentContext } from "#lib/agent-context.mjs";
 import {
   formatCostSummaryText,
   readCostRecords,
@@ -96,7 +97,9 @@ program
     "exit non-zero (3) if total tokens exceed N (e.g. `artagon-stats --budget 1000000 || alert`)",
     parsePositiveNumber
   )
-  .option("--budget-usd <n>", "exit non-zero (3) if estimated USD exceeds N", parsePositiveNumber);
+  .option("--budget-usd <n>", "exit non-zero (3) if estimated USD exceeds N", parsePositiveNumber)
+  .option("--cost-log <path>", "override the cost.jsonl path (else ARTAGON_COST_LOG / XDG default)")
+  .option("--pricing <path>", "override the pricing table JSON");
 
 // Use exit code 2 for argv errors instead of commander's default 1
 // — keeps the existing test contract (status 2 on bad flags).
@@ -113,6 +116,23 @@ program.exitOverride((err) => {
 program.parse(process.argv);
 const opts = program.opts();
 
+// Build the AgentContext at this boundary. Stats only consults the
+// cost slice (logPath / pricingOverride); the other policies stay at
+// their defaults.
+let context;
+try {
+  context = createAgentContext({
+    env: process.env,
+    cost: {
+      ...(opts.costLog !== undefined && { logPath: opts.costLog }),
+      ...(opts.pricing !== undefined && { pricingOverride: opts.pricing })
+    }
+  });
+} catch (err) {
+  process.stderr.write(`artagon-stats: ${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(2);
+}
+
 // readCostRecords swallows per-line JSON parse failures (log
 // corruption is recoverable) but throws on file-level errors —
 // EACCES from wrong perms, EISDIR from a path collision, etc.
@@ -121,7 +141,7 @@ const opts = program.opts();
 // — the args were fine, the environment is misconfigured.
 let records;
 try {
-  records = readCostRecords({ since: opts.since, until: opts.until });
+  records = readCostRecords({ since: opts.since, until: opts.until, context });
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   process.stderr.write(`artagon-stats: failed to read cost log: ${message}\n`);

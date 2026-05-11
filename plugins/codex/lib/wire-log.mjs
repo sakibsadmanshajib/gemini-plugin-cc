@@ -69,23 +69,27 @@ function serializeMessage(message, raw) {
 }
 
 /**
- * Open the wire log if `ACP_WIRE_LOG` is set; otherwise return a no-op.
- * The returned object is safe to use unconditionally — call `record()`
- * for every frame and `close()` on shutdown.
+ * Open the wire log. The argument can be either a `LoggingPolicy`
+ * (preferred — read from `AgentContext.logging` at the call site) or
+ * a `NodeJS.ProcessEnv` (Phase 2 backward-compat fallback; reads
+ * `ACP_WIRE_LOG` / `ACP_WIRE_LOG_RAW`). When neither carries a path,
+ * returns a no-op. The returned object is safe to use unconditionally
+ * — call `record()` for every frame and `close()` on shutdown.
  *
- * @param {NodeJS.ProcessEnv} [env]
+ * Phase 4 will remove the env-shape support; callers should migrate to
+ * pass `context.logging`.
+ *
+ * @param {NodeJS.ProcessEnv | import("./agent-context.mjs").LoggingPolicy} [envOrLogging]
  * @returns {WireLog}
  */
-export function openWireLog(env = process.env) {
-  const path = env.ACP_WIRE_LOG;
+export function openWireLog(envOrLogging = process.env) {
+  const { path, raw } = resolveLoggingSource(envOrLogging);
   if (!path) {
     return {
       record() {},
       close() {}
     };
   }
-
-  const raw = env.ACP_WIRE_LOG_RAW === "1";
   // Open in append mode so multiple processes can log to the same file
   // (broker + companion + worker).
   const fd = fs.openSync(path, "a");
@@ -107,4 +111,21 @@ export function openWireLog(env = process.env) {
       }
     }
   };
+}
+
+/**
+ * Discriminate between a `LoggingPolicy` and a `NodeJS.ProcessEnv` and
+ * extract `{path, raw}`. A `LoggingPolicy` carries `wireLogPath` /
+ * `wireLogRaw`; an env carries `ACP_WIRE_LOG` / `ACP_WIRE_LOG_RAW`.
+ *
+ * @param {NodeJS.ProcessEnv | import("./agent-context.mjs").LoggingPolicy} value
+ * @returns {{ path: string | undefined, raw: boolean }}
+ */
+function resolveLoggingSource(value) {
+  if (value && typeof value === "object" && ("wireLogPath" in value || "wireLogRaw" in value)) {
+    const policy = /** @type {import("./agent-context.mjs").LoggingPolicy} */ (value);
+    return { path: policy.wireLogPath, raw: policy.wireLogRaw === true };
+  }
+  const env = /** @type {NodeJS.ProcessEnv} */ (value);
+  return { path: env?.ACP_WIRE_LOG, raw: env?.ACP_WIRE_LOG_RAW === "1" };
 }

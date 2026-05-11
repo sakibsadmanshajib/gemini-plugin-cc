@@ -202,7 +202,8 @@ export function createGeminiStreamingRunner(options = {}) {
       }
     },
 
-    async runTurn(turnOpts) {
+    // eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
+    async runTurn(turnOpts, _context) {
       if (!started || !client) {
         throw new Error("gemini streaming runner: runTurn before start");
       }
@@ -242,7 +243,30 @@ export function createGeminiStreamingRunner(options = {}) {
           });
           const r = /** @type {any} */ (response);
           if (r?.stopReason && !turn.reason) turn.reason = String(r.stopReason);
-          if (r?.usage && !turn.usage) turn.usage = r.usage;
+          // Gemini CLI 0.38+ puts per-turn usage in `_meta.quota.token_count`
+          // (real wire frame captured against gemini --acp:
+          //   {"stopReason":"end_turn","_meta":{"quota":{
+          //     "token_count":{"input_tokens":...,"output_tokens":...},
+          //     "model_usage":[{"model":"gemini-...","token_count":{...}}]
+          //   }}})
+          // rather than the standard top-level `usage` field most ACP
+          // agents use. We read _meta first; top-level `usage` is kept
+          // as forward-compat for any future spec alignment.
+          const metaQuota = r?._meta?.quota;
+          if (!turn.usage && metaQuota?.token_count) {
+            turn.usage = metaQuota.token_count;
+          }
+          if (!turn.usage && r?.usage) turn.usage = r.usage;
+          // Pick the actual model id from _meta.quota.model_usage when
+          // present so cost records reflect the model gemini chose at
+          // dispatch time (auto-* aliases resolve here).
+          if (
+            !turn.model &&
+            Array.isArray(metaQuota?.model_usage) &&
+            metaQuota.model_usage[0]?.model
+          ) {
+            turn.model = String(metaQuota.model_usage[0].model);
+          }
         })();
         await Promise.race([work, timeoutPromise]);
         health = "healthy";
