@@ -22,7 +22,7 @@
 
 import process from "node:process";
 
-import { buildAgentContextFromArgv } from "#lib/agent-context.mjs";
+import { buildAgentContextFromArgv, withOverrides } from "#lib/agent-context.mjs";
 import { formatHelp } from "#lib/cli/flags.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
 
@@ -60,7 +60,7 @@ export async function runSlashCommandScript(opts) {
     return process.exit(0);
   }
 
-  const { context, prompt } = parseResult;
+  const { context: parsedContext, prompt } = parseResult;
 
   if (!prompt) {
     process.stderr.write(
@@ -69,6 +69,17 @@ export async function runSlashCommandScript(opts) {
     );
     return process.exit(2);
   }
+
+  // Slash-command default: streaming is the warm-path winner for the
+  // plugin UX. If the user didn't explicitly choose (parsed value is
+  // "default"), promote to "on" so /codex:prompt etc. get the warm
+  // path automatically. `--no-streaming` (sets "off") still opts out
+  // cleanly; `--auto-streaming` explicitly keeps "default" for callers
+  // that want the lib-default (no streaming) behavior.
+  const context =
+    parsedContext.dispatch.streaming === "default"
+      ? withOverrides(parsedContext, { dispatch: { streaming: "on" } })
+      : parsedContext;
 
   try {
     const turn = await runStatelessTurn(
