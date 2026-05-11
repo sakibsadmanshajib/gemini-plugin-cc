@@ -2,15 +2,12 @@
  * Unit tests for the streaming-aware branch of `runStatelessTurn` in
  * `lib/runners/dispatch.mjs`.
  *
- * Cases:
- *   1. useStreaming: true → registry.getStreamingRunner is consulted
- *   2. ARTAGON_STREAMING=1 in env → same
- *   3. disableStreaming: true → vetoes env opt-in
- *   4. registry returns null → falls through to direct path silently
- *   5. registry returns runner that throws → falls back to direct + warns once
- *   6. repeated streaming failures emit the warning ONLY once per process
- *   7. happy path → runner.runTurn return value is propagated
- *   8. neither flag set → registry is not consulted
+ * Phase 4 migration: dispatch decisions are sourced from
+ * `AgentContext.dispatch.streaming` (tri-state), NOT from
+ * `process.env.ARTAGON_STREAMING`. Tests pass a context as the third
+ * positional to `runStatelessTurn` instead of mutating env. The legacy
+ * `options.useStreaming` / `options.disableStreaming` overrides remain
+ * supported for callers that haven't migrated to context yet.
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -40,6 +37,7 @@ const { runCodexExec } = await import("#lib/runners/codex-exec.mjs");
 const { runGeminiPrint } = await import("#lib/runners/gemini-print.mjs");
 const { findActiveBroker } = await import("#lib/transport/broker-probe.mjs");
 const { BACKEND_NAMES } = await import("#lib/backends/names.mjs");
+const { createAgentContext } = await import("#lib/agent-context.mjs");
 const { runStatelessTurn, _resetBrokerWarningForTest } = await import("#lib/runners/dispatch.mjs");
 
 const STUB = Object.freeze({
@@ -62,7 +60,14 @@ const STREAM_STUB = Object.freeze({
   text: "from-streaming"
 });
 
-let savedStreamEnv = "";
+/** A context with NO `ARTAGON_*` keys in env, used as a clean baseline. */
+function emptyContext(overrides = {}) {
+  return createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    ...overrides
+  });
+}
+
 /** @type {ReturnType<typeof vi.spyOn>} */
 let stderrSpy;
 
@@ -78,19 +83,11 @@ beforeEach(() => {
   vi.mocked(runGeminiPrint).mockResolvedValue(STUB);
   vi.mocked(findActiveBroker).mockReturnValue(null);
 
-  savedStreamEnv = process.env.ARTAGON_STREAMING ?? "";
-  Reflect.deleteProperty(process.env, "ARTAGON_STREAMING");
-  Reflect.deleteProperty(process.env, "ARTAGON_USE_FACADE");
-  Reflect.deleteProperty(process.env, "ARTAGON_DISABLE_BROKER");
   _resetBrokerWarningForTest();
-
   stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
 });
 
 afterEach(() => {
-  if (savedStreamEnv) {
-    process.env.ARTAGON_STREAMING = savedStreamEnv;
-  }
   stderrSpy.mockRestore();
 });
 
@@ -103,7 +100,7 @@ function makeFakeRunner(turnImpl) {
   };
 }
 
-test("useStreaming: true → registry is consulted, runTurn is called", async () => {
+test("options.useStreaming: true → registry is consulted, runTurn is called", async () => {
   const runner = makeFakeRunner();
   vi.mocked(getStreamingRunner).mockReturnValue(/** @type {any} */ (runner));
   const result = await runStatelessTurn(BACKEND_NAMES.GEMINI, {
@@ -116,25 +113,31 @@ test("useStreaming: true → registry is consulted, runTurn is called", async ()
   expect(vi.mocked(runGeminiPrint)).not.toHaveBeenCalled();
 });
 
-test("ARTAGON_STREAMING=1 → registry is consulted", async () => {
-  process.env.ARTAGON_STREAMING = "1";
+test("context.dispatch.streaming = 'on' → registry is consulted", async () => {
   const runner = makeFakeRunner();
   vi.mocked(getStreamingRunner).mockReturnValue(/** @type {any} */ (runner));
-  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" });
+  const context = emptyContext({ dispatch: { streaming: "on" } });
+  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" }, context);
   expect(vi.mocked(getStreamingRunner)).toHaveBeenCalledTimes(1);
   expect(runner.runTurn).toHaveBeenCalledTimes(1);
 });
 
-test("ARTAGON_STREAMING=0 → registry is NOT consulted", async () => {
-  process.env.ARTAGON_STREAMING = "0";
-  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" });
+test("context.dispatch.streaming = 'off' → registry is NOT consulted (even with options.useStreaming)", async () => {
+  const context = emptyContext({ dispatch: { streaming: "off" } });
+  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi", useStreaming: true }, context);
   expect(vi.mocked(getStreamingRunner)).not.toHaveBeenCalled();
 });
 
-test("disableStreaming: true vetoes env opt-in", async () => {
-  process.env.ARTAGON_STREAMING = "1";
+test("context.dispatch.streaming = 'default' falls through to options/env precedence", async () => {
+  const context = emptyContext({ dispatch: { streaming: "default" } });
+  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" }, context);
+  expect(vi.mocked(getStreamingRunner)).not.toHaveBeenCalled();
+});
+
+test("options.disableStreaming: true vetoes options.useStreaming", async () => {
   await runStatelessTurn(BACKEND_NAMES.GEMINI, {
     prompt: "hi",
+    useStreaming: true,
     disableStreaming: true
   });
   expect(vi.mocked(getStreamingRunner)).not.toHaveBeenCalled();
@@ -199,7 +202,7 @@ test("happy path: runner.runTurn return value is propagated", async () => {
   expect(result.text).toBe("from-streaming");
 });
 
-test("neither flag → registry is not consulted", async () => {
+test("neither flag/context → registry is not consulted", async () => {
   await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" });
   expect(vi.mocked(getStreamingRunner)).not.toHaveBeenCalled();
 });

@@ -118,14 +118,18 @@ const opts = program.opts();
 
 // Build the AgentContext at this boundary. Stats only consults the
 // cost slice (logPath / pricingOverride); the other policies stay at
-// their defaults.
+// their defaults. CLI flag wins over env-var fallback — the bin is
+// the one place ARTAGON_COST_LOG / ARTAGON_PRICING_OVERRIDE are read
+// for back-compat; lib code reads only from context.
+const costLogPath = opts.costLog ?? process.env.ARTAGON_COST_LOG;
+const pricingOverride = opts.pricing ?? process.env.ARTAGON_PRICING_OVERRIDE;
 let context;
 try {
   context = createAgentContext({
     env: process.env,
     cost: {
-      ...(opts.costLog !== undefined && { logPath: opts.costLog }),
-      ...(opts.pricing !== undefined && { pricingOverride: opts.pricing })
+      ...(costLogPath !== undefined && { logPath: costLogPath }),
+      ...(pricingOverride !== undefined && { pricingOverride })
     }
   });
 } catch (err) {

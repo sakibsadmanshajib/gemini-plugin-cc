@@ -71,7 +71,7 @@ test("property: any string value in any sensitive field is redacted", () => {
         .string({ minLength: 8, maxLength: 64 })
         .filter((s) => !s.includes('"')),
       (fieldName, secretValue) => {
-        const log = openWireLog({ ACP_WIRE_LOG: logPath });
+        const log = openWireLog({ wireLogPath: logPath });
         log.record("out", {
           method: "test",
           params: { [fieldName]: secretValue, kept: "value-stays" }
@@ -123,7 +123,7 @@ test("property: redacted output is still valid JSON", () => {
         for (const f of fieldNames) params[f] = sharedSecret;
         params.passthrough = "kept";
 
-        const log = openWireLog({ ACP_WIRE_LOG: logPath });
+        const log = openWireLog({ wireLogPath: logPath });
         log.record("out", { method: "test", params });
         log.close();
 

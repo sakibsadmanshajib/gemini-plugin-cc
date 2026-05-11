@@ -40,7 +40,9 @@ beforeEach(() => {
     path.join(os.tmpdir(), `cost-aggregate-${crypto.randomBytes(4).toString("hex")}-`)
   );
   logPath = path.join(tmpDir, "cost.jsonl");
-  env = { ...process.env, ARTAGON_COST_LOG: logPath };
+  // Post-Phase-4: readCostRecords resolves the log path from
+  // `context.cost.logPath`, not from `env.ARTAGON_COST_LOG`.
+  env = /** @type {any} */ ({ cost: { logPath } });
 });
 
 afterEach(() => {
@@ -53,12 +55,12 @@ afterEach(() => {
 
 describe("readCostRecords", () => {
   test("Returns [] when log file missing", () => {
-    expect(readCostRecords({ env })).toEqual([]);
+    expect(readCostRecords({ context: env })).toEqual([]);
   });
 
   test("Returns [] when log file empty", () => {
     fs.writeFileSync(logPath, "");
-    expect(readCostRecords({ env })).toEqual([]);
+    expect(readCostRecords({ context: env })).toEqual([]);
   });
 
   test("Parses valid JSONL records", () => {
@@ -73,7 +75,7 @@ describe("readCostRecords", () => {
         ok: true
       }
     ]);
-    const records = readCostRecords({ env });
+    const records = readCostRecords({ context: env });
     expect(records).toHaveLength(1);
     expect(records[0].backend).toBe(BACKEND_NAMES.CLAUDE);
   });
@@ -95,7 +97,7 @@ describe("readCostRecords", () => {
         })
       ].join("\n") + "\n"
     );
-    const records = readCostRecords({ env });
+    const records = readCostRecords({ context: env });
     expect(records).toHaveLength(2);
   });
 
@@ -112,7 +114,7 @@ describe("readCostRecords", () => {
         }) // valid
       ].join("\n") + "\n"
     );
-    const records = readCostRecords({ env });
+    const records = readCostRecords({ context: env });
     expect(records).toHaveLength(1);
   });
 
@@ -135,7 +137,7 @@ describe("readCostRecords", () => {
       }
     ]);
     const records = readCostRecords({
-      env,
+      context: env,
       since: new Date("2026-01-10T00:00:00Z")
     });
     expect(records.map((r) => r.backend)).toEqual([BACKEND_NAMES.CODEX, BACKEND_NAMES.GEMINI]);
@@ -160,7 +162,7 @@ describe("readCostRecords", () => {
       }
     ]);
     const records = readCostRecords({
-      env,
+      context: env,
       until: new Date("2026-01-20T00:00:00Z")
     });
     expect(records.map((r) => r.backend)).toEqual([BACKEND_NAMES.CLAUDE, BACKEND_NAMES.CODEX]);

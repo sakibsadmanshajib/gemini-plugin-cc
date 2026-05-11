@@ -14,6 +14,7 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30000,
     hookTimeout: 30000,
+    setupFiles: ["./tests/setup.mjs"],
     // Plain console output. The runtime under test writes its own stderr
     // diagnostics; vitest's reporter shouldn't shadow them.
     reporters: process.env.CI ? ["default"] : ["default"],

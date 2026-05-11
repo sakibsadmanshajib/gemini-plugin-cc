@@ -232,21 +232,34 @@ describe("resolvePricingTable", () => {
     expect(resolvePricingTable({ table: stub })).toBe(stub);
   });
 
-  test("ARTAGON_PRICING_OVERRIDE JSON is parsed and used", () => {
+  test("context.cost.pricingOverride JSON is parsed and used", () => {
     const stub = {
       foo: { default: { input_per_million: 7, output_per_million: 8 } }
     };
-    const env = { ARTAGON_PRICING_OVERRIDE: JSON.stringify(stub) };
-    expect(resolvePricingTable({ env })).toEqual(stub);
+    const context = /** @type {any} */ ({
+      cost: { pricingOverride: JSON.stringify(stub) }
+    });
+    expect(resolvePricingTable({ context })).toEqual(stub);
   });
 
-  test("Bad JSON in env override falls back to default (no throw)", () => {
-    const env = { ARTAGON_PRICING_OVERRIDE: "{not json" };
-    expect(resolvePricingTable({ env })).toBe(DEFAULT_PRICING);
+  test("Bad JSON in context.cost.pricingOverride falls back to default (no throw)", () => {
+    const context = /** @type {any} */ ({
+      cost: { pricingOverride: "{not json" }
+    });
+    expect(resolvePricingTable({ context })).toBe(DEFAULT_PRICING);
   });
 
-  test("Empty env returns DEFAULT_PRICING", () => {
-    expect(resolvePricingTable({ env: {} })).toBe(DEFAULT_PRICING);
+  test("No context / no pricingOverride returns DEFAULT_PRICING", () => {
+    expect(resolvePricingTable()).toBe(DEFAULT_PRICING);
+    expect(resolvePricingTable({})).toBe(DEFAULT_PRICING);
+  });
+
+  test("ARTAGON_PRICING_OVERRIDE env is NO LONGER read by lib (Phase 4)", () => {
+    // Legacy env var: lib reads only from context now. Without a
+    // context override, the env-only call returns the default table.
+    expect(resolvePricingTable({ env: { ARTAGON_PRICING_OVERRIDE: '{"foo":{}}' } })).toBe(
+      DEFAULT_PRICING
+    );
   });
 });
 

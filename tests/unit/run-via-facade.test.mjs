@@ -158,31 +158,34 @@ test("bearerToken option → Authorization: Bearer <token>", async () => {
   expect(init.headers.authorization).toBe("Bearer sk-supplied");
 });
 
-test("ARTAGON_FACADE_API_KEY env → Authorization: Bearer <env>", async () => {
+test("context.facade.apiKey → Authorization: Bearer <key>", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
   fetchMock.mockResolvedValueOnce(
     jsonResponse({
       choices: [{ message: { content: "ok" }, finish_reason: "stop" }]
     })
   );
-  await runViaFacade(BACKEND_NAMES.CLAUDE, {
-    prompt: "hi",
-    env: { ARTAGON_FACADE_API_KEY: "sk-from-env" }
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    facade: { apiKey: "sk-from-context" }
   });
+  await runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" }, context);
   const init = fetchMock.mock.calls[0][1];
-  expect(init.headers.authorization).toBe("Bearer sk-from-env");
+  expect(init.headers.authorization).toBe("Bearer sk-from-context");
 });
 
-test("explicit bearerToken wins over env", async () => {
+test("explicit bearerToken wins over context.facade.apiKey", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
   fetchMock.mockResolvedValueOnce(
     jsonResponse({
       choices: [{ message: { content: "ok" }, finish_reason: "stop" }]
     })
   );
-  await runViaFacade(BACKEND_NAMES.CLAUDE, {
-    prompt: "hi",
-    bearerToken: "sk-explicit",
-    env: { ARTAGON_FACADE_API_KEY: "sk-env" }
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    facade: { apiKey: "sk-context" }
   });
+  await runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi", bearerToken: "sk-explicit" }, context);
   const init = fetchMock.mock.calls[0][1];
   expect(init.headers.authorization).toBe("Bearer sk-explicit");
 });

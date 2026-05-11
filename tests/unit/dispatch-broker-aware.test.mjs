@@ -55,8 +55,6 @@ const STUB_TURN_RESULT = Object.freeze({
   updates: []
 });
 
-/** @type {string} */
-let savedDisableBrokerEnv;
 /** @type {ReturnType<typeof vi.spyOn>} */
 let stderrWriteSpy;
 
@@ -69,8 +67,6 @@ beforeEach(() => {
   vi.mocked(runGeminiPrint).mockResolvedValue(STUB_TURN_RESULT);
   vi.mocked(runGeminiViaBroker).mockResolvedValue(STUB_TURN_RESULT);
 
-  savedDisableBrokerEnv = process.env.ARTAGON_DISABLE_BROKER ?? "";
-  Reflect.deleteProperty(process.env, "ARTAGON_DISABLE_BROKER");
   _resetBrokerWarningForTest();
 
   // Capture stderr.write calls so we can assert the one-shot warning
@@ -79,9 +75,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (savedDisableBrokerEnv) {
-    process.env.ARTAGON_DISABLE_BROKER = savedDisableBrokerEnv;
-  }
   stderrWriteSpy.mockRestore();
 });
 
@@ -155,25 +148,27 @@ test("disableBroker: true → probe is skipped, cold-start runs", async () => {
   expect(vi.mocked(runGeminiPrint)).toHaveBeenCalledTimes(1);
 });
 
-test("ARTAGON_DISABLE_BROKER=1 → probe is skipped, cold-start runs", async () => {
-  process.env.ARTAGON_DISABLE_BROKER = "1";
+test("context.dispatch.broker = 'disabled' → probe is skipped, cold-start runs", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
   vi.mocked(findActiveBroker).mockReturnValue("unix:/tmp/broker.sock");
-  await runStatelessTurn(BACKEND_NAMES.GEMINI, {
-    prompt: "hi",
-    cwd: "/tmp/ws"
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    dispatch: { broker: "disabled" }
   });
+  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi", cwd: "/tmp/ws" }, context);
   expect(vi.mocked(findActiveBroker)).not.toHaveBeenCalled();
   expect(vi.mocked(runGeminiViaBroker)).not.toHaveBeenCalled();
   expect(vi.mocked(runGeminiPrint)).toHaveBeenCalledTimes(1);
 });
 
-test("ARTAGON_DISABLE_BROKER=0 (or other non-1) does NOT skip probe", async () => {
-  process.env.ARTAGON_DISABLE_BROKER = "0";
+test("context.dispatch.broker = 'auto' (default) does NOT skip probe", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
   vi.mocked(findActiveBroker).mockReturnValue("unix:/tmp/broker.sock");
-  await runStatelessTurn(BACKEND_NAMES.GEMINI, {
-    prompt: "hi",
-    cwd: "/tmp/ws"
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    dispatch: { broker: "auto" }
   });
+  await runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi", cwd: "/tmp/ws" }, context);
   expect(vi.mocked(findActiveBroker)).toHaveBeenCalledTimes(1);
   expect(vi.mocked(runGeminiViaBroker)).toHaveBeenCalledTimes(1);
 });

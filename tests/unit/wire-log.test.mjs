@@ -51,7 +51,7 @@ test("openWireLog with ACP_WIRE_LOG unset → no-op (no file created)", () => {
 });
 
 test("openWireLog writes one line per record(), correct envelope", () => {
-  const log = openWireLog({ ACP_WIRE_LOG: logPath });
+  const log = openWireLog({ wireLogPath: logPath });
   log.record("out", { jsonrpc: "2.0", id: 1, method: "ping" });
   log.record("in", { jsonrpc: "2.0", id: 1, result: { pong: true } });
   log.close();
@@ -75,7 +75,7 @@ test("default redaction: scrubs every sensitive field name in the cross-layer se
   //   lib/logger.mjs REDACTED_PATHS (the structured logger)
   // A name missing from any of these three opens a leak window for
   // payloads that bypass that layer.
-  const log = openWireLog({ ACP_WIRE_LOG: logPath });
+  const log = openWireLog({ wireLogPath: logPath });
   log.record("out", {
     method: "test",
     params: {
@@ -122,10 +122,10 @@ test("default redaction: scrubs every sensitive field name in the cross-layer se
   expect(raw).toContain('"safe":"kept"');
 });
 
-test("ACP_WIRE_LOG_RAW=1 disables redaction (local debug opt-in)", () => {
+test("wireLogRaw: true disables redaction (local debug opt-in)", () => {
   const log = openWireLog({
-    ACP_WIRE_LOG: logPath,
-    ACP_WIRE_LOG_RAW: "1"
+    wireLogPath: logPath,
+    wireLogRaw: true
   });
   log.record("out", {
     params: { api_key: "sk-debug-keep-me" }
@@ -140,12 +140,13 @@ test("ACP_WIRE_LOG_RAW=1 disables redaction (local debug opt-in)", () => {
   expect(raw).not.toContain("[redacted]");
 });
 
-test("ACP_WIRE_LOG_RAW=anything-else stays redacted (only '1' opts in)", () => {
-  // Defensive: a sloppy `ACP_WIRE_LOG_RAW=true` shouldn't accidentally
-  // disable redaction. Only the exact string "1" is the opt-in.
+test("wireLogRaw: non-true value stays redacted (strict === true check)", () => {
+  // Defensive: only the boolean `true` opts in. Truthy-but-not-true
+  // values (string "true", 1, etc.) leave the log redacted, matching
+  // the prior strict-string-equality semantics from the env shape.
   const log = openWireLog({
-    ACP_WIRE_LOG: logPath,
-    ACP_WIRE_LOG_RAW: "true"
+    wireLogPath: logPath,
+    wireLogRaw: /** @type {any} */ ("true")
   });
   log.record("out", { params: { api_key: "should-be-redacted" } });
   log.close();
@@ -156,7 +157,7 @@ test("ACP_WIRE_LOG_RAW=anything-else stays redacted (only '1' opts in)", () => {
 });
 
 test("close() then record(): silent best-effort, no throw", () => {
-  const log = openWireLog({ ACP_WIRE_LOG: logPath });
+  const log = openWireLog({ wireLogPath: logPath });
   log.record("out", { ok: true });
   log.close();
   // After close, the fd is invalid. record() catches internally —

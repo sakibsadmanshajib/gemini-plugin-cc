@@ -37,8 +37,11 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(
     path.join(os.tmpdir(), `cost-recorder-${crypto.randomBytes(4).toString("hex")}-`)
   );
-  // Use ARTAGON_COST_LOG to point at a per-test file inside the temp dir.
-  env = { ...process.env, ARTAGON_COST_LOG: path.join(tmpDir, "cost.jsonl") };
+  // Sandbox the log location to a per-test temp dir. Post-Phase-4,
+  // ARTAGON_COST_LOG is no longer read by lib; tests instead pass the
+  // path via `context.cost.logPath` (preferred) or via `options.env`
+  // mapped to `XDG_STATE_HOME` (covered by the dedicated env tests).
+  env = { ...process.env, XDG_STATE_HOME: tmpDir };
   _resetWarnedForTests();
 });
 
@@ -51,8 +54,19 @@ afterEach(() => {
 });
 
 describe("getCostLogPath", () => {
-  test("ARTAGON_COST_LOG override wins", () => {
-    expect(getCostLogPath({ ARTAGON_COST_LOG: "/custom/path.jsonl" })).toBe("/custom/path.jsonl");
+  test("context.cost.logPath override wins over env", () => {
+    const ctx = /** @type {any} */ ({
+      cost: { logPath: "/custom/path.jsonl" }
+    });
+    expect(getCostLogPath({ XDG_STATE_HOME: "/should-ignore" }, ctx)).toBe("/custom/path.jsonl");
+  });
+
+  test("ARTAGON_COST_LOG env is NO LONGER read by lib (Phase 4 — must come via context)", () => {
+    // Boundary builders translate the legacy env into
+    // `context.cost.logPath`; lib reads only from context.
+    expect(getCostLogPath({ ARTAGON_COST_LOG: "/legacy/path.jsonl" })).toBe(
+      path.join(os.homedir(), ".local", "state", "artagon-agent-cli-plugin", "cost.jsonl")
+    );
   });
 
   test("XDG_STATE_HOME fallback", () => {
@@ -319,6 +333,7 @@ describe("appendCostRecord", () => {
 
   test("Creates parent directory if missing", () => {
     const nested = path.join(tmpDir, "deep", "nested", "cost.jsonl");
+    const ctx = /** @type {any} */ ({ cost: { logPath: nested } });
     appendCostRecord(
       {
         backend: BACKEND_NAMES.CLAUDE,
@@ -328,14 +343,16 @@ describe("appendCostRecord", () => {
         reason: null,
         ok: true
       },
-      { env: { ARTAGON_COST_LOG: nested } }
+      { context: ctx }
     );
     expect(fs.existsSync(nested)).toBe(true);
   });
 
   test("Silent on unwritable path: no throw, no log file created", () => {
     // /dev/null/anything is unwritable on Unix; mkdir returns ENOTDIR.
-    const badEnv = { ARTAGON_COST_LOG: "/dev/null/cannot/create/here.jsonl" };
+    const ctx = /** @type {any} */ ({
+      cost: { logPath: "/dev/null/cannot/create/here.jsonl" }
+    });
     expect(() =>
       appendCostRecord(
         {
@@ -346,7 +363,7 @@ describe("appendCostRecord", () => {
           reason: null,
           ok: true
         },
-        { env: badEnv }
+        { context: ctx }
       )
     ).not.toThrow();
     expect(fs.existsSync("/dev/null/cannot/create/here.jsonl")).toBe(false);

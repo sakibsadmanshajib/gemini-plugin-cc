@@ -118,23 +118,32 @@ test("useFacade: true → runViaFacade is called for GEMINI (skips broker probe)
   expect(vi.mocked(runGeminiPrint)).not.toHaveBeenCalled();
 });
 
-test("ARTAGON_USE_FACADE=1 → runViaFacade is called", async () => {
-  process.env.ARTAGON_USE_FACADE = "1";
-  await runStatelessTurn(BACKEND_NAMES.CLAUDE, { prompt: "hi" });
+test("context.dispatch.facade = 'on' → runViaFacade is called", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    dispatch: { facade: "on" },
+    facade: { apiKey: "test-token" }
+  });
+  await runStatelessTurn(BACKEND_NAMES.CLAUDE, { prompt: "hi" }, context);
   expect(vi.mocked(runViaFacade)).toHaveBeenCalledTimes(1);
 });
 
-test("ARTAGON_USE_FACADE=0 → runViaFacade is NOT called", async () => {
-  process.env.ARTAGON_USE_FACADE = "0";
-  await runStatelessTurn(BACKEND_NAMES.CLAUDE, { prompt: "hi" });
+test("context.dispatch.facade = 'off' → runViaFacade is NOT called", async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
+  const context = createAgentContext({
+    env: /** @type {NodeJS.ProcessEnv} */ ({}),
+    dispatch: { facade: "off" }
+  });
+  await runStatelessTurn(BACKEND_NAMES.CLAUDE, { prompt: "hi" }, context);
   expect(vi.mocked(runViaFacade)).not.toHaveBeenCalled();
   expect(vi.mocked(runClaudePrint)).toHaveBeenCalledTimes(1);
 });
 
-test("disableFacade: true vetoes the env opt-in", async () => {
-  process.env.ARTAGON_USE_FACADE = "1";
+test("disableFacade: true vetoes the options.useFacade opt-in", async () => {
   await runStatelessTurn(BACKEND_NAMES.CLAUDE, {
     prompt: "hi",
+    useFacade: true,
     disableFacade: true
   });
   expect(vi.mocked(runViaFacade)).not.toHaveBeenCalled();

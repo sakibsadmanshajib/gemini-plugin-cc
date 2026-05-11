@@ -210,11 +210,17 @@ if (opts.apiKeyFile !== undefined) {
   }
 }
 
+// Boundary: env fallback for legacy ARTAGON_FACADE_* vars happens
+// here, exactly once. Lib code does NOT read process.env.ARTAGON_*
+// directly (Phase 4 of the AgentContext refactor).
+const apiKeyResolved = apiKey ?? process.env.ARTAGON_FACADE_API_KEY;
+const corsResolved = cors ?? process.env.ARTAGON_FACADE_CORS;
+
 const facade = createOpenAiFacadeServer({
   port: opts.port,
   host: opts.host,
-  cors,
-  apiKey
+  cors: corsResolved,
+  apiKey: apiKeyResolved
 });
 
 let address;

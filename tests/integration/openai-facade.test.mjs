@@ -677,22 +677,30 @@ describe("resolveCorsPolicy", () => {
     expect(resolveCorsPolicy(undefined, {})).toBeNull();
   });
 
-  test("$ARTAGON_FACADE_CORS=1 → wildcard", () => {
-    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "1" })).toBe("*");
-    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "true" })).toBe("*");
-    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "*" })).toBe("*");
+  test("String 1/true/* → wildcard (caller's bin reads env, passes the string here)", () => {
+    expect(resolveCorsPolicy("1")).toBe("*");
+    expect(resolveCorsPolicy("true")).toBe("*");
+    expect(resolveCorsPolicy("*")).toBe("*");
   });
 
-  test("$ARTAGON_FACADE_CORS=comma list → allowlist", () => {
-    expect(
-      resolveCorsPolicy(undefined, {
-        ARTAGON_FACADE_CORS: "http://a.test, http://b.test"
-      })
-    ).toEqual(["http://a.test", "http://b.test"]);
+  test("Comma-separated string → allowlist", () => {
+    expect(resolveCorsPolicy("http://a.test, http://b.test")).toEqual([
+      "http://a.test",
+      "http://b.test"
+    ]);
   });
 
-  test("Direct option takes precedence over env", () => {
-    expect(resolveCorsPolicy("*", { ARTAGON_FACADE_CORS: "http://different.test" })).toBe("*");
+  test("Wildcard value wins regardless of how it was supplied", () => {
+    expect(resolveCorsPolicy("*")).toBe("*");
+    expect(resolveCorsPolicy(true)).toBe("*");
+  });
+
+  test("ARTAGON_FACADE_CORS env is NO LONGER read by lib (Phase 4)", () => {
+    // The bin (artagon-openai-server) reads ARTAGON_FACADE_CORS and
+    // passes the resulting string as the first arg here. Passing an
+    // env-shape object as a "value" produces null, not "*", because
+    // lib no longer consults env.
+    expect(resolveCorsPolicy(undefined, { ARTAGON_FACADE_CORS: "1" })).toBeNull();
   });
 });
 
@@ -787,18 +795,19 @@ describe("resolveApiKeyPolicy", () => {
     expect(resolveApiKeyPolicy(undefined, {})).toBeNull();
   });
 
-  test("$ARTAGON_FACADE_API_KEY: comma-separated list", () => {
-    expect(
-      resolveApiKeyPolicy(undefined, {
-        ARTAGON_FACADE_API_KEY: "sk-a, sk-b ,sk-c"
-      })
-    ).toEqual(["sk-a", "sk-b", "sk-c"]);
+  test("comma-separated string → allowlist (caller's bin reads env, passes the string here)", () => {
+    expect(resolveApiKeyPolicy("sk-a, sk-b ,sk-c")).toEqual(["sk-a", "sk-b", "sk-c"]);
   });
 
-  test("Direct option takes precedence over env", () => {
-    expect(resolveApiKeyPolicy("sk-direct", { ARTAGON_FACADE_API_KEY: "sk-env" })).toEqual([
-      "sk-direct"
-    ]);
+  test("Single value passes through unchanged", () => {
+    expect(resolveApiKeyPolicy("sk-direct")).toEqual(["sk-direct"]);
+  });
+
+  test("ARTAGON_FACADE_API_KEY env is NO LONGER read by lib (Phase 4)", () => {
+    // The bin (artagon-openai-server) reads ARTAGON_FACADE_API_KEY
+    // and passes the resulting string as the first arg here. The
+    // env-shaped second arg is no longer consulted.
+    expect(resolveApiKeyPolicy(undefined, { ARTAGON_FACADE_API_KEY: "sk-env" })).toBeNull();
   });
 });
 

@@ -20,7 +20,8 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "test": "vitest run",
+    "test": "node scripts/no-internal-env.mjs && vitest run",
+    "test:no-internal-env": "node scripts/no-internal-env.mjs",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",
     "test:int": "vitest run tests/integration",

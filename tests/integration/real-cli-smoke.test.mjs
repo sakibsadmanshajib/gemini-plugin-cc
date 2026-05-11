@@ -47,12 +47,19 @@ function isOnPath(bin) {
 const PROMPT = "Reply with the single word PONG and nothing else.";
 /** @type {string} */
 let costLog;
+/** @type {import("#lib/agent-context.mjs").AgentContext} */
+let context;
 
-beforeEach(() => {
+beforeEach(async () => {
+  const { createAgentContext } = await import("#lib/agent-context.mjs");
   // Each test points at its own cost log so we can verify the record
-  // round-tripped properly.
+  // round-tripped properly. Post-Phase-4 lib reads context.cost.logPath
+  // rather than ARTAGON_COST_LOG env.
   costLog = path.join(os.tmpdir(), `real-cli-smoke-${Date.now()}-${Math.random()}.jsonl`);
-  process.env.ARTAGON_COST_LOG = costLog;
+  context = createAgentContext({
+    env: process.env,
+    cost: { logPath: costLog }
+  });
 });
 
 afterEach(() => {
@@ -61,19 +68,22 @@ afterEach(() => {
   } catch {
     // best-effort
   }
-  process.env.ARTAGON_COST_LOG = "";
 });
 
 describe.skipIf(!ENABLED)("real CLI smoke (opt-in via ARTAGON_REAL_CLI_SMOKE=1)", () => {
   test.skipIf(!isOnPath("claude"))(
     "claude --print produces text + cost record",
     async () => {
-      const turn = await runStatelessTurn(BACKEND_NAMES.CLAUDE, {
-        prompt: PROMPT,
-        cwd: process.cwd(),
-        env: process.env,
-        timeoutMs: 30_000
-      });
+      const turn = await runStatelessTurn(
+        BACKEND_NAMES.CLAUDE,
+        {
+          prompt: PROMPT,
+          cwd: process.cwd(),
+          env: process.env,
+          timeoutMs: 30_000
+        },
+        context
+      );
       expect(turn.text.length).toBeGreaterThan(0);
       // Cost log should have one row.
       const lines = fs.readFileSync(costLog, "utf8").trim().split("\n");
@@ -88,12 +98,16 @@ describe.skipIf(!ENABLED)("real CLI smoke (opt-in via ARTAGON_REAL_CLI_SMOKE=1)"
   test.skipIf(!isOnPath("codex"))(
     "codex exec --json produces text + cost record",
     async () => {
-      const turn = await runStatelessTurn(BACKEND_NAMES.CODEX, {
-        prompt: PROMPT,
-        cwd: process.cwd(),
-        env: process.env,
-        timeoutMs: 30_000
-      });
+      const turn = await runStatelessTurn(
+        BACKEND_NAMES.CODEX,
+        {
+          prompt: PROMPT,
+          cwd: process.cwd(),
+          env: process.env,
+          timeoutMs: 30_000
+        },
+        context
+      );
       expect(turn.text.length).toBeGreaterThan(0);
       const lines = fs.readFileSync(costLog, "utf8").trim().split("\n");
       expect(lines.length).toBeGreaterThanOrEqual(1);
@@ -107,12 +121,16 @@ describe.skipIf(!ENABLED)("real CLI smoke (opt-in via ARTAGON_REAL_CLI_SMOKE=1)"
   test.skipIf(!isOnPath("gemini"))(
     "gemini -p produces text + cost record",
     async () => {
-      const turn = await runStatelessTurn(BACKEND_NAMES.GEMINI, {
-        prompt: PROMPT,
-        cwd: process.cwd(),
-        env: process.env,
-        timeoutMs: 30_000
-      });
+      const turn = await runStatelessTurn(
+        BACKEND_NAMES.GEMINI,
+        {
+          prompt: PROMPT,
+          cwd: process.cwd(),
+          env: process.env,
+          timeoutMs: 30_000
+        },
+        context
+      );
       expect(turn.text.length).toBeGreaterThan(0);
       const lines = fs.readFileSync(costLog, "utf8").trim().split("\n");
       expect(lines.length).toBeGreaterThanOrEqual(1);
