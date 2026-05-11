@@ -605,7 +605,12 @@ describe("runTurn:meta", () => {
     expect(result.usage).toEqual({ input_tokens: 12, output_tokens: 34 });
   });
 
-  test("thread/tokenUsage/updated post-completion override is captured before runTurn resolves", async () => {
+  test("thread/tokenUsage/updated picks `last` (per-turn) over `total` (cumulative)", async () => {
+    // Real wire shape per codex 0.130.0:
+    //   params.tokenUsage = { total: {...}, last: {...}, modelContextWindow }
+    // We want the per-turn `last` so cost records reflect this turn,
+    // not the cumulative thread total. Confirmed against
+    // /tmp/codex-wire.jsonl captured from a real two-turn run.
     const { runner, client } = await startedRunner();
     client._enqueue("turn/start", { turn: { id: "tr_1" } });
     const turnPromise = runner.runTurn({ prompt: "x" });
@@ -613,7 +618,12 @@ describe("runTurn:meta", () => {
       method: "thread/tokenUsage/updated",
       params: {
         threadId: "thr_test",
-        usage: { input_tokens: 7, output_tokens: 3 }
+        turnId: "tr_1",
+        tokenUsage: {
+          last: { inputTokens: 7, outputTokens: 3, totalTokens: 10 },
+          total: { inputTokens: 50, outputTokens: 30, totalTokens: 80 },
+          modelContextWindow: 258400
+        }
       }
     });
     client._emit({
@@ -621,29 +631,99 @@ describe("runTurn:meta", () => {
       params: { turn: { status: "completed" } }
     });
     const result = await turnPromise;
-    expect(result.usage).toEqual({ input_tokens: 7, output_tokens: 3 });
+    expect(result.usage).toEqual({
+      inputTokens: 7,
+      outputTokens: 3,
+      totalTokens: 10
+    });
   });
 
-  test("turn/completed does NOT overwrite an already-set usage from earlier thread/tokenUsage/updated", async () => {
+  test("thread/tokenUsage/updated falls back to `total` when `last` is missing", async () => {
     const { runner, client } = await startedRunner();
     client._enqueue("turn/start", { turn: { id: "tr_1" } });
     const turnPromise = runner.runTurn({ prompt: "x" });
     client._emit({
       method: "thread/tokenUsage/updated",
-      params: { usage: { input_tokens: 50, output_tokens: 50 } }
+      params: {
+        tokenUsage: {
+          total: { inputTokens: 100, outputTokens: 25, totalTokens: 125 }
+        }
+      }
+    });
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
+    });
+    const result = await turnPromise;
+    expect(result.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 25,
+      totalTokens: 125
+    });
+  });
+
+  test("thread/tokenUsage/updated with neither `last` nor `total` leaves usage null", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn({ prompt: "x" });
+    client._emit({
+      method: "thread/tokenUsage/updated",
+      params: { tokenUsage: { modelContextWindow: 258400 } }
+    });
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
+    });
+    const result = await turnPromise;
+    expect(result.usage).toBeNull();
+  });
+
+  test("turn/completed tokenUsage maps to usage when `thread/tokenUsage/updated` did not fire first", async () => {
+    // Forward-compat: codex 0.130.0 does NOT include tokenUsage on the
+    // turn/completed turn object (it sends a separate
+    // thread/tokenUsage/updated notification before). If a future
+    // upstream consolidates the two, this branch should still pick it
+    // up.
+    const { runner, client } = await startedRunner();
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn({ prompt: "x" });
+    client._emit({
+      method: "turn/completed",
+      params: {
+        turn: {
+          status: "completed",
+          tokenUsage: { inputTokens: 12, outputTokens: 34 }
+        }
+      }
+    });
+    const result = await turnPromise;
+    expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 34 });
+  });
+
+  test("turn/completed does NOT overwrite usage already set by earlier thread/tokenUsage/updated", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn({ prompt: "x" });
+    client._emit({
+      method: "thread/tokenUsage/updated",
+      params: {
+        tokenUsage: {
+          last: { inputTokens: 50, outputTokens: 50, totalTokens: 100 }
+        }
+      }
     });
     client._emit({
       method: "turn/completed",
       params: {
         turn: {
           status: "completed",
-          tokenUsage: { input_tokens: 0, output_tokens: 0 }
+          tokenUsage: { inputTokens: 0, outputTokens: 0 }
         }
       }
     });
     const result = await turnPromise;
     // First-wins (matches `if (!activeTurn.usage)`).
-    expect(result.usage.input_tokens).toBe(50);
+    expect(result.usage.inputTokens).toBe(50);
   });
 });
 
@@ -879,23 +959,39 @@ describe("cost-recorder", () => {
     expect(readCostLog()[0].model).toBe("spark");
   });
 
-  test("normalized usage carries through to the cost record when tokenUsage is provided", async () => {
+  test("camelCase tokenUsage from thread/tokenUsage/updated normalizes correctly into the cost record", async () => {
+    // Real-wire shape: `thread/tokenUsage/updated` arrives BEFORE
+    // `turn/completed` and carries `tokenUsage.last` (per-turn) using
+    // codex's camelCase fields. `normalizeUsage` in the cost recorder
+    // must map `inputTokens` → `prompt_tokens`, `outputTokens` →
+    // `completion_tokens`, `cachedInputTokens` (subset of input) →
+    // `cache_read_tokens` for visibility.
     const { runner, client } = await startedRunner();
     client._enqueue("turn/start", { turn: { id: "tr_1" } });
     const turnPromise = runner.runTurn({ prompt: "x" });
     client._emit({
-      method: "turn/completed",
+      method: "thread/tokenUsage/updated",
       params: {
-        turn: {
-          status: "completed",
-          tokenUsage: { input_tokens: 5, output_tokens: 7 }
+        tokenUsage: {
+          last: {
+            inputTokens: 5,
+            outputTokens: 7,
+            cachedInputTokens: 2,
+            totalTokens: 12
+          }
         }
       }
+    });
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
     });
     await turnPromise;
     expect(readCostLog()[0].usage).toMatchObject({
       prompt_tokens: 5,
-      completion_tokens: 7
+      completion_tokens: 7,
+      total_tokens: 12,
+      cache_read_tokens: 2
     });
   });
 });

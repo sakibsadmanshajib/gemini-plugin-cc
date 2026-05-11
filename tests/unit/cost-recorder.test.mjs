@@ -141,6 +141,66 @@ describe("normalizeUsage", () => {
     expect(out.total_tokens).toBe(1100);
   });
 
+  test("ACP-server camelCase / codex: cachedInputTokens is a subset of inputTokens (visibility-only)", () => {
+    // Real wire shape from `thread/tokenUsage/updated`'s `last` field
+    // per codex 0.130.0: `cachedInputTokens` is counted INSIDE
+    // `inputTokens`, so total stays at vendor-reported totalTokens
+    // (not p + c + cache). We surface `cachedInputTokens` as
+    // `cache_read_tokens` for downstream visibility without double
+    // counting it.
+    const out = normalizeUsage({
+      inputTokens: 25544,
+      outputTokens: 26,
+      cachedInputTokens: 21888,
+      reasoningOutputTokens: 19,
+      totalTokens: 25570
+    });
+    expect(out.prompt_tokens).toBe(25544);
+    expect(out.completion_tokens).toBe(26);
+    expect(out.cache_read_tokens).toBe(21888);
+    expect(out.total_tokens).toBe(25570);
+    expect("cache_creation_tokens" in out).toBe(false);
+  });
+
+  test("ACP-server camelCase / claude-agent-acp: cached* are separate from inputTokens (additive)", () => {
+    // Real wire shape from session/prompt response.usage per
+    // claude-agent-acp 0.33.1: `cachedReadTokens` and
+    // `cachedWriteTokens` are SEPARATE from `inputTokens` (Anthropic
+    // billing semantics), and `totalTokens` already accounts for the
+    // sum. We surface both cache fields and trust the vendor total.
+    const out = normalizeUsage({
+      inputTokens: 6,
+      outputTokens: 6,
+      cachedReadTokens: 20263,
+      cachedWriteTokens: 17623,
+      totalTokens: 37898
+    });
+    expect(out.prompt_tokens).toBe(6);
+    expect(out.completion_tokens).toBe(6);
+    expect(out.cache_creation_tokens).toBe(17623);
+    expect(out.cache_read_tokens).toBe(20263);
+    expect(out.total_tokens).toBe(37898);
+  });
+
+  test("ACP-server camelCase: totalTokens fallback when vendor omits it (claude shape, additive)", () => {
+    const out = normalizeUsage({
+      inputTokens: 10,
+      outputTokens: 20,
+      cachedReadTokens: 100,
+      cachedWriteTokens: 50
+    });
+    // No vendor totalTokens → computed as p + c + cacheCreate + cacheRead
+    expect(out.total_tokens).toBe(10 + 20 + 50 + 100);
+  });
+
+  test("ACP-server camelCase: bare inputTokens/outputTokens without cache fields", () => {
+    expect(normalizeUsage({ inputTokens: 12, outputTokens: 34, totalTokens: 46 })).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 34,
+      total_tokens: 46
+    });
+  });
+
   test("Gemini shape: promptTokenCount / candidatesTokenCount / totalTokenCount", () => {
     expect(
       normalizeUsage({
