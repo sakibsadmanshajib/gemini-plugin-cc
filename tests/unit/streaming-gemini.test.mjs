@@ -275,6 +275,129 @@ test("runTurn reads stopReason/usage from prompt response", async () => {
   expect(result.usage.total_tokens).toBe(150);
 });
 
+test("runTurn picks usage from response._meta.quota.token_count (gemini --acp wire shape)", async () => {
+  // Real wire shape captured against gemini-cli 0.38.2's --acp mode:
+  //   { "stopReason": "end_turn",
+  //     "_meta": { "quota": {
+  //       "token_count": { "input_tokens": 39619, "output_tokens": 1 },
+  //       "model_usage": [{ "model": "gemini-3-flash-preview",
+  //                         "token_count": { "input_tokens": 39619,
+  //                                          "output_tokens": 1 } }] } } }
+  // The gemini --acp transport does NOT populate the top-level `usage`
+  // field that the standard ACP spec uses; usage lives under
+  // `_meta.quota.token_count` instead. The runner must read from that
+  // location so cost records carry real token counts.
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", {
+    stopReason: "end_turn",
+    _meta: {
+      quota: {
+        token_count: { input_tokens: 39619, output_tokens: 1 },
+        model_usage: [
+          {
+            model: "gemini-3-flash-preview",
+            token_count: { input_tokens: 39619, output_tokens: 1 }
+          }
+        ]
+      }
+    }
+  });
+  const runner = createGeminiStreamingRunner({
+    probe: () => "/tmp/b",
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn({ prompt: "x" });
+  expect(result.usage).toEqual({ input_tokens: 39619, output_tokens: 1 });
+  // model_usage[0].model is the runtime-resolved id (auto-* aliases
+  // resolved by gemini at dispatch time) — surface for cost attribution.
+  expect(result.model).toBe("gemini-3-flash-preview");
+});
+
+test("runTurn prefers _meta.quota over top-level usage when both are present", async () => {
+  // Forward-compat: if gemini ever adds a standard top-level `usage`
+  // field in addition to its existing _meta.quota path, _meta.quota
+  // still wins (it's the canonical source as of 0.38.2). Note that
+  // first-wins logic means _meta.quota is read first.
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", {
+    stopReason: "end_turn",
+    usage: { input_tokens: 9999, output_tokens: 9999 },
+    _meta: { quota: { token_count: { input_tokens: 1, output_tokens: 2 } } }
+  });
+  const runner = createGeminiStreamingRunner({
+    probe: () => "/tmp/b",
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn({ prompt: "x" });
+  expect(result.usage).toEqual({ input_tokens: 1, output_tokens: 2 });
+});
+
+test("runTurn falls back to top-level usage when _meta.quota is absent", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", {
+    stopReason: "end_turn",
+    usage: { input_tokens: 42, output_tokens: 8 }
+  });
+  const runner = createGeminiStreamingRunner({
+    probe: () => "/tmp/b",
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn({ prompt: "x" });
+  expect(result.usage).toEqual({ input_tokens: 42, output_tokens: 8 });
+});
+
+test("runTurn does NOT overwrite model captured from turn_completed update with _meta.quota model", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", {
+    stopReason: "end_turn",
+    _meta: {
+      quota: {
+        model_usage: [
+          {
+            model: "from-meta",
+            token_count: { input_tokens: 1, output_tokens: 1 }
+          }
+        ]
+      }
+    }
+  });
+  const runner = createGeminiStreamingRunner({
+    probe: () => "/tmp/b",
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const turnPromise = runner.runTurn({ prompt: "x" });
+  // Update arrives first with model set; the response's _meta.quota
+  // model must not overwrite (first-wins).
+  client._emit({
+    method: "session/update",
+    params: {
+      update: { sessionUpdate: "turn_completed", model: "from-update" }
+    }
+  });
+  const result = await turnPromise;
+  expect(result.model).toBe("from-update");
+});
+
 test("runTurn error with transport still open → health=degraded", async () => {
   const transport = makeFakeTransport();
   const client = makeFakeClient();
