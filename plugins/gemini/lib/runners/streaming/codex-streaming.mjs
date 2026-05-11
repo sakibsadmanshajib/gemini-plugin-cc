@@ -38,6 +38,7 @@
 import { resolveCodexModel } from "#lib/backends/codex.mjs";
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
+import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { createCliTransport } from "#lib/transport/cli.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
@@ -265,8 +266,7 @@ export function createCodexStreamingRunner(options = {}) {
       }
     },
 
-    // eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-    async runTurn(turnOpts, _context) {
+    async runTurn(turnOpts, context) {
       if (!started || !client) {
         throw new Error("codex streaming runner: runTurn before start");
       }
@@ -329,30 +329,36 @@ export function createCodexStreamingRunner(options = {}) {
 
         await Promise.race([work, timeoutPromise]);
         health = "healthy";
-        appendCostRecord({
-          backend: BACKEND_NAMES.CODEX,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: true,
-          transport: "codex-app-server"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.CODEX,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: true,
+            transport: TRANSPORT_NAMES.CODEX_APP_SERVER
+          },
+          { context }
+        );
         return turn;
       } catch (err) {
         const isOpen = transport ? transport.isOpen() : false;
         health = isOpen ? "degraded" : "dead";
-        appendCostRecord({
-          backend: BACKEND_NAMES.CODEX,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: false,
-          transport: "codex-app-server"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.CODEX,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: false,
+            transport: TRANSPORT_NAMES.CODEX_APP_SERVER
+          },
+          { context }
+        );
         throw err;
       } finally {
         if (timer) clearTimeout(timer);

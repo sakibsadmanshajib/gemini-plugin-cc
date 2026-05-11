@@ -48,6 +48,7 @@ import { createRequire } from "node:module";
 import { resolveClaudeModel } from "#lib/backends/claude.mjs";
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
+import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { createCliTransport } from "#lib/transport/cli.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
@@ -232,8 +233,7 @@ export function createClaudeStreamingRunner(options = {}) {
       }
     },
 
-    // eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-    async runTurn(turnOpts, _context) {
+    async runTurn(turnOpts, context) {
       if (!started || !client) {
         throw new Error("claude streaming runner: runTurn before start");
       }
@@ -282,30 +282,36 @@ export function createClaudeStreamingRunner(options = {}) {
         })();
         await Promise.race([work, timeoutPromise]);
         health = "healthy";
-        appendCostRecord({
-          backend: BACKEND_NAMES.CLAUDE,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: true,
-          transport: "claude-agent-acp"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.CLAUDE,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: true,
+            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP
+          },
+          { context }
+        );
         return turn;
       } catch (err) {
         const isOpen = transport ? transport.isOpen() : false;
         health = isOpen ? "degraded" : "dead";
-        appendCostRecord({
-          backend: BACKEND_NAMES.CLAUDE,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: false,
-          transport: "claude-agent-acp"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.CLAUDE,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: false,
+            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP
+          },
+          { context }
+        );
         throw err;
       } finally {
         if (timer) clearTimeout(timer);

@@ -87,16 +87,25 @@ export const DEFAULT_PRICING = {
 /**
  * Resolve the pricing table to use. Order:
  *   1. `options.table` direct injection
- *   2. `$ARTAGON_PRICING_OVERRIDE` JSON in env (full table replacement)
+ *   2. `context.cost.pricingOverride` (path to a JSON file OR inline JSON
+ *      string — full table replacement)
  *   3. DEFAULT_PRICING
  *
- * @param {{ env?: NodeJS.ProcessEnv, table?: PricingTable }} [options]
+ * The `ARTAGON_PRICING_OVERRIDE` env-var read was removed in Phase 4
+ * of the AgentContext refactor. Boundary callers
+ * (`buildAgentContextFromArgv`, bin entries) translate the legacy env
+ * into `context.cost.pricingOverride` before passing the context here.
+ *
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   table?: PricingTable,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * }} [options]
  * @returns {PricingTable}
  */
 export function resolvePricingTable(options = {}) {
   if (options.table) return options.table;
-  const env = options.env ?? process.env;
-  const override = env.ARTAGON_PRICING_OVERRIDE;
+  const override = options.context?.cost?.pricingOverride;
   if (override) {
     try {
       const parsed = JSON.parse(override);

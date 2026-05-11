@@ -31,6 +31,7 @@
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
+import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { readManifest } from "#lib/server/facade-endpoint.mjs";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -53,19 +54,23 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 /**
  * Resolve the bearer token to use against the facade. Order:
  *   1. options.bearerToken (explicit)
- *   2. process.env.ARTAGON_FACADE_API_KEY
+ *   2. context.facade.apiKey (set by boundary builder from CLI / env)
  *   3. null (no auth header sent — facade may reject)
  *
+ * The `ARTAGON_FACADE_API_KEY` env-var read was removed in Phase 4 of
+ * the AgentContext refactor. Boundary callers translate the legacy env
+ * into `context.facade.apiKey` before reaching this function.
+ *
  * @param {RunViaFacadeOptions} options
+ * @param {import("#lib/agent-context.mjs").AgentContext} [context]
  * @returns {string | null}
  */
-function resolveBearer(options) {
+function resolveBearer(options, context) {
   if (typeof options.bearerToken === "string" && options.bearerToken !== "") {
     return options.bearerToken;
   }
-  const env = options.env ?? process.env;
-  const fromEnv = env.ARTAGON_FACADE_API_KEY;
-  if (typeof fromEnv === "string" && fromEnv !== "") return fromEnv;
+  const fromContext = context?.facade?.apiKey;
+  if (typeof fromContext === "string" && fromContext !== "") return fromContext;
   return null;
 }
 
@@ -80,16 +85,13 @@ function resolveBearer(options) {
  *
  * @param {BackendName} backend
  * @param {RunViaFacadeOptions} options
- * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
- *   Phase 2: accepts AgentContext for forward compat. Phase 4 will
- *   route `bearerToken`, `cwd`, `env`, `model`, and `timeoutMs` from
- *   `context` so the facade picks up flag-supplied auth without the
- *   env-var fallback.
+ * @param {import("#lib/agent-context.mjs").AgentContext} [context]
+ *   When set, `context.facade.apiKey` is used as the bearer token
+ *   (falling back to `options.bearerToken` if both are present).
  * @returns {Promise<TurnResult>}
  */
-// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-export async function runViaFacade(backend, options, _context) {
-  const manifest = readManifest(options.env ?? process.env);
+export async function runViaFacade(backend, options, context) {
+  const manifest = readManifest(context?.env ?? options.env ?? process.env);
   if (!manifest) {
     throw new Error("runViaFacade: no running facade found (manifest absent or stale)");
   }
@@ -98,7 +100,7 @@ export async function runViaFacade(backend, options, _context) {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   const url = `http://${manifest.host}:${manifest.port}/v1/chat/completions`;
-  const bearer = resolveBearer(options);
+  const bearer = resolveBearer(options, context);
 
   /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
@@ -138,16 +140,19 @@ export async function runViaFacade(backend, options, _context) {
       signal: controller.signal
     });
   } catch (err) {
-    appendCostRecord({
-      backend,
-      model: null,
-      promptChars: options.prompt.length,
-      usage: normalizeUsage(null),
-      durationMs: Date.now() - startedAtMs,
-      reason: null,
-      ok: false,
-      transport: "facade"
-    });
+    appendCostRecord(
+      {
+        backend,
+        model: null,
+        promptChars: options.prompt.length,
+        usage: normalizeUsage(null),
+        durationMs: Date.now() - startedAtMs,
+        reason: null,
+        ok: false,
+        transport: TRANSPORT_NAMES.FACADE
+      },
+      { context }
+    );
     clearTimeout(timer);
     throw err;
   }
@@ -155,16 +160,19 @@ export async function runViaFacade(backend, options, _context) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    appendCostRecord({
-      backend,
-      model: null,
-      promptChars: options.prompt.length,
-      usage: normalizeUsage(null),
-      durationMs: Date.now() - startedAtMs,
-      reason: null,
-      ok: false,
-      transport: "facade"
-    });
+    appendCostRecord(
+      {
+        backend,
+        model: null,
+        promptChars: options.prompt.length,
+        usage: normalizeUsage(null),
+        durationMs: Date.now() - startedAtMs,
+        reason: null,
+        ok: false,
+        transport: TRANSPORT_NAMES.FACADE
+      },
+      { context }
+    );
     throw new Error(
       `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`
     );
@@ -201,16 +209,19 @@ export async function runViaFacade(backend, options, _context) {
     }
   }
 
-  appendCostRecord({
-    backend,
-    model: turn.model ?? null,
-    promptChars: options.prompt.length,
-    usage: normalizeUsage(turn.usage ?? null),
-    durationMs: Date.now() - startedAtMs,
-    reason: turn.reason ?? null,
-    ok: true,
-    transport: "facade"
-  });
+  appendCostRecord(
+    {
+      backend,
+      model: turn.model ?? null,
+      promptChars: options.prompt.length,
+      usage: normalizeUsage(turn.usage ?? null),
+      durationMs: Date.now() - startedAtMs,
+      reason: turn.reason ?? null,
+      ok: true,
+      transport: TRANSPORT_NAMES.FACADE
+    },
+    { context }
+  );
 
   return turn;
 }

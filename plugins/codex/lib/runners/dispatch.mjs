@@ -73,7 +73,9 @@ export function _resetBrokerWarningForTest() {
  * fall back to cold-start with a single one-shot warning.
  *
  * Opt-out: pass `disableBroker: true` on options, OR set
- * `ARTAGON_DISABLE_BROKER=1` in the environment.
+ * `context.dispatch.broker = "disabled"`. The boundary builder
+ * translates `--no-broker` and `ARTAGON_DISABLE_BROKER=1` env (legacy)
+ * into the context.
  *
  * @param {BackendName} backendName
  * @param {RunClaudePrintOptions | RunCodexExecOptions | RunGeminiPrintOptions} options
@@ -132,13 +134,21 @@ function runDirect(backendName, options, context) {
 }
 
 /**
+/**
  * Should the dispatcher route this turn through the facade? Precedence:
  *
- *   context.dispatch.facade === "on"        → opt-in (highest)
- *   context.dispatch.facade === "off"       → veto
- *   options.disableFacade === true          → veto
- *   options.useFacade === true              → opt-in
- *   process.env.ARTAGON_USE_FACADE === "1"  → opt-in (fallback only)
+ *   context.dispatch.facade === "on"   → opt-in (highest)
+ *   context.dispatch.facade === "off"  → veto
+ *   options.disableFacade === true     → veto
+ *   options.useFacade === true         → opt-in
+ *   otherwise                          → no facade
+ *
+ * `ARTAGON_USE_FACADE=1` env-var dispatch was removed in Phase 4 of
+ * the AgentContext refactor — env vars are now read at the boundary
+ * (lib/agent-context.mjs::buildAgentContextFromArgv) and translated
+ * into `context.dispatch.facade`. Lib code must NOT read
+ * `process.env.ARTAGON_*` directly. Enforced by
+ * `scripts/no-internal-env.mjs`.
  *
  * @param {any} options
  * @param {import("#lib/agent-context.mjs").AgentContext} [context]
@@ -148,13 +158,13 @@ function shouldUseFacade(options, context) {
   if (context?.dispatch?.facade === "on") return true;
   if (context?.dispatch?.facade === "off") return false;
   if (options?.disableFacade === true) return false;
-  if (options?.useFacade === true) return true;
-  return process.env.ARTAGON_USE_FACADE === "1";
+  return options?.useFacade === true;
 }
 
 /**
  * Should the dispatcher route this turn through a streaming runner?
- * Same precedence layering as `shouldUseFacade`.
+ * Same precedence layering as `shouldUseFacade` — and same Phase 4
+ * removal of the `ARTAGON_STREAMING=1` env-var fallback.
  *
  * @param {any} options
  * @param {import("#lib/agent-context.mjs").AgentContext} [context]
@@ -164,8 +174,7 @@ function shouldUseStreaming(options, context) {
   if (context?.dispatch?.streaming === "on") return true;
   if (context?.dispatch?.streaming === "off") return false;
   if (options?.disableStreaming === true) return false;
-  if (options?.useStreaming === true) return true;
-  return process.env.ARTAGON_STREAMING === "1";
+  return options?.useStreaming === true;
 }
 
 /**
@@ -262,17 +271,19 @@ async function runWithFacadeFallback(backendName, options, context) {
  * Broker-skip precedence (highest → lowest):
  *   context.dispatch.broker === "disabled"
  *   options.disableBroker === true
- *   process.env.ARTAGON_DISABLE_BROKER === "1"
+ *
+ * `ARTAGON_DISABLE_BROKER=1` env-var dispatch was removed in Phase 4
+ * of the AgentContext refactor — env is read at the boundary
+ * (`buildAgentContextFromArgv`) and translated into
+ * `context.dispatch.broker`. Lib code must NOT read
+ * `process.env.ARTAGON_*` directly.
  *
  * @param {RunGeminiPrintOptions & { disableBroker?: boolean, cwd?: string }} options
  * @param {import("#lib/agent-context.mjs").AgentContext} [context]
  * @returns {Promise<TurnResult>}
  */
 async function runGeminiWithBrokerFallback(options, context) {
-  const disableBroker =
-    context?.dispatch?.broker === "disabled" ||
-    options.disableBroker === true ||
-    process.env.ARTAGON_DISABLE_BROKER === "1";
+  const disableBroker = context?.dispatch?.broker === "disabled" || options.disableBroker === true;
 
   if (!disableBroker) {
     const cwd = context?.cwd ?? options.cwd ?? process.cwd();

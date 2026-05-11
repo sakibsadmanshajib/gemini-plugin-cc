@@ -120,22 +120,27 @@ export function mapFinishReason(reason) {
  * tokens.
  *
  * @param {string | string[] | undefined} key
- * @param {NodeJS.ProcessEnv} [env]
+ *   Caller-resolved key. The bin that constructs this server is the
+ *   one place `ARTAGON_FACADE_API_KEY` env is read — lib accepts the
+ *   value but does not consult `process.env.ARTAGON_*` directly
+ *   (Phase 4 of the AgentContext refactor).
+ * @param {NodeJS.ProcessEnv} [_env] Reserved for future per-request
+ *   override callers; currently unused.
  * @returns {string[] | null}
  */
-export function resolveApiKeyPolicy(key, env = process.env) {
-  if (typeof key === "string" && key) return [key];
+// eslint-disable-next-line no-unused-vars -- `_env` reserved for future override path
+export function resolveApiKeyPolicy(key, _env) {
+  if (typeof key === "string" && key) {
+    // Comma-separated list. Single value is also fine — it just splits
+    // into a one-element array.
+    const list = key
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.length > 0 ? list : null;
+  }
   if (Array.isArray(key) && key.length > 0) return key.filter((k) => typeof k === "string" && k);
-  if (key !== undefined) return null;
-  const envValue = env.ARTAGON_FACADE_API_KEY;
-  if (!envValue) return null;
-  // Comma-separated list. Single value is also fine — it just splits
-  // into a one-element array.
-  const list = envValue
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return list.length > 0 ? list : null;
+  return null;
 }
 
 /**
@@ -189,27 +194,28 @@ function extractBearerToken(req) {
  * origins, or `null` (CORS disabled).
  *
  * @param {string | string[] | boolean | undefined} cors
- * @param {NodeJS.ProcessEnv} [env]
+ *   Caller-resolved CORS spec. The bin reads `ARTAGON_FACADE_CORS`
+ *   env and passes the resulting value here — lib does not read
+ *   `process.env.ARTAGON_*` directly (Phase 4 of the AgentContext
+ *   refactor).
+ * @param {NodeJS.ProcessEnv} [_env] Reserved for future overrides.
  * @returns {"*" | string[] | null}
  */
-export function resolveCorsPolicy(cors, env = process.env) {
-  // Direct option wins.
-  if (cors === true || cors === "*") return "*";
-  if (typeof cors === "string" && cors) return [cors];
+// eslint-disable-next-line no-unused-vars -- `_env` reserved for future override path
+export function resolveCorsPolicy(cors, _env) {
+  if (cors === true) return "*";
+  if (typeof cors === "string") {
+    const trimmed = cors.trim();
+    if (trimmed === "1" || trimmed === "true" || trimmed === "*") return "*";
+    if (trimmed === "") return null;
+    const list = trimmed
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return list.length > 0 ? list : null;
+  }
   if (Array.isArray(cors) && cors.length > 0) return [...cors];
-  if (cors !== undefined) return null; // explicitly false / empty string / empty array
-
-  // Fall back to env when the option wasn't passed.
-  const envValue = env.ARTAGON_FACADE_CORS;
-  if (!envValue) return null;
-  const trimmed = envValue.trim();
-  if (trimmed === "1" || trimmed === "true" || trimmed === "*") return "*";
-  // Comma-separated allowlist.
-  const list = trimmed
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return list.length > 0 ? list : null;
+  return null;
 }
 
 /**

@@ -93,14 +93,13 @@ export function buildCodexExecArgs(options) {
  * Run a single codex exec turn and return the accumulated TurnResult.
  *
  * @param {RunCodexExecOptions} options
- * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
- *   Phase 2: accepts AgentContext for forward compat; today the runner
- *   still uses env-var defaults internally. Phase 4 will route the
- *   transport + recorder through `context`.
+ * @param {import("#lib/agent-context.mjs").AgentContext} [context]
+ *   When set, `context.cost.logPath` / `cost.disabled` are honored by
+ *   the cost recorder. Lib code does not read `process.env.ARTAGON_*`
+ *   directly.
  * @returns {Promise<TurnResult>}
  */
-// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-export function runCodexExec(options, _context) {
+export function runCodexExec(options, context) {
   const { prompt, signal, timeoutMs, onUpdate, _argsOverride, ...rest } = options;
   if (!prompt) {
     return Promise.reject(new Error("runCodexExec: prompt is required"));
@@ -126,15 +125,18 @@ export function runCodexExec(options, _context) {
       deregisterRunner(pidFilePath);
       try {
         const turnLike = !isError ? /** @type {TurnResult} */ (value) : null;
-        appendCostRecord({
-          backend: BACKEND_NAMES.CODEX,
-          model: turnLike?.model ?? null,
-          promptChars: prompt.length,
-          usage: normalizeUsage(turnLike?.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turnLike?.reason ?? null,
-          ok: !isError
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.CODEX,
+            model: turnLike?.model ?? null,
+            promptChars: prompt.length,
+            usage: normalizeUsage(turnLike?.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turnLike?.reason ?? null,
+            ok: !isError
+          },
+          { context }
+        );
       } catch {
         // best-effort
       }

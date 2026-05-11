@@ -53,12 +53,18 @@ import { getCostLogPath } from "#lib/cost/recorder.mjs";
  * Read all cost records from the log. Malformed lines are silently
  * skipped (best-effort observability).
  *
- * @param {{ env?: NodeJS.ProcessEnv, since?: Date, until?: Date }} [options]
+ * @param {{
+ *   env?: NodeJS.ProcessEnv,
+ *   since?: Date,
+ *   until?: Date,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * }} [options]
+ *   When `context.cost.logPath` is set, it overrides the env-derived path.
  * @returns {CostRecord[]}
  */
 export function readCostRecords(options = {}) {
-  const env = options.env ?? process.env;
-  const logPath = getCostLogPath(env);
+  const env = options.context?.env ?? options.env ?? process.env;
+  const logPath = getCostLogPath(env, options.context);
   if (!fs.existsSync(logPath)) return [];
 
   /** @type {CostRecord[]} */
@@ -220,7 +226,7 @@ export function recentCostRecords(records, n) {
  */
 export function formatCostSummaryText(summary) {
   if (summary.total_turns === 0) {
-    return "No cost records found. Run some turns first or check ARTAGON_COST_LOG.\n";
+    return "No cost records found. Run some turns first or pass --cost-log <path>.\n";
   }
   const lines = [];
   lines.push(

@@ -70,8 +70,11 @@ import { defaultExtractTokens } from "#lib/middleware/cost.mjs";
  *   durationMs: number,
  *   reason: string | null,
  *   ok: boolean,
- *   transport?: "cli" | "broker" | "facade" | "acp-server" | "codex-app-server" | "claude-agent-acp"
+ *   transport?: import("./transport-names.mjs").TransportName
  * }} CostRecord
+ *
+ * Use `TRANSPORT_NAMES` from `./transport-names.mjs` instead of bare
+ * string literals at call sites — single source of truth.
  *
  * The `transport` field describes HOW the turn reached the backend:
  *   - "cli": cold-start subprocess (today's default for one-shot runners)
@@ -100,21 +103,26 @@ let warnedOnce = false;
 
 /**
  * Resolve the cost log path. Precedence:
- *   1. `context.cost.logPath` (preferred — Phase 2+ context-aware callers)
- *   2. `$ARTAGON_COST_LOG`
- *   3. `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`
+ *   1. `context.cost.logPath`
+ *   2. `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl`
  *      (default `~/.local/state/...`)
  *
- * Phase 4 will remove the env-fallback step.
+ * The `ARTAGON_COST_LOG` env-var fallback was removed in Phase 4 of
+ * the AgentContext refactor — env is read at the boundary
+ * (`lib/agent-context.mjs::buildAgentContextFromArgv`) and translated
+ * into `context.cost.logPath`. Lib code does NOT read
+ * `process.env.ARTAGON_*` directly.
+ *
+ * `XDG_STATE_HOME` is a host-set system contract (not internal config)
+ * and is intentionally still read for the default fallback path.
  *
  * @param {NodeJS.ProcessEnv | undefined} [env]
  * @param {import("#lib/agent-context.mjs").AgentContext} [context]
  * @returns {string}
  */
 export function getCostLogPath(env, context) {
-  const e = env ?? process.env;
   if (context?.cost?.logPath) return context.cost.logPath;
-  if (e.ARTAGON_COST_LOG) return e.ARTAGON_COST_LOG;
+  const e = env ?? process.env;
   const stateHome = e.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
   return path.join(stateHome, "artagon-agent-cli-plugin", "cost.jsonl");
 }

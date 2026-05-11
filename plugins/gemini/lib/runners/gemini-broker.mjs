@@ -21,12 +21,13 @@
  * Failure mode: any error connecting/talking to the broker rejects the
  * promise. The dispatcher catches and falls back to `runGeminiPrint`.
  *
- * Cost record: emits `transport: "broker"` so observability can
+ * Cost record: emits `transport: TRANSPORT_NAMES.BROKER` so observability can
  * distinguish broker vs cold-start ratios.
  */
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
+import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { translateGeminiStreamEvent } from "#lib/translate/gemini-stream.mjs";
 import { createBrokerSocketTransport } from "#lib/transport/broker-socket.mjs";
 
@@ -58,13 +59,12 @@ const DEFAULT_PROTOCOL_VERSION = 1;
  * Run a single turn through an existing gemini broker.
  *
  * @param {RunGeminiBrokerOptions} options
- * @param {import("#lib/agent-context.mjs").AgentContext} [_context]
- *   Phase 2: accepts AgentContext for forward compat. Phase 4 will
- *   read wire-log + cost-record settings from `context`.
+ * @param {import("#lib/agent-context.mjs").AgentContext} [context]
+ *   When set, `context.cost.logPath` / `cost.disabled` are honored by
+ *   the cost recorder.
  * @returns {Promise<TurnResult>}
  */
-// eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-export async function runGeminiViaBroker(options, _context) {
+export async function runGeminiViaBroker(options, context) {
   const { endpoint, prompt } = options;
   if (typeof endpoint !== "string" || endpoint === "") {
     throw new Error("runGeminiViaBroker: endpoint is required");
@@ -179,16 +179,19 @@ export async function runGeminiViaBroker(options, _context) {
 
     await Promise.race([work, timeoutPromise]);
   } catch (err) {
-    appendCostRecord({
-      backend: BACKEND_NAMES.GEMINI,
-      model: turn.model ?? null,
-      promptChars: prompt.length,
-      usage: normalizeUsage(turn.usage ?? null),
-      durationMs: Date.now() - startedAtMs,
-      reason: turn.reason ?? null,
-      ok: false,
-      transport: "broker"
-    });
+    appendCostRecord(
+      {
+        backend: BACKEND_NAMES.GEMINI,
+        model: turn.model ?? null,
+        promptChars: prompt.length,
+        usage: normalizeUsage(turn.usage ?? null),
+        durationMs: Date.now() - startedAtMs,
+        reason: turn.reason ?? null,
+        ok: false,
+        transport: TRANSPORT_NAMES.BROKER
+      },
+      { context }
+    );
     throw err;
   } finally {
     if (timer) clearTimeout(timer);
@@ -201,16 +204,19 @@ export async function runGeminiViaBroker(options, _context) {
     }
   }
 
-  appendCostRecord({
-    backend: BACKEND_NAMES.GEMINI,
-    model: turn.model ?? null,
-    promptChars: prompt.length,
-    usage: normalizeUsage(turn.usage ?? null),
-    durationMs: Date.now() - startedAtMs,
-    reason: turn.reason ?? null,
-    ok: true,
-    transport: "broker"
-  });
+  appendCostRecord(
+    {
+      backend: BACKEND_NAMES.GEMINI,
+      model: turn.model ?? null,
+      promptChars: prompt.length,
+      usage: normalizeUsage(turn.usage ?? null),
+      durationMs: Date.now() - startedAtMs,
+      reason: turn.reason ?? null,
+      ok: true,
+      transport: TRANSPORT_NAMES.BROKER
+    },
+    { context }
+  );
 
   return turn;
 }

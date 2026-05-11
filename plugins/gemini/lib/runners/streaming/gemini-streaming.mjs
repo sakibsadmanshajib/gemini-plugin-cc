@@ -35,6 +35,7 @@
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
+import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { translateGeminiStreamEvent } from "#lib/translate/gemini-stream.mjs";
 import { findActiveBroker } from "#lib/transport/broker-probe.mjs";
 import { createBrokerSocketTransport } from "#lib/transport/broker-socket.mjs";
@@ -202,8 +203,7 @@ export function createGeminiStreamingRunner(options = {}) {
       }
     },
 
-    // eslint-disable-next-line no-unused-vars -- `_context` reserved for Phase 4
-    async runTurn(turnOpts, _context) {
+    async runTurn(turnOpts, context) {
       if (!started || !client) {
         throw new Error("gemini streaming runner: runTurn before start");
       }
@@ -270,16 +270,19 @@ export function createGeminiStreamingRunner(options = {}) {
         })();
         await Promise.race([work, timeoutPromise]);
         health = "healthy";
-        appendCostRecord({
-          backend: BACKEND_NAMES.GEMINI,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: true,
-          transport: "acp-server"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.GEMINI,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: true,
+            transport: TRANSPORT_NAMES.ACP_SERVER
+          },
+          { context }
+        );
         return turn;
       } catch (err) {
         // If the underlying transport is gone, mark dead so the supervisor
@@ -287,16 +290,19 @@ export function createGeminiStreamingRunner(options = {}) {
         // caller can retry without restart.
         const isOpen = transport ? transport.isOpen() : false;
         health = isOpen ? "degraded" : "dead";
-        appendCostRecord({
-          backend: BACKEND_NAMES.GEMINI,
-          model: turn.model ?? null,
-          promptChars: turnOpts.prompt.length,
-          usage: normalizeUsage(turn.usage ?? null),
-          durationMs: Date.now() - startedAtMs,
-          reason: turn.reason ?? null,
-          ok: false,
-          transport: "acp-server"
-        });
+        appendCostRecord(
+          {
+            backend: BACKEND_NAMES.GEMINI,
+            model: turn.model ?? null,
+            promptChars: turnOpts.prompt.length,
+            usage: normalizeUsage(turn.usage ?? null),
+            durationMs: Date.now() - startedAtMs,
+            reason: turn.reason ?? null,
+            ok: false,
+            transport: TRANSPORT_NAMES.ACP_SERVER
+          },
+          { context }
+        );
         throw err;
       } finally {
         if (timer) clearTimeout(timer);
