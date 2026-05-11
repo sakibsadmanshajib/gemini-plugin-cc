@@ -300,7 +300,7 @@ describe("runTurn:rpc", () => {
     await expect(runner.runTurn({ prompt: "hi" })).rejects.toThrow(/before start/);
   });
 
-  test("forwards prompt + threadId to turn/start", async () => {
+  test("forwards prompt + threadId to turn/start as v2 `input` array", async () => {
     const { runner, client, threadId } = await startedRunner();
     client._enqueue("turn/start", { turn: { id: "tr_1" } });
     const turnPromise = runner.runTurn({ prompt: "what is 2+2?" });
@@ -312,7 +312,11 @@ describe("runTurn:rpc", () => {
     const startCall = client._calls.find((c) => c.method === "turn/start");
     expect(startCall).toBeDefined();
     expect(startCall.params.threadId).toBe(threadId);
-    expect(startCall.params.userInput).toBe("what is 2+2?");
+    // Schema check: per `codex app-server generate-json-schema`
+    // (v2/TurnStartParams.json), `input` is a required array of
+    // UserInput objects. NOT a string named `userInput`.
+    expect(startCall.params.input).toEqual([{ type: "text", text: "what is 2+2?" }]);
+    expect(startCall.params.userInput).toBeUndefined();
   });
 
   test("turn-level model override resolves via resolveCodexModel and lands on turn/start", async () => {
