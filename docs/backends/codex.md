@@ -1,9 +1,23 @@
 # Codex backend
 
-The Codex backend (`lib/backends/codex.mjs`) launches the `codex` CLI in
-ACP mode (`codex acp`) — a long-running JSON-RPC subprocess. Per the
-project's CLI-only architecture, there is no SDK or HTTP transport; all
-backends speak ACP through their CLI binary.
+> **Status (2026-05-11):** the warm-path transport in this backend is
+> currently dead-code against upstream codex `0.130.0+`. The
+> `codex acp` subcommand was removed upstream in favor of
+> `codex app-server` — codex's own JSON-RPC 2.0 schema with
+> `thread/turn/item` methods, NOT Zed's ACP wire format.
+> `buildCodexArgs` still emits `["acp", ...]`, so calling
+> `codexBackend.transports.cli().start()` against current codex falls
+> through to the interactive TUI and fails framing. The slash-command
+> hot path (`/codex:prompt`) is unaffected — it uses the stateless
+> `runCodexExec` (`codex exec --json`) runner. The warm path returns
+> once the `app-server` translator lands; see
+> `openspec/changes/add-unified-acp-server-with-mcp-aggregation/`
+> tasks T1.10 + T1.11.
+
+The Codex backend (`lib/backends/codex.mjs`) is _declared_ to launch the
+`codex` CLI in a long-running JSON-RPC subprocess. Per the project's
+CLI-only architecture, there is no SDK or HTTP transport; all backends
+speak the project's internal ACP shape through their CLI binary.
 
 ## Quick start
 
@@ -29,7 +43,7 @@ The Codex CLI manages auth — the plugin doesn't handle credentials directly.
 1. **`codex login`** writes credentials to `~/.codex/auth.json`. This is
    the canonical path.
 2. **`OPENAI_API_KEY`** env var — recognized by the CLI as a fallback.
-3. **`-c` config overrides** (`codex acp -c api_key=...`) — supported but
+3. **`-c` config overrides** (`codex -c api_key=...`) — supported but
    not surfaced through the backend factory; pass via `extraArgs` if
    needed.
 
@@ -72,16 +86,21 @@ transport's `worker_missing` health transition).
 
 ## Session handling
 
-Codex's ACP mode owns session lifecycle in-band over JSON-RPC: callers
-issue `session/new` to create a session and receive a `sessionId`,
-then reference it on subsequent `session/load`/`session/prompt`/
-`session/cancel` calls. There is no spawn-time `--session-id` flag —
-that's a Claude-only feature; see `docs/cli-options-research.md` for
-the cross-backend session-management table.
+Once the `app-server` migration lands (Option A), session lifecycle is
+owned in-band over JSON-RPC: clients issue `thread/new` (codex's
+equivalent of `session/new`) and reference the resulting thread id on
+subsequent `turn/start`/`turn/cancel` calls. The project's internal ACP
+shape (`session/new`/`session/prompt`/`session/cancel`) is what the
+`lib/translate/codex-app-server.mjs` translator will map onto codex's
+schema in both directions.
 
-For non-ACP (stateless) operation, callers spawn `codex exec <prompt>`
-directly via `Bash`; that path is not exposed through this backend
-because the runtime always uses ACP for streaming.
+For stateless one-shot operation today, callers use the
+`runCodexExec` runner (`lib/runners/codex-exec.mjs`) which spawns
+`codex exec --json <prompt>` per turn. The stateless path IS exposed
+through the project — via `runStatelessTurn(BACKEND_NAMES.CODEX, ...)`
+from `lib/runners/dispatch.mjs` — it's just not exposed through
+`codexBackend.transports.cli` because that factory targets the
+long-running server mode.
 
 ## Wire log
 
@@ -102,10 +121,18 @@ Or pass an explicit path via `command: "/path/to/codex"`.
 `OPENAI_API_KEY` in env, or pass `-c api_key=...` via `extraArgs`.
 
 **`--effort: unknown flag`** — the running codex version doesn't accept
-`--effort` on `acp`. Drop the option from `BackendConfig` (or upgrade
-codex). The CliTransport will surface this as a child exit + a
-`worker_missing` health transition; the AcpClient rejects pending
-requests so the failure is observable, not silent.
+`--effort` on the chosen subcommand. The flag lives on `codex exec` and
+certain other subcommands but not on every entry point. Drop the
+option from `BackendConfig` (or upgrade codex). The CliTransport will
+surface this as a child exit + a `worker_missing` health transition;
+the AcpClient rejects pending requests so the failure is observable,
+not silent.
+
+**`codex acp` falls through to the interactive TUI** — the `acp`
+subcommand was removed upstream as of codex 0.130.0+; only the
+declared transport hits this path. The slash-command runners use
+`codex exec` so they are not affected. The fix is the `app-server`
+migration tracked in the openspec change above.
 
 **Health stuck at `worker_missing` shortly after start** — the codex
 child exited unexpectedly. Check stderr; the most common cause is an

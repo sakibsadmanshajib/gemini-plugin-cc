@@ -15,9 +15,13 @@ All three runners are dispatched via `runStatelessTurn(BACKEND_NAMES.<X>, option
 
 ## Why stateless runners exist
 
-The primary path for the runtime is **ACP mode** — long-running
-`gemini --acp` / `codex acp` subprocesses driven by `runAcpPrompt`. The
-stateless runners exist for:
+The intended primary path for the runtime is **ACP mode** —
+long-running CLI subprocesses driven by `runAcpPrompt`. Today only
+`gemini --acp` is live; codex's `acp` subcommand was removed upstream
+in 0.130.0+ and the warm-path replacement (`codex app-server` plus
+the `lib/translate/codex-app-server.mjs` translator) is not yet
+landed. Until it lands, the codex runtime path goes through the
+stateless runner. The stateless runners also exist for:
 
 1. **Claude support** — the Claude CLI doesn't ship ACP mode yet, so
    `runClaudePrint` is the only way to drive Claude through this

@@ -84,6 +84,7 @@
     "ai-delegation"
   ],
   "dependencies": {
+    "@agentclientprotocol/claude-agent-acp": "0.33.1",
     "commander": "14.0.3",
     "raw-body": "3.0.2"
   }

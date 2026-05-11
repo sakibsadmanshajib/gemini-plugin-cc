@@ -1,14 +1,70 @@
 # Claude backend
 
-The Claude backend (`lib/backends/claude.mjs`) is declared for parity with
-Gemini and Codex but is **not yet callable** — Anthropic's `claude` CLI
-does not currently support ACP mode. Calling `transports.cli({...}).start()`
-throws an actionable error:
+> **Streaming status (2026-05-11):** Claude has a live warm-path
+> streaming runner via `@agentclientprotocol/claude-agent-acp` (Zed's
+> ACP wrapper around the Claude Agent SDK), enabled with
+> `useStreaming: true` / `ARTAGON_STREAMING=1`. The
+> `claudeBackend.transports.cli` declaration in `lib/backends/claude.mjs`
+> is still parked because Anthropic's `claude` CLI has no `acp`
+> subcommand — that direct path will land if/when upstream ships it.
+> See `lib/runners/streaming/claude-streaming.mjs` and the **Streaming
+> mode** section below.
+
+## Streaming mode (warm path)
+
+The streaming runner spawns `@agentclientprotocol/claude-agent-acp`
+(bundled as a dependency) and drives it over standard Zed ACP
+(`initialize`, `session/new`, `session/prompt`, `session/update`). It
+behaves like `gemini-streaming.mjs` from the caller's perspective —
+the supervisor manages start / idle reap / restart; the dispatcher
+opts in via `useStreaming: true` or `ARTAGON_STREAMING=1`.
+
+Cost records emit `transport: "claude-agent-acp"` (distinct from
+gemini's `"acp-server"`) so per-backend warm-path latency stays
+separable in `bin/artagon-stats.mjs` aggregations.
+
+### Auth divergence — important
+
+The streaming runner does NOT use the `claude` CLI's auth state. It
+inherits whatever credentials the `@anthropic-ai/claude-agent-sdk`
+finds at startup:
+
+| Source                                             | Works with streaming runner?                      |
+| -------------------------------------------------- | ------------------------------------------------- |
+| `ANTHROPIC_API_KEY` env var                        | ✓ (Anthropic Console billing)                     |
+| `claude login` (Claude Pro/Max OAuth)              | ✓ (the agent SDK reuses these creds when present) |
+| Custom gateway via `auth._meta.gateway` capability | ✓ (advanced)                                      |
+
+If neither is configured, `session/new` errors out at start time with
+an actionable message and the dispatcher falls back to the cold-start
+`runClaudePrint` path automatically. Operators who only want the CLI
+path can opt out with `disableStreaming: true` or omit
+`ARTAGON_STREAMING=1`.
+
+### Tool surface divergence
+
+`claude-agent-acp` uses the **Claude Agent SDK's** tool implementations
+(Read, Write, Bash, etc., as defined by the SDK). These overlap with —
+but are not identical to — the `claude` CLI's tools. If a slash
+command depends on a specific CLI-only tool, route it through the
+stateless `runClaudePrint` path instead.
+
+## Stateless (cold-start) path
+
+The Claude backend (`lib/backends/claude.mjs`) is also declared for
+parity with Gemini and Codex but its **`transports.cli` is not yet
+callable** — Anthropic's `claude` CLI does not currently support ACP
+mode. Calling `transports.cli({...}).start()` throws an actionable
+error:
 
 > `Claude CLI does not yet support ACP mode. The Claude backend is declared for parity with codex/gemini but is not callable until upstream ships ACP support.`
 
 The infrastructure is built so the swap is one-line when ACP arrives:
 replace `createNotYetSupportedTransport` with `createCliTransport({ command: "claude", args: buildClaudeArgs(config), ... })`.
+
+Slash commands today still go through the stateless `runClaudePrint`
+runner (`claude --print --output-format=stream-json --verbose`) when
+streaming is not enabled.
 
 ## Why declare a non-functional backend?
 

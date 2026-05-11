@@ -44,16 +44,22 @@ session flags only apply outside ACP mode (interactive or `--prompt`).
 
 ## Codex (`codex`)
 
-Distinct subcommand surface. ACP mode is `codex acp`; stateless is
-`codex exec`. Sessions are persisted to `~/.codex/...` and addressed by
-UUID or thread name.
+Distinct subcommand surface. The long-running JSON-RPC server today is
+`codex app-server` (replaced the earlier `codex acp` subcommand, which
+is gone in 0.130.0+; older notes in this doc still reference `codex
+acp` for historical context — see `docs/backends/codex.md` for the
+migration status). Stateless is `codex exec`. Sessions are persisted
+to `~/.codex/...` and addressed by UUID or thread name.
 
 ### Session passing
 
-- **In ACP mode** (`codex acp`): same as Gemini — `session/new`/`session/load`
-  via JSON-RPC. No spawn-time flag.
-- **Outside ACP**: no `--session-id` flag at spawn; sessions are addressed
-  via subcommands.
+- **In the long-running server** (`codex app-server`): codex's own
+  JSON-RPC 2.0 with `thread/new` / `thread/load` / `turn/start` /
+  `turn/cancel`. NOT Zed's ACP `session/*` wire format; the project's
+  internal ACP shape must be translated via
+  `lib/translate/codex-app-server.mjs` (pending).
+- **Outside the server**: no `--session-id` flag at spawn; sessions
+  are addressed via subcommands.
 
 ### Resume
 
@@ -168,8 +174,10 @@ or downstream.
 - `codex exec -o, --output-last-message <file>` — write the final
   assistant message to a file (text). Useful for shell pipelines that
   only care about the final answer.
-- `codex acp` — speaks JSON-RPC over stdio; output format is fixed by
-  the protocol (no flag to select).
+- `codex app-server --listen stdio://` — speaks JSON-RPC 2.0 over the
+  chosen transport (`stdio://` default, `unix://PATH`, `ws://IP:PORT`,
+  or `off`); output format is fixed by the protocol (no flag to
+  select). Replaced the removed `codex acp` subcommand.
 
 ### Claude
 
