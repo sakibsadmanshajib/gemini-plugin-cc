@@ -40,6 +40,7 @@ import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { createCliTransport } from "#lib/transport/cli.mjs";
+import { openWireLog } from "#lib/wire-log.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
 
@@ -65,6 +66,7 @@ const CLIENT_INFO = Object.freeze({
  *   command?: string,
  *   args?: string[],
  *   model?: string,
+ *   context?: import("#lib/agent-context.mjs").AgentContext,
  *   createTransport?: typeof createCliTransport,
  *   createClient?: typeof createAcpClient
  * }} CreateCodexStreamingOptions
@@ -87,6 +89,10 @@ export function createCodexStreamingRunner(options = {}) {
   const command = options.command ?? DEFAULT_COMMAND;
   const args = options.args ?? DEFAULT_ARGS;
   const defaultModel = options.model;
+  // Wire-log is bound at construction time — the supervisor caches
+  // this runner, so subsequent turns share the binding. `--wire-log`
+  // on turn N>1 won't reconfigure the transport; documented limitation.
+  const factoryLogging = options.context?.logging;
   const transportFactory = options.createTransport ?? createCliTransport;
   const clientFactory = options.createClient ?? createAcpClient;
 
@@ -238,7 +244,8 @@ export function createCodexStreamingRunner(options = {}) {
         command,
         args,
         env,
-        cwd
+        cwd,
+        wireLog: openWireLog(factoryLogging)
       });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);

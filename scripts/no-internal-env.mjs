@@ -46,15 +46,23 @@ const ALLOWLIST = new Set([path.join(LIB_ROOT, "agent-context.mjs")]);
 /**
  * Regex matching internal env-var reads. Captures the variable name
  * for the error message. Matches:
- *   process.env.ARTAGON_FOO
+ *   process.env.ARTAGON_FOO              ← property access
  *   process.env.ACP_WIRE_LOG_FOO
  *   env.ARTAGON_FOO   (where `env` is any identifier)
  *   env.ACP_WIRE_LOG
- *   env["ARTAGON_FOO"]
+ *   env["ARTAGON_FOO"]                   ← bracket access
  *   env["ACP_WIRE_LOG"]
+ *   const { ARTAGON_FOO } = process.env  ← destructuring (caught by the
+ *                                          internal-keys alternation
+ *                                          paired with `}` lookahead)
+ *
+ * The destructuring case matters because `const { ARTAGON_X } = process.env`
+ * looks like a plain object-destructure to a syntactic regex, NOT like a
+ * property access. An earlier version of this guard missed it; an
+ * adversarial review caught the hole.
  */
 const VIOLATION =
-  /\b\w+\.env\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\b\w+\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\benv\[["'](ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)["']\]/g;
+  /\b\w+\.env\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\b\w+\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\benv\[["'](ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)["']\]|\{[^}]*\b(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b[^}]*\}\s*=\s*\w+\.env\b/g;
 
 /** @type {{ file: string, line: number, content: string }[]} */
 const violations = [];

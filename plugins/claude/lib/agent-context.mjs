@@ -216,6 +216,33 @@ export function withOverrides(ctx, overrides = {}) {
 }
 
 /**
+ * Migration shim for the `AgentContext` schema. Today the only version
+ * is `1`, so this is an identity for matching contexts and a loud
+ * failure for anything else. Adding a real migration path here is the
+ * supported escape hatch when the context shape evolves — callers that
+ * load a serialized context from disk / cross-process can run it
+ * through `migrateAgentContext` to either get a current-schema object
+ * back or fail at the boundary with an actionable error, rather than
+ * silently mis-reading fields that moved.
+ *
+ * Without this function, the `schemaVersion` field is unread ceremony.
+ *
+ * @param {{ schemaVersion?: number } & Record<string, any>} ctx
+ * @returns {AgentContext}
+ */
+export function migrateAgentContext(ctx) {
+  if (!ctx || typeof ctx !== "object") {
+    throw new TypeError("migrateAgentContext: ctx must be an object");
+  }
+  if (ctx.schemaVersion === 1) {
+    return /** @type {AgentContext} */ (ctx);
+  }
+  throw new Error(
+    `migrateAgentContext: unsupported schemaVersion ${JSON.stringify(ctx.schemaVersion)}; expected 1`
+  );
+}
+
+/**
  * Boundary builder: parse argv into flags, layer env-var fallback,
  * audit env for typos / mixed-source disagreement, and construct the
  * frozen context. This is the **one place** in the project where the

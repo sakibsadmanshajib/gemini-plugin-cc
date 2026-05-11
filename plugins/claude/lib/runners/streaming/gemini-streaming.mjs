@@ -39,6 +39,7 @@ import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { translateGeminiStreamEvent } from "#lib/translate/gemini-stream.mjs";
 import { findActiveBroker } from "#lib/transport/broker-probe.mjs";
 import { createBrokerSocketTransport } from "#lib/transport/broker-socket.mjs";
+import { openWireLog } from "#lib/wire-log.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
 
@@ -59,6 +60,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
  *   protocolVersion?: number,
+ *   context?: import("#lib/agent-context.mjs").AgentContext,
  *   probe?: typeof findActiveBroker,
  *   createTransport?: typeof createBrokerSocketTransport,
  *   createClient?: typeof createAcpClient
@@ -79,6 +81,9 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
 export function createGeminiStreamingRunner(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
+  // Wire-log binding is captured at construction; supervisor reuses
+  // the runner across turns. `--wire-log` on later turns won't rebind.
+  const factoryLogging = options.context?.logging;
   const probe = options.probe ?? findActiveBroker;
   const transportFactory = options.createTransport ?? createBrokerSocketTransport;
   const clientFactory = options.createClient ?? createAcpClient;
@@ -177,7 +182,10 @@ export function createGeminiStreamingRunner(options = {}) {
           "createGeminiStreamingRunner: no live broker for cwd; start `gemini --acp` first"
         );
       }
-      transport = transportFactory({ endpoint });
+      transport = transportFactory({
+        endpoint,
+        wireLog: openWireLog(factoryLogging)
+      });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);
       try {

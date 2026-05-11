@@ -274,3 +274,63 @@ test("createSupervisor rejects missing factory", () => {
   // @ts-expect-error intentional: we are testing the runtime guard
   expect(() => createSupervisor({})).toThrow(/factory/);
 });
+
+test("runTurn forwards (turnOpts, context) to the wrapped runner verbatim — one supervisor, two contexts", async () => {
+  // Pins the v2-plan design promise: the supervisor is cached by
+  // (backend, cwd), but per-turn context flows through `runTurn`.
+  // Turn 1 with context A, turn 2 with context B — the same runner
+  // instance receives both contexts unchanged. Without this test the
+  // whole "context-per-turn" claim is unverified.
+  /** @type {Array<{ opts: any, context: any }>} */
+  const captured = [];
+  const capturingFactory = () => ({
+    async start() {
+      state.started += 1;
+    },
+    async runTurn(opts, context) {
+      captured.push({ opts, context });
+      return /** @type {any} */ ({
+        text: "ok",
+        thoughtText: "",
+        chunkCount: 0,
+        chunkChars: 0,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: null,
+        reason: null,
+        model: null,
+        updates: []
+      });
+    },
+    async close() {
+      state.closed += 1;
+    },
+    health() {
+      return "healthy";
+    }
+  });
+  const sup = createSupervisor({ factory: capturingFactory });
+
+  const ctxA = {
+    dispatch: { streaming: "on" },
+    cost: { logPath: "/tmp/a.jsonl" }
+  };
+  const ctxB = {
+    dispatch: { streaming: "on" },
+    cost: { logPath: "/tmp/b.jsonl" }
+  };
+
+  await sup.runTurn({ prompt: "first" }, /** @type {any} */ (ctxA));
+  await sup.runTurn({ prompt: "second" }, /** @type {any} */ (ctxB));
+
+  expect(state.started).toBe(1); // supervisor reused — only ONE start()
+  expect(captured).toHaveLength(2);
+  expect(captured[0].opts.prompt).toBe("first");
+  expect(captured[0].context).toBe(ctxA);
+  expect(captured[1].opts.prompt).toBe("second");
+  expect(captured[1].context).toBe(ctxB);
+  // Same runner instance, different per-turn contexts — confirms the
+  // "supervisor caches, context flows per-turn" design.
+});

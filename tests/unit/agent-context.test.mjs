@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   buildAgentContextFromArgv,
   createAgentContext,
+  migrateAgentContext,
   withOverrides
 } from "#lib/agent-context.mjs";
 
@@ -144,11 +145,51 @@ describe("createAgentContext", () => {
     const ctx = createAgentContext({ env: /** @type {any} */ (custom) });
     expect(ctx.env).toBe(custom);
   });
+
+  test("env field stays mutable so spawned children inherit live changes — documented contract", () => {
+    // The outer context is frozen, but `context.env` is intentionally
+    // NOT (per the typedef): `NodeJS.ProcessEnv` is what
+    // `child_process.spawn` reads to construct the child's environment,
+    // and tests / wrappers commonly add keys to it just before spawn.
+    // Freezing it would surprise callers in ways that don't fit the
+    // "internal config in context, host env unchanged" contract.
+    const custom = { FOO: "bar" };
+    const ctx = createAgentContext({ env: /** @type {any} */ (custom) });
+    expect(Object.isFrozen(ctx.env)).toBe(false);
+    // Demonstrate: live mutation is intentionally possible.
+    /** @type {any} */ (ctx.env).BAZ = "qux";
+    expect(ctx.env.BAZ).toBe("qux");
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────
 // withOverrides
 // ──────────────────────────────────────────────────────────────────────
+
+describe("migrateAgentContext", () => {
+  test("returns the context unchanged when schemaVersion === 1", () => {
+    const ctx = createAgentContext();
+    expect(migrateAgentContext(ctx)).toBe(ctx);
+  });
+
+  test("throws on unknown schemaVersion with the offending value cited", () => {
+    expect(() => migrateAgentContext({ schemaVersion: 2 })).toThrow(
+      /unsupported schemaVersion 2.*expected 1/
+    );
+    expect(() => migrateAgentContext({ schemaVersion: "1" })).toThrow(
+      /unsupported schemaVersion "1".*expected 1/
+    );
+  });
+
+  test("throws on missing schemaVersion", () => {
+    expect(() => migrateAgentContext({})).toThrow(/unsupported schemaVersion undefined/);
+  });
+
+  test("throws on non-object input", () => {
+    expect(() => migrateAgentContext(/** @type {any} */ (null))).toThrow(TypeError);
+    expect(() => migrateAgentContext(/** @type {any} */ ("ctx"))).toThrow(TypeError);
+  });
+});
 
 describe("withOverrides", () => {
   test("returns a NEW context; original untouched", () => {
@@ -347,6 +388,18 @@ describe("buildAgentContextFromArgv:mixed-source", () => {
     const env = withVar("ARTAGON_DISABLE_BROKER", "0");
     expect(() => buildAgentContextFromArgv(["--no-broker", "x"], env)).toThrow(
       /--no-broker.*ARTAGON_DISABLE_BROKER/
+    );
+  });
+
+  test("--facade flag + ARTAGON_USE_FACADE=0 → throws with both sources cited", () => {
+    // Sibling to the streaming case; same mergeTri code path. Without
+    // this test, the facade-tri-state branch is unverified.
+    const env = {
+      ...withVar("ARTAGON_USE_FACADE", "0"),
+      ARTAGON_FACADE_API_KEY: "tok"
+    };
+    expect(() => buildAgentContextFromArgv(["--facade", "x"], env)).toThrow(
+      /--facade.*ARTAGON_USE_FACADE.*Unset one/
     );
   });
 });

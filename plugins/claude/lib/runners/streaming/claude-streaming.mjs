@@ -50,6 +50,7 @@ import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { createCliTransport } from "#lib/transport/cli.mjs";
+import { openWireLog } from "#lib/wire-log.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
 
@@ -76,6 +77,7 @@ const CLIENT_CAPABILITIES = Object.freeze({
  *   args?: string[],
  *   protocolVersion?: number,
  *   model?: string,
+ *   context?: import("#lib/agent-context.mjs").AgentContext,
  *   createTransport?: typeof createCliTransport,
  *   createClient?: typeof createAcpClient,
  *   resolveEntry?: () => string
@@ -106,6 +108,9 @@ export function createClaudeStreamingRunner(options = {}) {
   const cwd = options.cwd ?? process.cwd();
   const env = options.env ?? process.env;
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
+  // Wire-log binding is captured at construction; supervisor reuses
+  // the runner across turns. `--wire-log` on later turns won't rebind.
+  const factoryLogging = options.context?.logging;
   const transportFactory = options.createTransport ?? createCliTransport;
   const clientFactory = options.createClient ?? createAcpClient;
   const resolveEntry = options.resolveEntry ?? defaultResolveEntry;
@@ -205,7 +210,8 @@ export function createClaudeStreamingRunner(options = {}) {
         command,
         args: resolvedArgs,
         env,
-        cwd
+        cwd,
+        wireLog: openWireLog(factoryLogging)
       });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);

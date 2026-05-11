@@ -89,13 +89,34 @@ export function getStreamingRunner(backend, opts = {}) {
  * @returns {(() => StreamingRunner) | null}
  */
 function factoryFor(backend, ctx) {
+  // The supervisor caches one runner per (backend, cwd). Wire-log
+  // binding is captured at THIS construction time — the runner's
+  // transport opens its log fd on `start()` using `ctx.context.logging`,
+  // and subsequent turns reuse that binding. Changing `--wire-log` at
+  // turn N>1 won't reconfigure the transport (documented limitation;
+  // operators must `shutdownAllStreamingRunners()` to rebind).
   switch (backend) {
     case BACKEND_NAMES.GEMINI:
-      return () => createGeminiStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
+      return () =>
+        createGeminiStreamingRunner({
+          cwd: ctx.cwd,
+          env: ctx.env,
+          context: ctx.context
+        });
     case BACKEND_NAMES.CODEX:
-      return () => createCodexStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
+      return () =>
+        createCodexStreamingRunner({
+          cwd: ctx.cwd,
+          env: ctx.env,
+          context: ctx.context
+        });
     case BACKEND_NAMES.CLAUDE:
-      return () => createClaudeStreamingRunner({ cwd: ctx.cwd, env: ctx.env });
+      return () =>
+        createClaudeStreamingRunner({
+          cwd: ctx.cwd,
+          env: ctx.env,
+          context: ctx.context
+        });
     default:
       return null;
   }
