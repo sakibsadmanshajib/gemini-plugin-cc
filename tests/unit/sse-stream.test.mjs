@@ -181,3 +181,37 @@ test("J5: TextDecoder is flushed at end-of-stream", async () => {
   await consumeSseStream(fakeResponse([sse]), turn);
   expect(turn.text).toBe("end");
 });
+
+test("N1 (round-9): throwing onUpdate routes to stderr once + accumulator stays correct", async () => {
+  // Round-7 silent-failure reviewer flagged: a throwing onUpdate (EPIPE
+  // on slash-command stdout, downstream JSON-stringify bug) used to be
+  // silently swallowed. Now stderr-logged once per turn; accumulator
+  // continues so the final text is still correct.
+  const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  const sse =
+    'data: {"choices":[{"delta":{"content":"first"}}]}\n\n' +
+    'data: {"choices":[{"delta":{"content":"second"}}]}\n\n' +
+    'data: {"choices":[{"finish_reason":"stop"}]}\n\n' +
+    "data: [DONE]\n\n";
+  const turn = newTurn();
+  const onUpdate = vi.fn(() => {
+    throw new Error("downstream EPIPE");
+  });
+
+  await consumeSseStream(fakeResponse([sse]), turn, onUpdate);
+
+  // Accumulator state is correct despite the callback throws.
+  expect(turn.text).toBe("firstsecond");
+  expect(turn.reason).toBe("stop");
+  // onUpdate was called for each delta even though it threw.
+  expect(onUpdate).toHaveBeenCalledTimes(2);
+  // Stderr was written EXACTLY ONCE (latch suppresses repeats so a
+  // broken callback can't fill the daemon log).
+  const facadeWrites = stderrSpy.mock.calls
+    .map((c) => String(c[0]))
+    .filter((s) => s.startsWith("[facade] onUpdate threw"));
+  expect(facadeWrites).toHaveLength(1);
+  expect(facadeWrites[0]).toMatch(/downstream EPIPE/);
+
+  stderrSpy.mockRestore();
+});

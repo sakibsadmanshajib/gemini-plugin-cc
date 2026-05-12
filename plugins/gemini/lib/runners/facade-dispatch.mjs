@@ -258,12 +258,30 @@ export async function runViaFacade(backend, options, context) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
+    // N2 (round-9): error responses may still carry an OpenAI-shape
+    // body with `model` + `usage` (notably 429 with rate-limit detail,
+    // 502 with the backend's partial token tally). Parse opportunistically
+    // so the cost record reflects what the daemon actually billed. A
+    // malformed body just falls back to model=null/usage=null.
+    /** @type {string | null} */
+    let errModel = null;
+    /** @type {any} */
+    let errUsage = null;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed === "object") {
+        if (typeof parsed.model === "string") errModel = parsed.model;
+        if (parsed.usage && typeof parsed.usage === "object") errUsage = parsed.usage;
+      }
+    } catch {
+      // body wasn't JSON; ok as-is
+    }
     appendCostRecord(
       {
         backend,
-        model: null,
+        model: errModel,
         promptChars: options.prompt.length,
-        usage: normalizeUsage(null),
+        usage: normalizeUsage(errUsage),
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
@@ -380,6 +398,10 @@ export async function consumeSseStream(response, turn, onUpdate) {
   // emit more events; we MUST ignore them so they don't appear in the
   // user's transcript.
   let doneSeen = false;
+  // N1 (round-9): one-shot latch so a permanently-broken onUpdate
+  // doesn't fill the daemon log with one stderr line per chunk. First
+  // throw surfaces; subsequent throws are swallowed.
+  let onUpdateErrorLogged = false;
   const parser = createParser({
     onEvent(event) {
       if (doneSeen) return;
@@ -406,8 +428,21 @@ export async function consumeSseStream(response, turn, onUpdate) {
               sessionUpdate: "agent_message_chunk",
               content: { text: deltaContent }
             });
-          } catch {
-            // caller bug; best-effort
+          } catch (cbErr) {
+            // N1 (round-9): a throwing onUpdate (slash-command stdout
+            // EPIPE, downstream JSON-stringify bug, etc.) used to be
+            // silently swallowed. The accumulator state stays correct
+            // so we continue the stream, but we route the error to
+            // stderr once so operators see why their callback isn't
+            // firing — a fully silent callback is the kind of bug
+            // that hides for weeks.
+            if (!onUpdateErrorLogged) {
+              onUpdateErrorLogged = true;
+              const msg = cbErr instanceof Error ? cbErr.message : String(cbErr);
+              process.stderr.write(
+                `[facade] onUpdate threw: ${msg} (further callback errors suppressed for this turn)\n`
+              );
+            }
           }
         }
       }

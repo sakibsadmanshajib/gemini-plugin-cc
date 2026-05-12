@@ -113,6 +113,72 @@ test("HTTP non-2xx → reject with status text", async () => {
   );
 });
 
+test("N2 (round-9): non-2xx body with model+usage → cost record captures both", async () => {
+  // Real-world: a 429 from an upstream provider often returns an
+  // OpenAI-shape body with `model` + `usage` (the request was billed
+  // even though it failed). Previously the cost record had model:null,
+  // usage:null — operator stats undercounted. Now we opportunistically
+  // parse the error body.
+  const errBody = JSON.stringify({
+    error: { message: "rate limit", type: "rate_limit_error" },
+    model: "claude-opus-4-7",
+    usage: { prompt_tokens: 12, completion_tokens: 0, total_tokens: 12 }
+  });
+  fetchMock.mockResolvedValueOnce(
+    new Response(errBody, {
+      status: 429,
+      statusText: "Too Many Requests",
+      headers: { "Content-Type": "application/json" }
+    })
+  );
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hello there" })).rejects.toThrow(
+    /429/
+  );
+
+  const logPath = path.join(tmpCostHome, "artagon-agent-cli-plugin", "cost.jsonl");
+  expect(fs.existsSync(logPath)).toBe(true);
+  const records = fs
+    .readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({
+    backend: BACKEND_NAMES.CLAUDE,
+    model: "claude-opus-4-7",
+    ok: false,
+    transport: "facade"
+  });
+  // The usage field is normalized by normalizeUsage; just verify the
+  // prompt_tokens propagated rather than being lost as null.
+  expect(records[0].usage).toBeTruthy();
+  expect(records[0].usage.prompt_tokens ?? records[0].usage.input_tokens).toBe(12);
+});
+
+test("N2: non-2xx body that isn't JSON gracefully falls back to model:null/usage:null", async () => {
+  // Don't crash on garbage HTML / text/plain error bodies.
+  fetchMock.mockResolvedValueOnce(
+    new Response("<html><body>503 Bad Gateway</body></html>", {
+      status: 503,
+      statusText: "Service Unavailable"
+    })
+  );
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(/503/);
+
+  const logPath = path.join(tmpCostHome, "artagon-agent-cli-plugin", "cost.jsonl");
+  const records = fs
+    .readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({
+    ok: false,
+    transport: "facade",
+    model: null
+  });
+});
+
 test("tool_calls in response → mapped to TurnResult.toolCalls", async () => {
   fetchMock.mockResolvedValueOnce(
     jsonResponse({
