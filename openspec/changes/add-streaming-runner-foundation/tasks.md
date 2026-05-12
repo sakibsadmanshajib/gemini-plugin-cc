@@ -45,6 +45,9 @@
       Phase 0/2 latches) so failure spam is bounded to one stderr line
       per process
 - [x] 3.4 `_resetBrokerWarningForTest` resets the new latch too
+      (REMOVED in K3 post-Step 5: the broker-fallback machinery and
+      all its warning latches no longer exist, so the test helper had
+      no behavior to reset and was deleted from `lib/runners/dispatch.mjs`)
 - [x] 3.5 Unit tests (10 cases): opt-in routing, env opt-in, veto
       precedence, null-runner silent fall-through, error fallback +
       warning, repeated-failure single-warn, prompt/cwd/model/onUpdate

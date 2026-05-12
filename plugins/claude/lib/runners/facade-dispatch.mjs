@@ -192,17 +192,33 @@ export async function runViaFacade(backend, options, context) {
     // instead of seeing "fetch failed".
     const cause = /** @type {any} */ (err)?.cause;
     const code = cause?.code ?? /** @type {any} */ (err)?.code;
-    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ECONNRESET") {
-      // K2: the manifest claims a live daemon (its pid is alive — readManifest
-      // gates on that) but the listening socket is unreachable. The daemon
-      // crashed or is mid-shutdown; the manifest is stale. Delete it so the
-      // next slash-command's auto-start sees a clean slate and spawns a
-      // fresh daemon instead of getting refused again.
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND") {
+      // K2 (L1-tightened): ECONNREFUSED ("nobody listening") and ENOTFOUND
+      // ("can't resolve host") are unambiguously fatal — the manifest claims
+      // a live daemon but it can't be reached at all. Wipe the manifest so
+      // the next slash-command's auto-start spawns a fresh daemon instead
+      // of getting refused again.
+      //
+      // ECONNRESET is intentionally NOT in the wipe set: it can fire mid-
+      // request when a single connection drops while the daemon stays up
+      // serving other concurrent clients. Unlinking the manifest on a
+      // single-connection reset would yank the daemon's discovery file
+      // out from under healthy parallel requests.
       deleteManifest(context?.env ?? options.env ?? process.env);
       throw new Error(
         `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
           "Stale manifest deleted — retry the command and it will auto-start a new daemon, " +
           "or pass --no-facade to bypass."
+      );
+    }
+    if (code === "ECONNRESET") {
+      // Daemon is up but THIS connection dropped (mid-stream close, idle-
+      // timeout, upstream proxy reset). Surface an actionable error
+      // without touching the manifest.
+      throw new Error(
+        `runViaFacade: connection to artagon-openai-server at http://${manifest.host}:${manifest.port} reset (${code}). ` +
+          "The daemon is still serving other requests — retry the command, " +
+          "or restart the daemon if this repeats."
       );
     }
     throw err;

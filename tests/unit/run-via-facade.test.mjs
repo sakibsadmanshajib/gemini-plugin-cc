@@ -270,3 +270,19 @@ test("K2: non-network rejection (e.g. AbortError) does NOT delete manifest", asy
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(/aborted/);
   expect(deleteManifest).not.toHaveBeenCalled();
 });
+
+test("L1: ECONNRESET surfaces 'connection reset' error WITHOUT wiping manifest", async () => {
+  // ECONNRESET means "this connection dropped" — the daemon process may
+  // still be alive and serving other concurrent requests. Wiping the
+  // manifest would yank the discovery file out from under healthy
+  // parallel requests.
+  vi.mocked(deleteManifest).mockReset();
+  const netErr = /** @type {any} */ (new Error("socket hang up"));
+  netErr.cause = { code: "ECONNRESET" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /connection.*reset.*ECONNRESET/i
+  );
+  expect(deleteManifest).not.toHaveBeenCalled();
+});
