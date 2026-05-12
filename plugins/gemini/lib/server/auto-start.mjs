@@ -46,6 +46,17 @@ const MANIFEST_POLL_INTERVAL_MS = 100;
 const MANIFEST_POLL_TIMEOUT_MS = 5_000;
 const LOCK_STALE_MS = 10_000;
 
+// Q4 (round-11): disk-backed circuit breaker for sustained-crash
+// daemons. Each slash-command invocation is a fresh process, so an
+// in-memory counter can't track operator-driven retry loops. We
+// persist the timestamps of the last N failed auto-starts to JSON
+// and refuse a new spawn when there are too many recent failures.
+// The operator is told to look at the boot log instead of getting
+// "retry the command" advice that will fail the same way again.
+const FAILURE_LOG_FILENAME = "auto-start-failures.json";
+const FAILURE_WINDOW_MS = 5 * 60_000; // 5 minutes
+const FAILURE_THRESHOLD = 3; // 3 failures in window → tripped
+
 /**
  * Resolve the absolute path to the `artagon-openai-server` bin.
  *
@@ -88,6 +99,82 @@ function sleep(ms) {
 }
 
 /**
+ * Q4 circuit breaker — read the recent-failure log and return the
+ * count of failures inside the rolling window. Stale entries outside
+ * the window are pruned (returned as the new on-disk shape) so the
+ * file doesn't grow unboundedly across operator sessions.
+ *
+ * @param {string} failureLogPath
+ * @param {number} nowMs
+ * @returns {{ recentFailures: number[], prunedAny: boolean }}
+ */
+function readFailureLog(failureLogPath, nowMs) {
+  /** @type {number[]} */
+  let timestamps = [];
+  try {
+    const text = fs.readFileSync(failureLogPath, "utf8");
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) {
+      timestamps = parsed.filter((t) => typeof t === "number" && Number.isFinite(t));
+    }
+  } catch {
+    // Missing or malformed file → start fresh. No need to surface
+    // this to the operator; circuit-breaker history is best-effort.
+  }
+  const cutoff = nowMs - FAILURE_WINDOW_MS;
+  const recentFailures = timestamps.filter((t) => t >= cutoff);
+  return {
+    recentFailures,
+    prunedAny: recentFailures.length !== timestamps.length
+  };
+}
+
+/**
+ * Append a fresh failure timestamp to the rolling log. Writes the
+ * pruned + appended list back atomically (temp + rename) so a
+ * crash mid-write can't corrupt the JSON.
+ *
+ * @param {string} failureLogPath
+ * @param {number[]} priorRecent
+ * @param {number} nowMs
+ */
+function appendFailure(failureLogPath, priorRecent, nowMs) {
+  const next = [...priorRecent, nowMs];
+  const tmp = `${failureLogPath}.tmp.${process.pid}`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(next), { mode: 0o600 });
+    fs.renameSync(tmp, failureLogPath);
+  } catch (err) {
+    // Best-effort: a failed write doesn't break the slash-command,
+    // but the next operator retry won't see this failure in the log.
+    // Surface to stderr so a tight crash loop produces SOME signal.
+    process.stderr.write(
+      `[auto-start] failed to record failure timestamp: ${err instanceof Error ? err.message : String(err)}\n`
+    );
+  }
+}
+
+/**
+ * Reset the circuit breaker on successful auto-start. Without this a
+ * historical bad run would stay in the log and block a subsequent
+ * fix the operator made — even though the daemon is now healthy.
+ *
+ * @param {string} failureLogPath
+ */
+function clearFailureLog(failureLogPath) {
+  try {
+    fs.unlinkSync(failureLogPath);
+  } catch (err) {
+    if (/** @type {NodeJS.ErrnoException} */ (err).code !== "ENOENT") {
+      // Same best-effort posture as appendFailure.
+      process.stderr.write(
+        `[auto-start] failed to clear failure log: ${err instanceof Error ? err.message : String(err)}\n`
+      );
+    }
+  }
+}
+
+/**
  * Auto-start the facade daemon if no manifest is present (or the
  * manifest is stale). Returns the manifest once the daemon is reachable.
  *
@@ -126,6 +213,23 @@ export async function autoStartFacade(options = {}) {
   const { dir } = manifestPaths(env);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const lockPath = path.join(dir, LOCK_FILENAME);
+  const failureLogPath = path.join(dir, FAILURE_LOG_FILENAME);
+
+  // Q4: circuit-breaker check BEFORE acquiring the spawn lock. If
+  // the operator's daemon has crashed N times in the recent window
+  // (typically a misconfiguration that won't fix itself), refuse to
+  // spawn another and point them at the boot log. The breaker resets
+  // automatically once a daemon stays up — see clearFailureLog below.
+  const nowMs = Date.now();
+  const { recentFailures } = readFailureLog(failureLogPath, nowMs);
+  if (recentFailures.length >= FAILURE_THRESHOLD) {
+    const windowMin = Math.round(FAILURE_WINDOW_MS / 60_000);
+    throw new Error(
+      `auto-start: circuit breaker tripped — daemon failed ${recentFailures.length} times ` +
+        `in the last ${windowMin} minute(s). Fix the underlying issue (check ${logPath}) ` +
+        `and either wait for the breaker to expire or remove ${failureLogPath} to reset.`
+    );
+  }
 
   // Lockfile target must exist before proper-lockfile can lock it.
   try {
@@ -226,22 +330,28 @@ export async function autoStartFacade(options = {}) {
         if (spawnError) {
           /** @type {Error} */
           const err = spawnError;
+          appendFailure(failureLogPath, recentFailures, Date.now());
           throw new Error(
             `auto-start: daemon wrote manifest then crashed (${err.message}). ` +
               `Check ${logPath} for details.`
           );
         }
+        // Q4: successful spawn resets the breaker — operator fixed
+        // whatever was wrong with the previous attempts.
+        clearFailureLog(failureLogPath);
         return manifest;
       }
       // J2: break early when spawn failed (ENOENT/EACCES/non-zero exit).
       // No point in polling further when the child already gave up.
       if (spawnError) {
+        appendFailure(failureLogPath, recentFailures, Date.now());
         throw new Error(
           `auto-start: daemon failed to start (${spawnError.message}). ` +
             `Check ${logPath} for details.`
         );
       }
     }
+    appendFailure(failureLogPath, recentFailures, Date.now());
     throw new Error(
       `auto-start: daemon manifest never appeared at ${manifestPaths(env).file} ` +
         `within ${pollTimeout}ms. Check ${logPath} for daemon stderr.`

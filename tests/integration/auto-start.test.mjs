@@ -172,3 +172,88 @@ test("daemon fails to write manifest → throws with the file path in the messag
 // spawn one. The defensive check stays — it adds zero overhead and
 // closes the narrow window when the exit event fires between the
 // readManifest call and the function returning.
+
+test("Q4 (round-11): circuit breaker — 3 recent failures → refuses to spawn", async () => {
+  // Round-11 reviewer flagged: an operator running a misconfigured
+  // CLI sees an infinite "retry the command" loop because each
+  // failure doesn't accumulate state across slash-command processes.
+  // The disk-backed breaker tracks recent failures and refuses
+  // to spawn after FAILURE_THRESHOLD within FAILURE_WINDOW_MS.
+  const fakeDaemon = writeFakeDaemon();
+  // Pre-seed 3 recent failures so the next attempt trips the breaker
+  // without needing 3 actual spawns in the test.
+  const now = Date.now();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(failureLogPath, JSON.stringify([now - 60_000, now - 30_000, now - 10_000]));
+
+  await expect(
+    autoStartFacade({
+      env: testEnv,
+      daemonBin: fakeDaemon,
+      pollIntervalMs: 20,
+      pollTimeoutMs: 1000
+    })
+  ).rejects.toThrow(/circuit breaker tripped.*3 times/);
+});
+
+test("Q4: stale failures outside the window are ignored — operator wait expired the breaker", async () => {
+  const fakeDaemon = writeFakeDaemon();
+  // All 3 failures are older than the 5-minute window → breaker not tripped.
+  const now = Date.now();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(
+    failureLogPath,
+    JSON.stringify([now - 20 * 60_000, now - 15 * 60_000, now - 10 * 60_000])
+  );
+
+  const manifest = await autoStartFacade({
+    env: testEnv,
+    daemonBin: fakeDaemon,
+    pollIntervalMs: 20,
+    pollTimeoutMs: 3000
+  });
+  expect(manifest.port).toBe(54321);
+});
+
+test("Q4: successful spawn clears the failure log (breaker resets)", async () => {
+  const fakeDaemon = writeFakeDaemon();
+  const now = Date.now();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+  // 2 recent failures: under threshold, breaker allows spawn.
+  fs.writeFileSync(failureLogPath, JSON.stringify([now - 60_000, now - 30_000]));
+
+  await autoStartFacade({
+    env: testEnv,
+    daemonBin: fakeDaemon,
+    pollIntervalMs: 20,
+    pollTimeoutMs: 3000
+  });
+
+  // Log should be cleared so a future failure starts the count fresh.
+  expect(fs.existsSync(failureLogPath)).toBe(false);
+});
+
+test("Q4: a failed spawn appends to the failure log", async () => {
+  const fakeDaemon = writeFakeDaemon();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+
+  await expect(
+    autoStartFacade({
+      env: testEnv,
+      daemonBin: fakeDaemon,
+      args: ["--fail"],
+      pollIntervalMs: 20,
+      pollTimeoutMs: 200
+    })
+  ).rejects.toThrow();
+
+  // The failure log should now exist with one timestamp.
+  expect(fs.existsSync(failureLogPath)).toBe(true);
+  const logged = JSON.parse(fs.readFileSync(failureLogPath, "utf8"));
+  expect(Array.isArray(logged)).toBe(true);
+  expect(logged).toHaveLength(1);
+  expect(typeof logged[0]).toBe("number");
+});
