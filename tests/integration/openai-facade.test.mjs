@@ -1092,3 +1092,68 @@ describe("API-key auth — HTTP behavior", () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe("K1: GET /admin/status", () => {
+  /** @type {ReturnType<typeof createOpenAiFacadeServer>} */
+  let facade;
+  /** @type {string} */
+  let baseUrl;
+
+  afterEach(async () => {
+    if (facade) await facade.close();
+  });
+
+  test("no auth required when apiKey unset → returns daemon health snapshot", async () => {
+    facade = createOpenAiFacadeServer({
+      dispatch: async () => /** @type {any} */ ({})
+    });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+
+    const res = await fetch(`${baseUrl}/admin/status`);
+    expect(res.status).toBe(200);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.pid).toBe(process.pid);
+    expect(typeof body.startedAt).toBe("string");
+    expect(new Date(body.startedAt).toString()).not.toBe("Invalid Date");
+    expect(typeof body.uptimeMs).toBe("number");
+    expect(body.uptimeMs).toBeGreaterThanOrEqual(0);
+    // Empty until first chat-completions request constructs a supervisor.
+    expect(Array.isArray(body.supervisors)).toBe(true);
+    // sqlitePath is null until the first cost-record insert primes
+    // cachedDbPath inside sqlite-recorder. The test doesn't drive any
+    // dispatches, so null is the correct snapshot here.
+    expect(body.stats.failureCount).toBe(0);
+    expect(body.stats.lastWarnedAt).toBeNull();
+    expect(["string", "object"]).toContain(typeof body.stats.sqlitePath);
+    expect(body.auth).toEqual({ required: false });
+  });
+
+  test("bearer-gated when apiKey set — missing key → 401", async () => {
+    facade = createOpenAiFacadeServer({
+      apiKey: "sk-admin",
+      dispatch: async () => /** @type {any} */ ({})
+    });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+
+    const res = await fetch(`${baseUrl}/admin/status`);
+    expect(res.status).toBe(401);
+  });
+
+  test("bearer-gated when apiKey set — correct key → 200 + auth.required=true", async () => {
+    facade = createOpenAiFacadeServer({
+      apiKey: "sk-admin",
+      dispatch: async () => /** @type {any} */ ({})
+    });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+
+    const res = await fetch(`${baseUrl}/admin/status`, {
+      headers: { Authorization: "Bearer sk-admin" }
+    });
+    expect(res.status).toBe(200);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.auth).toEqual({ required: true });
+  });
+});

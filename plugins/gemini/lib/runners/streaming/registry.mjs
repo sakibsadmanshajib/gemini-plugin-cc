@@ -163,6 +163,38 @@ function factoryFor(backend, ctx) {
 }
 
 /**
+ * Snapshot of every currently-cached supervisor's health + last-error.
+ * Returned in deterministic key order so /admin/status responses are
+ * stable. Backends with no cached supervisor are omitted (they have no
+ * runtime state to report — the daemon will lazily construct one on
+ * first request).
+ *
+ * @returns {Array<{
+ *   backend: BackendName,
+ *   health: import("./types.mjs").StreamingHealth,
+ *   lastError: string | null
+ * }>}
+ */
+export function getSupervisorStatuses() {
+  /** @type {Array<{ backend: BackendName, health: import("./types.mjs").StreamingHealth, lastError: string | null }>} */
+  const out = [];
+  for (const [backend, sup] of supervisors.entries()) {
+    /** @type {any} */
+    const supAny = sup;
+    /** @type {Error | null} */
+    const err = typeof supAny.lastError === "function" ? supAny.lastError() : null;
+    out.push({
+      backend: /** @type {BackendName} */ (backend),
+      health: sup.health(),
+      lastError: err instanceof Error ? err.message : null
+    });
+  }
+  // Deterministic order: backend name asc.
+  out.sort((a, b) => (a.backend < b.backend ? -1 : a.backend > b.backend ? 1 : 0));
+  return out;
+}
+
+/**
  * Close + drop every cached supervisor. Used by tests; also safe to
  * call from a process-exit handler if a host wants to reap streaming
  * runners cleanly.

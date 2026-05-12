@@ -95,9 +95,7 @@ function resolveBearer(options, context) {
 export async function runViaFacade(backend, options, context) {
   const manifest = readManifest(context?.env ?? options.env ?? process.env);
   if (!manifest) {
-    throw new Error(
-      "runViaFacade: no running facade found (manifest absent or stale)",
-    );
+    throw new Error("runViaFacade: no running facade found (manifest absent or stale)");
   }
 
   const startedAtMs = Date.now();
@@ -115,10 +113,9 @@ export async function runViaFacade(backend, options, context) {
   // from these so the streaming runner inside the daemon honors them.
   const sessionAction = context?.session?.action;
   if (sessionAction === "resume") {
-    headers["X-Artagon-Session"] =
-      /** @type {{ action: "resume", id: string }} */ (
-        /** @type {any} */ (context.session)
-      ).id;
+    headers["X-Artagon-Session"] = /** @type {{ action: "resume", id: string }} */ (
+      /** @type {any} */ (context.session)
+    ).id;
   } else if (sessionAction === "fresh") {
     headers["X-Artagon-New-Session"] = "1";
   }
@@ -144,7 +141,7 @@ export async function runViaFacade(backend, options, context) {
   const body = JSON.stringify({
     model: resolveModel(backend, options.model),
     messages: [{ role: "user", content: options.prompt }],
-    stream: wantStream,
+    stream: wantStream
   });
 
   const controller = new AbortController();
@@ -164,7 +161,7 @@ export async function runViaFacade(backend, options, context) {
     reason: null,
     model: null,
     sessionId: null,
-    updates: [],
+    updates: []
   };
 
   let response;
@@ -173,7 +170,7 @@ export async function runViaFacade(backend, options, context) {
       method: "POST",
       headers,
       body,
-      signal: controller.signal,
+      signal: controller.signal
     });
   } catch (err) {
     appendCostRecord(
@@ -185,9 +182,9 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE,
+        transport: TRANSPORT_NAMES.FACADE
       },
-      { context },
+      { context }
     );
     clearTimeout(timer);
     // H4: wrap connection-level errors with an actionable hint so the
@@ -195,11 +192,7 @@ export async function runViaFacade(backend, options, context) {
     // instead of seeing "fetch failed".
     const cause = /** @type {any} */ (err)?.cause;
     const code = cause?.code ?? /** @type {any} */ (err)?.code;
-    if (
-      code === "ECONNREFUSED" ||
-      code === "ENOTFOUND" ||
-      code === "ECONNRESET"
-    ) {
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ECONNRESET") {
       // K2: the manifest claims a live daemon (its pid is alive — readManifest
       // gates on that) but the listening socket is unreachable. The daemon
       // crashed or is mid-shutdown; the manifest is stale. Delete it so the
@@ -209,7 +202,7 @@ export async function runViaFacade(backend, options, context) {
       throw new Error(
         `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
           "Stale manifest deleted — retry the command and it will auto-start a new daemon, " +
-          "or pass --no-facade to bypass.",
+          "or pass --no-facade to bypass."
       );
     }
     throw err;
@@ -227,12 +220,12 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE,
+        transport: TRANSPORT_NAMES.FACADE
       },
-      { context },
+      { context }
     );
     throw new Error(
-      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`,
+      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`
     );
   }
 
@@ -259,9 +252,9 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: turn.reason ?? null,
         ok: true,
-        transport: TRANSPORT_NAMES.FACADE,
+        transport: TRANSPORT_NAMES.FACADE
       },
-      { context },
+      { context }
     );
     return turn;
   }
@@ -306,9 +299,9 @@ export async function runViaFacade(backend, options, context) {
       durationMs: Date.now() - startedAtMs,
       reason: turn.reason ?? null,
       ok: true,
-      transport: TRANSPORT_NAMES.FACADE,
+      transport: TRANSPORT_NAMES.FACADE
     },
-    { context },
+    { context }
   );
 
   return turn;
@@ -364,7 +357,7 @@ export async function consumeSseStream(response, turn, onUpdate) {
           try {
             onUpdate({
               sessionUpdate: "agent_message_chunk",
-              content: { text: deltaContent },
+              content: { text: deltaContent }
             });
           } catch {
             // caller bug; best-effort
@@ -377,7 +370,7 @@ export async function consumeSseStream(response, turn, onUpdate) {
       if (chunk?.usage && !turn.usage) {
         turn.usage = chunk.usage;
       }
-    },
+    }
   });
   const decoder = new TextDecoder();
   try {
@@ -403,7 +396,7 @@ export async function consumeSseStream(response, turn, onUpdate) {
           ? ` ${turn.chunkCount} partial chunk(s) already emitted via onUpdate.`
           : "";
       process.stderr.write(
-        `[facade] streaming response interrupted: ${err instanceof Error ? err.message : String(err)}.${suffix}\n`,
+        `[facade] streaming response interrupted: ${err instanceof Error ? err.message : String(err)}.${suffix}\n`
       );
     } catch {
       // best-effort during stderr write

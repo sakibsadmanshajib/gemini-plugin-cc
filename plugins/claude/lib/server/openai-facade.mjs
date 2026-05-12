@@ -51,7 +51,9 @@ import getRawBody from "raw-body";
 import { createAgentContext, withOverrides } from "#lib/agent-context.mjs";
 import { getAllBackendModels, toOpenAiModelEntries } from "#lib/backends/discover-models.mjs";
 import { BACKEND_NAMES, isBackendName } from "#lib/backends/names.mjs";
+import { getSqliteRecorderHealth } from "#lib/cost/sqlite-recorder.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
+import { getSupervisorStatuses } from "#lib/runners/streaming/registry.mjs";
 
 /**
  * Step 3 — parse session-policy headers from an HTTP request:
@@ -736,6 +738,10 @@ export function createOpenAiFacadeServer(options = {}) {
   // trace-id, etc.) are derived via withOverrides on the request path
   // — see step 3 of the facade-unification plan.
   const serverContext = options.context;
+  // K1: captured once at server creation so /admin/status can report
+  // uptime without depending on a global. ms-precision; the route
+  // exposes both uptimeMs and a human-readable startedAt.
+  const serverStartedAtMs = Date.now();
 
   /**
    * Resolve a request's `Origin` against the CORS policy. Returns the
@@ -804,6 +810,36 @@ export function createOpenAiFacadeServer(options = {}) {
           );
           return;
         }
+      }
+
+      if (req.method === "GET" && req.url === "/admin/status") {
+        // K1: operator-facing health view. Bearer-gated (the auth check
+        // above already ran by this point). Reports per-supervisor
+        // health + last-error so operators chasing "why is claude
+        // failing?" don't need to ssh in and tail logs.
+        //
+        // Shape is stable across daemon restarts; clients can poll it.
+        // Empty `supervisors` array means no backend has been used yet
+        // since boot — the daemon constructs supervisors lazily on
+        // first chat-completions request per backend.
+        const nowMs = Date.now();
+        const sqliteHealth = getSqliteRecorderHealth();
+        sendJson(res, 200, {
+          pid: process.pid,
+          startedAt: new Date(serverStartedAtMs).toISOString(),
+          uptimeMs: nowMs - serverStartedAtMs,
+          supervisors: getSupervisorStatuses(),
+          stats: {
+            sqlitePath: sqliteHealth.dbPath,
+            failureCount: sqliteHealth.failureCount,
+            lastWarnedAt:
+              sqliteHealth.lastWarnedAt > 0
+                ? new Date(sqliteHealth.lastWarnedAt).toISOString()
+                : null
+          },
+          auth: { required: apiKeyPolicy !== null }
+        });
+        return;
       }
 
       if (req.method === "GET" && req.url === "/v1/models") {
