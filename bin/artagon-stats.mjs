@@ -3,9 +3,26 @@
  * `artagon-stats` — print aggregate cost statistics from the local
  * cost-record log.
  *
- * Reads `$ARTAGON_COST_LOG` or
- * `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` (default
- * `~/.local/state/artagon-agent-cli-plugin/cost.jsonl`).
+ * Reads turn records from TWO sources and merges them:
+ *
+ *   1. **JSONL** at `$ARTAGON_COST_LOG` or
+ *      `$XDG_STATE_HOME/artagon-agent-cli-plugin/cost.jsonl` (default
+ *      `~/.local/state/artagon-agent-cli-plugin/cost.jsonl`). Append-
+ *      only file written per-turn by `appendCostRecord`.
+ *
+ *   2. **SQLite** at
+ *      `$XDG_STATE_HOME/artagon-agent-cli-plugin/stats.db` when the
+ *      daemon has been running. WAL-mode database with prepared-
+ *      statement inserts (see `lib/cost/sqlite-recorder.mjs`). Reads
+ *      via `readTurnStats` and merges with the JSONL rows for the
+ *      same time window.
+ *
+ * Both sources may exist simultaneously when slash-commands run
+ * in-process AND the daemon serves separate requests. Reading both
+ * gives the operator the full picture; deduplication is by
+ * `(timestamp, backend, sessionId)` (daemon-routed turns appear in
+ * both stores). The SQLite row wins when duplicates exist — it has
+ * `traceId` and strongly-typed columns the JSONL row doesn't.
  *
  * Argv parsing uses `commander` — the canonical Node CLI library —
  * rather than a hand-rolled parser. Standardizes --help, --version,
