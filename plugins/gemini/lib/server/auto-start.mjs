@@ -210,7 +210,29 @@ export async function autoStartFacade(options = {}) {
     while (Date.now() - start < pollTimeout) {
       await sleep(pollInterval);
       const manifest = readManifest(env);
-      if (manifest) return manifest;
+      if (manifest) {
+        // O1 (round-10): the daemon may have written the manifest and
+        // THEN crashed during boot (port-bind succeeded, first-request
+        // handler threw). The exit handler captures that into
+        // spawnError, but if we return as soon as we see the manifest,
+        // we never read it. Surface the crash as an auto-start failure
+        // with the actual cause instead of letting the caller hit a
+        // confusing ECONNREFUSED on the next request.
+        //
+        // The check is intentionally synchronous: if the exit event
+        // hasn't fired yet (microseconds between manifest-write and
+        // exit), we'll catch it on the NEXT request's K2 wipe path
+        // (M2 race-safe deletion). No silent failure either way.
+        if (spawnError) {
+          /** @type {Error} */
+          const err = spawnError;
+          throw new Error(
+            `auto-start: daemon wrote manifest then crashed (${err.message}). ` +
+              `Check ${logPath} for details.`
+          );
+        }
+        return manifest;
+      }
       // J2: break early when spawn failed (ENOENT/EACCES/non-zero exit).
       // No point in polling further when the child already gave up.
       if (spawnError) {

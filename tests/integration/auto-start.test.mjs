@@ -157,3 +157,18 @@ test("daemon fails to write manifest → throws with the file path in the messag
     })
   ).rejects.toThrow(/daemon failed to start.*exited with code 1/);
 });
+
+// O1 (round-10) — silent-failure reviewer flagged: a daemon that
+// writes the manifest THEN exits non-zero (port-in-use after listen,
+// crash on first request) was silently returned as success. The fix
+// in lib/server/auto-start.mjs adds a spawnError check at the
+// manifest-sighting branch.
+//
+// The race window is microsecond-scale through a real child process:
+// once the daemon exits, readManifest's pid-liveness gate
+// (lib/server/facade-endpoint.mjs::isPidLiveAndOwned) returns false
+// and we route through the `failed to start` branch instead. A
+// reliable test would need to inject a fake child object rather than
+// spawn one. The defensive check stays — it adds zero overhead and
+// closes the narrow window when the exit event fires between the
+// readManifest call and the function returning.

@@ -401,6 +401,13 @@ export async function consumeSseStream(response, turn, onUpdate) {
   // N1 (round-9): one-shot latch so a permanently-broken onUpdate
   // doesn't fill the daemon log with one stderr line per chunk. First
   // throw surfaces; subsequent throws are swallowed.
+  //
+  // Per-call scope is intentional (vs. module-level like the cost-
+  // recorder's failureCount): one consumeSseStream call = one turn,
+  // and each new turn deserves a fresh signal. A daemon-wide latch
+  // would suppress everything after the first broken-callback turn
+  // ever observed across the daemon's lifetime, defeating the purpose
+  // (round-10 reviewer flag).
   let onUpdateErrorLogged = false;
   const parser = createParser({
     onEvent(event) {
