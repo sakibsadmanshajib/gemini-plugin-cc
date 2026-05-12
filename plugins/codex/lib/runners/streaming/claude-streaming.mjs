@@ -358,7 +358,33 @@ export function createClaudeStreamingRunner(options = {}) {
       const signal = turnOpts.signal;
       /** @type {(() => void) | null} */
       let onAbort = null;
+      /** @type {(() => void) | null} */
+      let onAbortReject = null;
       try {
+        // F9 (race fix): install signal-abort handler BEFORE any setup
+        // await (session/new, session/load, set_model, set_config_option).
+        // Without this, an abort during pre-prompt setup would silently
+        // drop — no session/cancel notify and no early throw — leaving
+        // the agent doing wasted work and the caller blocked on a
+        // doomed turn. The handler reads `sessionId` at fire time
+        // (closure over outer `let`), so the session-action switch
+        // below can change sessionId freely.
+        if (signal) {
+          if (signal.aborted) {
+            throw signal.reason ?? new Error("aborted");
+          }
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("session/cancel", {
+                sessionId
+              });
+            } catch {
+              // best-effort
+            }
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         // Apply per-turn session intent INSIDE the try (F1). Tagged-
         // union switch (F6): exactly one of reuse/fresh/resume.
         // H3: per-turn cwd flows here. Order: turnOpts.cwd > context.cwd
@@ -420,21 +446,22 @@ export function createClaudeStreamingRunner(options = {}) {
         // as applySessionModel above.
         await applySessionEffort(turnOpts.effort);
 
-        // F9: bridge AbortSignal → session/cancel. Best-effort; the
-        // local race-promise still rejects when signal aborts.
-        if (signal) {
-          onAbort = () => {
-            try {
-              /** @type {any} */ (client).notify("session/cancel", {
-                sessionId
-              });
-            } catch {
-              // best-effort
-            }
-          };
-          if (signal.aborted) onAbort();
-          else signal.addEventListener("abort", onAbort, { once: true });
-        }
+        // F9 (race fix): an abort while session/prompt is in flight
+        // must unwedge the work promise locally, in addition to the
+        // session/cancel notify already wired above. Without this
+        // racer, the runner would block on the request/response cycle
+        // until the agent honored the cancel — caller sees AbortError
+        // immediately instead.
+        const abortPromise = signal
+          ? new Promise((_resolve, reject) => {
+              if (signal.aborted) {
+                reject(signal.reason ?? new Error("aborted"));
+                return;
+              }
+              onAbortReject = () => reject(signal.reason ?? new Error("aborted"));
+              signal.addEventListener("abort", onAbortReject, { once: true });
+            })
+          : null;
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
@@ -454,7 +481,9 @@ export function createClaudeStreamingRunner(options = {}) {
             turn.usage = response.usage;
           }
         })();
-        await Promise.race([work, timeoutPromise]);
+        const racers = /** @type {Promise<any>[]} */ ([work, timeoutPromise]);
+        if (abortPromise) racers.push(abortPromise);
+        await Promise.race(racers);
         health = "healthy";
         appendCostRecord(
           {
@@ -491,6 +520,9 @@ export function createClaudeStreamingRunner(options = {}) {
         if (timer) clearTimeout(timer);
         if (signal && onAbort) {
           signal.removeEventListener("abort", onAbort);
+        }
+        if (signal && onAbortReject) {
+          signal.removeEventListener("abort", onAbortReject);
         }
         activeTurn = null;
         activeOnUpdate = null;

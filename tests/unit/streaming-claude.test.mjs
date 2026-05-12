@@ -570,6 +570,76 @@ describe("runTurn:rpc", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// runTurn:abort — caller signal must (a) fast-fail when pre-aborted,
+// (b) dispatch session/cancel during pre-prompt setup, and (c) unwedge
+// the work promise when session/prompt is in flight. See F9 in
+// claude-streaming.mjs runTurn.
+// ──────────────────────────────────────────────────────────────────────
+
+describe("runTurn:abort", () => {
+  test("pre-aborted signal throws before any setup call", async () => {
+    const { runner, client } = await startedRunner();
+    const ac = new AbortController();
+    ac.abort();
+    const callsBefore = client._calls.length;
+    await expect(runner.runTurn({ prompt: "x", signal: ac.signal })).rejects.toThrow();
+    // No session/prompt, set_model, set_config_option, or cancel issued.
+    const after = client._calls.slice(callsBefore);
+    expect(after.some((c) => c.method === "session/prompt")).toBe(false);
+    expect(after.some((c) => c.method === "session/set_model")).toBe(false);
+    expect(after.some((c) => c.method === "session/set_config_option")).toBe(false);
+    expect(after.some((c) => c.method === "session/cancel")).toBe(false);
+  });
+
+  test("abort during set_model fires session/cancel before resolution", async () => {
+    const { runner, client } = await startedRunner();
+    const ac = new AbortController();
+    // Make set_model hang so we can fire abort mid-call.
+    let releaseSetModel;
+    const setModelHang = new Promise((resolve) => {
+      releaseSetModel = () => resolve({});
+    });
+    client._enqueue("session/set_model", setModelHang);
+    const turnPromise = runner.runTurn({
+      prompt: "x",
+      model: "sonnet",
+      signal: ac.signal
+    });
+    // Yield so runTurn enters its try block and dispatches set_model.
+    await Promise.resolve();
+    await Promise.resolve();
+    ac.abort();
+    // Release the hung set_model so the turn can unwind.
+    releaseSetModel({});
+    await expect(turnPromise).rejects.toThrow();
+    // session/cancel must have been dispatched by the abort handler.
+    expect(client._calls.some((c) => c.method === "session/cancel" && c.kind === "notify")).toBe(
+      true
+    );
+  });
+
+  test("abort during session/prompt unwedges work promise immediately", async () => {
+    const { runner, client } = await startedRunner();
+    const ac = new AbortController();
+    // session/prompt hangs forever — only the abort racer can unblock.
+    client._enqueue("session/prompt", new Promise(() => {}));
+    const turnPromise = runner.runTurn({
+      prompt: "x",
+      signal: ac.signal
+    });
+    // Yield so session/prompt is in flight before we abort.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    ac.abort();
+    await expect(turnPromise).rejects.toThrow();
+    expect(client._calls.some((c) => c.method === "session/cancel" && c.kind === "notify")).toBe(
+      true
+    );
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // runTurn:updates
 // ──────────────────────────────────────────────────────────────────────
 
