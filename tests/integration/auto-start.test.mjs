@@ -257,3 +257,45 @@ test("Q4: a failed spawn appends to the failure log", async () => {
   expect(logged).toHaveLength(1);
   expect(typeof logged[0]).toBe("number");
 });
+
+test("R2 (round-12): future-dated timestamps are NOT counted against the breaker", async () => {
+  // A backwards NTP step or a hand-edited log can produce timestamps
+  // greater than nowMs. Pre-R2 these survived every prune and kept
+  // the breaker tripped forever. Now filtered out as invalid.
+  const fakeDaemon = writeFakeDaemon();
+  const now = Date.now();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+  // 3 future-dated entries (year-2099-ish): should ALL be filtered.
+  fs.writeFileSync(failureLogPath, JSON.stringify([now + 60_000, now + 120_000, now + 180_000]));
+
+  const manifest = await autoStartFacade({
+    env: testEnv,
+    daemonBin: fakeDaemon,
+    pollIntervalMs: 20,
+    pollTimeoutMs: 3000
+  });
+  // Should succeed despite the 3 entries — they're future-dated so
+  // the breaker doesn't trip.
+  expect(manifest.port).toBe(54321);
+});
+
+test("R1 (round-12): breaker error message includes a copy-pasteable rm command", async () => {
+  // Round-12 B3: the error message used to say "remove <path> to
+  // reset", but operators want "rm <path>" — matches the lock-failure
+  // message in the same file for consistency.
+  const fakeDaemon = writeFakeDaemon();
+  const now = Date.now();
+  const failureLogPath = path.join(manifestDir, "auto-start-failures.json");
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(failureLogPath, JSON.stringify([now - 60_000, now - 30_000, now - 10_000]));
+
+  await expect(
+    autoStartFacade({
+      env: testEnv,
+      daemonBin: fakeDaemon,
+      pollIntervalMs: 20,
+      pollTimeoutMs: 1000
+    })
+  ).rejects.toThrow(new RegExp(`rm ${failureLogPath.replace(/\//g, "\\/")}`));
+});

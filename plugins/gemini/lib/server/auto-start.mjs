@@ -121,8 +121,12 @@ function readFailureLog(failureLogPath, nowMs) {
     // Missing or malformed file → start fresh. No need to surface
     // this to the operator; circuit-breaker history is best-effort.
   }
+  // R2 (round-12): bound the window on BOTH sides. Future-dated
+  // timestamps from a backwards NTP step or a hand-edited log would
+  // otherwise survive every prune and keep the breaker tripped
+  // forever. Treat t > nowMs as invalid and drop it.
   const cutoff = nowMs - FAILURE_WINDOW_MS;
-  const recentFailures = timestamps.filter((t) => t >= cutoff);
+  const recentFailures = timestamps.filter((t) => t >= cutoff && t <= nowMs);
   return {
     recentFailures,
     prunedAny: recentFailures.length !== timestamps.length
@@ -215,22 +219,6 @@ export async function autoStartFacade(options = {}) {
   const lockPath = path.join(dir, LOCK_FILENAME);
   const failureLogPath = path.join(dir, FAILURE_LOG_FILENAME);
 
-  // Q4: circuit-breaker check BEFORE acquiring the spawn lock. If
-  // the operator's daemon has crashed N times in the recent window
-  // (typically a misconfiguration that won't fix itself), refuse to
-  // spawn another and point them at the boot log. The breaker resets
-  // automatically once a daemon stays up — see clearFailureLog below.
-  const nowMs = Date.now();
-  const { recentFailures } = readFailureLog(failureLogPath, nowMs);
-  if (recentFailures.length >= FAILURE_THRESHOLD) {
-    const windowMin = Math.round(FAILURE_WINDOW_MS / 60_000);
-    throw new Error(
-      `auto-start: circuit breaker tripped — daemon failed ${recentFailures.length} times ` +
-        `in the last ${windowMin} minute(s). Fix the underlying issue (check ${logPath}) ` +
-        `and either wait for the breaker to expire or remove ${failureLogPath} to reset.`
-    );
-  }
-
   // Lockfile target must exist before proper-lockfile can lock it.
   try {
     fs.writeFileSync(lockPath, "", { flag: "a", mode: 0o600 });
@@ -254,10 +242,37 @@ export async function autoStartFacade(options = {}) {
     );
   }
 
+  // R1 (round-12): the Q4 breaker check + appendFailure now run INSIDE
+  // the lock. Two concurrent slash-commands previously both passed a
+  // lock-free pre-check at 2 failures, both serialized through the
+  // lock, both spawned + failed, and because each append re-read the
+  // log fresh, last-writer-wins on the rename meant only ONE of the
+  // two failures got recorded — defeating the breaker in exactly the
+  // scenario it exists to catch. Inside the lock, reads + writes
+  // serialize naturally; cost is zero because the spawn window
+  // already holds the lock.
+  /** @type {number[]} */
+  let recentFailures;
+
   try {
     // Recheck under the lock — someone may have just started a daemon.
     const afterLock = readManifest(env);
     if (afterLock) return afterLock;
+
+    // R1: re-read the failure log under the lock so a concurrent
+    // append from another slash-command (now blocked on this lock) is
+    // visible to us. Then check the breaker BEFORE spawning.
+    const nowMs = Date.now();
+    const fresh = readFailureLog(failureLogPath, nowMs);
+    recentFailures = fresh.recentFailures;
+    if (recentFailures.length >= FAILURE_THRESHOLD) {
+      const windowMin = Math.round(FAILURE_WINDOW_MS / 60_000);
+      throw new Error(
+        `auto-start: circuit breaker tripped — daemon failed ${recentFailures.length} times ` +
+          `in the last ${windowMin} minute(s). Fix the underlying issue (check ${logPath}) ` +
+          `and either wait for the breaker to expire or run \`rm ${failureLogPath}\` to reset.`
+      );
+    }
 
     // Spawn the daemon detached so it outlives this slash-command.
     // J3: redirect daemon stdio to a log file under XDG state. The
