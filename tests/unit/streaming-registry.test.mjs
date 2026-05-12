@@ -333,3 +333,107 @@ describe("getSupervisorStatuses — round-7 TC2 populated case + M1 crash safety
     expect(getSupervisorStatuses()).toEqual([]);
   });
 });
+
+describe("classifyLastError — real runner string coverage (round-16 lock-in)", () => {
+  // Round-16 verification: every error message the streaming runners
+  // ACTUALLY produce in lib/runners/streaming/* and lib/transport/cli.mjs
+  // maps to a concrete LastErrorCode bucket, not the "unknown" fallback.
+  // This locks the wording at BOTH ends: if a runner changes its error
+  // message slightly (e.g. "returned no" → "gave back no"), the test for
+  // that specific message fails and we know to update the classifier
+  // regex in lockstep. Otherwise such a change would silently regress
+  // the wire shape to "unknown" without any visible warning.
+  //
+  // Strings copied verbatim from grepped source lines:
+  //   supervisor.mjs:118, 151
+  //   codex-streaming.mjs:265, 278, 338, 385
+  //   gemini-streaming.mjs:193, 206, 258, 304
+  //   claude-streaming.mjs:231, 244, 293, 334
+  //   transport/cli.mjs:148
+
+  test("supervisor: 'runner is dead (max restarts exceeded)' → restart_budget_exhausted", () => {
+    expect(classifyLastError(new Error("supervisor: runner is dead (max restarts exceeded)"))).toBe(
+      "restart_budget_exhausted"
+    );
+  });
+
+  test("codex: 'thread/start returned no thread id' → session_init_failed", () => {
+    expect(
+      classifyLastError(new Error("createCodexStreamingRunner: thread/start returned no thread id"))
+    ).toBe("session_init_failed");
+    expect(
+      classifyLastError(new Error("codex streaming runner: thread/start returned no thread id"))
+    ).toBe("session_init_failed");
+  });
+
+  test("codex: 'runTurn before start' → internal_error", () => {
+    expect(classifyLastError(new Error("codex streaming runner: runTurn before start"))).toBe(
+      "internal_error"
+    );
+  });
+
+  test("codex: 'turn timed out after Xms' → timeout", () => {
+    expect(
+      classifyLastError(new Error("codex streaming runner: turn timed out after 30000ms"))
+    ).toBe("timeout");
+  });
+
+  test("gemini: 'broker returned no sessionId' → session_init_failed", () => {
+    expect(
+      classifyLastError(new Error("createGeminiStreamingRunner: broker returned no sessionId"))
+    ).toBe("session_init_failed");
+  });
+
+  test("gemini: 'session/new returned no sessionId' → session_init_failed", () => {
+    expect(
+      classifyLastError(new Error("gemini streaming runner: session/new returned no sessionId"))
+    ).toBe("session_init_failed");
+  });
+
+  test("gemini: 'runTurn before start' → internal_error", () => {
+    expect(classifyLastError(new Error("gemini streaming runner: runTurn before start"))).toBe(
+      "internal_error"
+    );
+  });
+
+  test("gemini: 'turn timed out after Xms' → timeout", () => {
+    expect(
+      classifyLastError(new Error("gemini streaming runner: turn timed out after 60000ms"))
+    ).toBe("timeout");
+  });
+
+  test("claude: 'session/new returned no sessionId' → session_init_failed", () => {
+    expect(
+      classifyLastError(new Error("createClaudeStreamingRunner: session/new returned no sessionId"))
+    ).toBe("session_init_failed");
+    expect(
+      classifyLastError(new Error("claude streaming runner: session/new returned no sessionId"))
+    ).toBe("session_init_failed");
+  });
+
+  test("claude: 'runTurn before start' → internal_error", () => {
+    expect(classifyLastError(new Error("claude streaming runner: runTurn before start"))).toBe(
+      "internal_error"
+    );
+  });
+
+  test("claude: 'turn timed out after Xms' → timeout", () => {
+    expect(
+      classifyLastError(new Error("claude streaming runner: turn timed out after 45000ms"))
+    ).toBe("timeout");
+  });
+
+  test("CliTransport: 'stdin unavailable' → transport_closed", () => {
+    expect(classifyLastError(new Error("CliTransport (codex): stdin unavailable"))).toBe(
+      "transport_closed"
+    );
+  });
+
+  test("child_process spawn: 'spawn <command> ENOENT' → spawn_not_found", () => {
+    expect(classifyLastError(new Error("spawn codex ENOENT"))).toBe("spawn_not_found");
+  });
+
+  test("child_process spawn: 'spawn <command> EACCES' → spawn_denied", () => {
+    expect(classifyLastError(new Error("spawn /usr/local/bin/claude EACCES"))).toBe("spawn_denied");
+  });
+});
