@@ -308,10 +308,16 @@ export function createCodexStreamingRunner(options = {}) {
       const signal = turnOpts.signal;
       /** @type {(() => void) | null} */
       let onAbort = null;
-      /** @type {Promise<void>} */
-      const completion = new Promise((resolve, reject) => {
-        activeCompletion = { resolve, reject };
-      });
+      // G2: `activeCompletion` is deferred to AFTER the session-policy
+      // block. handleNotification resolves activeCompletion on the
+      // first `turn/completed`. If we registered the waiter before
+      // issuing thread/start, a stray notification arriving during
+      // policy setup (buggy agent, racey post-restore replay) would
+      // settle the wrong turn. Defer the registration so the only
+      // turn/completed that resolves the waiter is one for the
+      // turn/start we're about to send.
+      /** @type {Promise<void> | null} */
+      let completion = null;
 
       try {
         // Apply per-turn session intent INSIDE the try (F1). For codex:
@@ -347,6 +353,13 @@ export function createCodexStreamingRunner(options = {}) {
           default:
             break;
         }
+
+        // G2: register the completion waiter NOW — session/policy
+        // requests have already returned, so the next turn/completed
+        // notification belongs to the turn/start we're about to send.
+        completion = new Promise((resolve, reject) => {
+          activeCompletion = { resolve, reject };
+        });
 
         // F9: bridge AbortSignal → turn/cancel. Codex's cancel uses
         // threadId (current value, post-policy). Best-effort; rejects

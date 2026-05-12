@@ -747,6 +747,62 @@ describe("Step 3: session policy via headers", () => {
     expect(calls).toHaveLength(0);
   });
 
+  test("G4: X-Artagon-Session with invalid characters → 400 (charset guard)", async () => {
+    // Whitespace and special chars rejected; Node would also reject
+    // CR/LF outbound, but the boundary check turns this into a clean
+    // 400 instead of an opaque downstream error.
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-Session": "abc def" // space disallowed
+      },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(400);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.message).toMatch(/A-Za-z0-9/);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("G4: very long X-Artagon-Session (>128 chars) → 400", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-Session": "a".repeat(200)
+      },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("G4: well-formed UUID accepted (e.g. codex thread id format)", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-Session": "019e18dd-fdd3-77f1-8f3a-9452c2c3a2e9"
+      },
+      body: JSON.stringify({
+        model: "codex",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(200);
+    expect(calls[0].context.session).toEqual({
+      action: "resume",
+      id: "019e18dd-fdd3-77f1-8f3a-9452c2c3a2e9"
+    });
+  });
+
   test("no session headers → context.session is the server's default (reuse)", async () => {
     const res = await fetch(`${baseUrl}/v1/chat/completions`, {
       method: "POST",

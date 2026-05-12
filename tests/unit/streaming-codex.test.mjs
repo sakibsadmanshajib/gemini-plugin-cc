@@ -377,9 +377,13 @@ describe("runTurn:rpc", () => {
       { prompt: "x" },
       /** @type {any} */ ({ session: { action: "fresh" } })
     );
-    // F1: activeTurn is assigned BEFORE the session-policy await now,
-    // so emitting turn/completed synchronously after runTurn returns
-    // is sufficient (no microtask flush needed).
+    // G2: activeCompletion is registered AFTER the session-policy
+    // RPC resolves (so a stray notification during thread/start
+    // can't settle the wrong turn). Flush microtasks twice so
+    // thread/start completes and activeCompletion is registered
+    // before we emit turn/completed.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
     client._emit({
       method: "turn/completed",
       params: { turn: { status: "completed" } }
@@ -398,6 +402,10 @@ describe("runTurn:rpc", () => {
       { prompt: "x" },
       /** @type {any} */ ({ session: { action: "resume", id: "thr_resumed" } })
     );
+    // G2: flush microtasks so thread/resume completes and
+    // activeCompletion is registered before we emit turn/completed.
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
     client._emit({
       method: "turn/completed",
       params: { turn: { status: "completed" } }

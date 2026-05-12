@@ -167,17 +167,28 @@ export function createAgentContext(partial = {}) {
     ...DEFAULT_FACADE,
     ...(partial.facade ?? {})
   });
-  // Session policy is a tagged union — the type system rejects the
-  // illegal {fresh,id} combo at compile time, so the only runtime
-  // check is the non-empty-id requirement on the "resume" arm.
+  // Session policy is a tagged union. TypeScript rejects the illegal
+  // {action: "fresh", id: "x"} combo at compile time, but JS-only and
+  // HTTP callers can still construct one — and the runner's switch
+  // would silently drop the `id`. Reject loudly at the factory.
   const session = /** @type {SessionPolicy} */ (Object.freeze(partial.session ?? DEFAULT_SESSION));
+  const sessionAny = /** @type {any} */ (session);
   if (session.action === "resume") {
     if (typeof session.id !== "string" || session.id.length === 0) {
       throw new Error('AgentContext: session.action="resume" requires a non-empty string id');
     }
-  } else if (session.action !== "reuse" && /** @type {any} */ (session).action !== "fresh") {
+  } else if (session.action === "reuse" || session.action === "fresh") {
+    if (sessionAny.id !== undefined) {
+      throw new Error(
+        `AgentContext: session.action="${session.action}" must not carry an id ` +
+          `(got id=${JSON.stringify(sessionAny.id)}). ` +
+          'Use {action:"resume", id:"<sid>"} to resume.'
+      );
+    }
+  } else {
     throw new Error(
-      `AgentContext: session.action must be one of "reuse" | "fresh" | "resume" (got ${JSON.stringify(/** @type {any} */ (session).action)})`
+      `AgentContext: session.action must be one of "reuse" | "fresh" | "resume" ` +
+        `(got ${JSON.stringify(sessionAny.action)})`
     );
   }
   if (dispatch.facade === "on" && !facade.apiKey) {

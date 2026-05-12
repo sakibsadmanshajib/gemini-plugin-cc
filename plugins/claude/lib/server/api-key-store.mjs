@@ -89,9 +89,13 @@ function writeFileStore(key) {
 /**
  * Read the existing file-store key, returning null when absent.
  *
+ * Exported so slash-command clients can auto-discover the daemon's
+ * auto-key without operator action when the manifest says the key is
+ * file-stored (G6).
+ *
  * @returns {string | null}
  */
-function readFileStore() {
+export function readFileStore() {
   const { file } = fileStorePaths();
   try {
     return fs.readFileSync(file, "utf8").trim() || null;

@@ -292,6 +292,31 @@ describe("createAgentContext:session", () => {
     ).toThrow(/must be one of/);
   });
 
+  test("G1: session.action='fresh' with stray id → throws (factory closes the runtime gap)", () => {
+    expect(() =>
+      createAgentContext({
+        session: /** @type {any} */ ({ action: "fresh", id: "x" })
+      })
+    ).toThrow(/must not carry an id/);
+  });
+
+  test("G1: session.action='reuse' with stray id → throws", () => {
+    expect(() =>
+      createAgentContext({
+        session: /** @type {any} */ ({ action: "reuse", id: "x" })
+      })
+    ).toThrow(/must not carry an id/);
+  });
+
+  test("G1: withOverrides re-validates session — stray id rejected on merge", () => {
+    const base = createAgentContext();
+    expect(() =>
+      withOverrides(base, {
+        session: /** @type {any} */ ({ action: "fresh", id: "x" })
+      })
+    ).toThrow(/must not carry an id/);
+  });
+
   test("--session maps to context.session.action='resume' with id", () => {
     const { context } = buildAgentContextFromArgv(["--session", "sess-7", "x"], emptyEnv());
     expect(context.session.action).toBe("resume");

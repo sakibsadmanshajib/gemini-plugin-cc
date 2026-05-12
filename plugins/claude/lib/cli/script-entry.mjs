@@ -25,6 +25,7 @@ import process from "node:process";
 import { buildAgentContextFromArgv, withOverrides } from "#lib/agent-context.mjs";
 import { formatHelp } from "#lib/cli/flags.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
+import { readFileStore } from "#lib/server/api-key-store.mjs";
 import { readManifest } from "#lib/server/facade-endpoint.mjs";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -84,13 +85,36 @@ export async function runSlashCommandScript(opts) {
   const overrides = {};
   if (manifest && parsedContext.dispatch.facade === "default") {
     overrides.dispatch = { ...parsedContext.dispatch, facade: "on" };
-    // If the manifest carries an auto-key retrieve hint AND the user
-    // didn't supply --facade-key, attempt to read the key file at the
-    // documented location (~/.local/state/artagon-agent-cli-plugin/
-    // api-key). When the manifest's autoKey.store is "keychain", the
-    // user must run the retrieveCommand themselves; we cannot shell
-    // out from here without breaking the auth-secrecy contract.
-    // (Auto-key resolution from the manifest is a follow-up.)
+    // G6: auto-resolve the daemon's API key when it was auto-provisioned.
+    //   - store "file":     read the 0o600 key file directly. The user
+    //                       owns the file (same uid), so no consent
+    //                       needed. The key never appears on argv or
+    //                       in `ps` output.
+    //   - store "keychain": we can't shell out to `security find-...`
+    //                       silently — that would prompt the user
+    //                       (or print to the operator's stderr) on
+    //                       every slash-command invocation. Emit an
+    //                       actionable hint and let the user export
+    //                       ARTAGON_FACADE_API_KEY themselves.
+    if (!parsedContext.facade.apiKey && manifest.autoKey) {
+      if (manifest.autoKey.store === "file") {
+        try {
+          const key = readFileStore();
+          if (key) {
+            overrides.facade = { ...parsedContext.facade, apiKey: key };
+          }
+        } catch {
+          // Permissions / IO error: fall through to the auth-fail path.
+          // The dispatcher's facade fallback will surface a 401 below.
+        }
+      } else if (manifest.autoKey.store === "keychain") {
+        process.stderr.write(
+          `${scriptName}: facade requires an API key. Run:\n` +
+            `  ${manifest.autoKey.retrieveCommand}\n` +
+            "and set ARTAGON_FACADE_API_KEY to the result before retrying.\n"
+        );
+      }
+    }
   } else if (parsedContext.dispatch.streaming === "default") {
     // No manifest → previous behavior: streaming default-on in this
     // process. Warm path lives ONLY for the duration of this script.

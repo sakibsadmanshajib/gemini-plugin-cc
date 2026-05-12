@@ -66,8 +66,13 @@ export function getStreamingRunner(backend, opts = {}) {
     // inside each new instance — we just don't pin the dead instance.
     if (cached.health() === "dead") {
       supervisors.delete(backend);
-      // best-effort cleanup; the next start() will get a clean slate
-      cached.close().catch(() => {});
+      // G3: route close failures to stderr instead of swallowing —
+      // mid-life eviction during a crash storm is exactly when
+      // operators need to see "subprocess X failed to terminate".
+      cached.close().catch((err) => {
+        const message = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[streaming:${backend}] eviction close failed: ${message}\n`);
+      });
     } else {
       return cached;
     }
