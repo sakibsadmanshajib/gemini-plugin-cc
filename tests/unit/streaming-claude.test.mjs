@@ -417,6 +417,58 @@ describe("runTurn:rpc", () => {
     expect(client._calls.some((c) => c.method === "session/prompt")).toBe(false);
   });
 
+  test("turn-level effort fires session/set_config_option(effort)", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "x", effort: "max" });
+    const cfgCall = client._calls.find((c) => c.method === "session/set_config_option");
+    expect(cfgCall).toBeDefined();
+    expect(cfgCall.params.configId).toBe("effort");
+    expect(cfgCall.params.value).toBe("max");
+    expect(cfgCall.params.sessionId).toBeTruthy();
+  });
+
+  test("no effort on turn → no session/set_config_option emitted", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "x" });
+    expect(client._calls.some((c) => c.method === "session/set_config_option")).toBe(false);
+  });
+
+  test("repeated turn with same effort skips the round-trip", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", effort: "high" });
+    await runner.runTurn({ prompt: "2", effort: "high" });
+    const cfgCalls = client._calls.filter((c) => c.method === "session/set_config_option");
+    expect(cfgCalls).toHaveLength(1);
+  });
+
+  test("fresh session resets applied-effort — re-fires for same value", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/new", { sessionId: "sess-fresh" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", effort: "medium" });
+    await runner.runTurn(
+      { prompt: "2", effort: "medium" },
+      /** @type {any} */ ({ session: { action: "fresh" } })
+    );
+    const cfgCalls = client._calls.filter((c) => c.method === "session/set_config_option");
+    expect(cfgCalls).toHaveLength(2);
+    expect(cfgCalls[1].params.sessionId).toBe("sess-fresh");
+  });
+
+  test("set_config_option rejection aborts the turn before session/prompt", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/set_config_option", new Error("unknown effort"));
+    await expect(
+      runner.runTurn({ prompt: "x", effort: /** @type {any} */ ("ludicrous") })
+    ).rejects.toThrow(/unknown effort/);
+    expect(client._calls.some((c) => c.method === "session/prompt")).toBe(false);
+  });
+
   test("start() applies the factory's defaultModel via set_model", async () => {
     const transport = makeFakeTransport();
     const client = makeFakeClient();
