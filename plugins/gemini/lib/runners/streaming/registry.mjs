@@ -1,8 +1,18 @@
 /**
- * Streaming runner registry — module-scoped lazy supervisors keyed by
- * `backend` ONLY. The first call to `getStreamingRunner(backend, ...)`
- * creates a fresh supervisor; subsequent calls return the same instance
- * so the underlying CLI subprocess / ACP connection is reused.
+ * Streaming runner registry + observability surface for /admin/status.
+ *
+ * Two responsibilities, both keyed off the same module-scoped
+ * `supervisors` Map:
+ *
+ *   1. **Caching** — `getStreamingRunner(backend, ...)` lazily
+ *      constructs one supervisor per backend; subsequent calls return
+ *      the same instance so the underlying CLI subprocess / ACP
+ *      connection is reused across turns.
+ *   2. **Snapshotting** — `getSupervisorStatuses()` returns a
+ *      deterministic-order array of per-backend health + redacted
+ *      `lastError` codes, consumed by `/admin/status` on the facade
+ *      daemon. `shutdownAllStreamingRunners()` close-and-drops the
+ *      cache (process-exit handlers).
  *
  * **Cwd handling (F7).** The cache is NOT keyed by cwd. The first call
  * picks the subprocess's spawn cwd (the runner captures
@@ -14,12 +24,31 @@
  * every turn's cwd" for "no spawn tax when developers cd between
  * repos" — the daemon's reason to exist.
  *
- * Why module-scoped (not per-call-site or per-options):
- *   - The whole point of streaming is "keep one process open across
- *     turns". A new supervisor per call would defeat that.
- *   - The dispatcher is the only place in lib/ that constructs
- *     supervisors today; isolating the singleton store here keeps the
- *     dispatch surface narrow.
+ * **Dead-supervisor eviction (F8 + G3 + H5).** `getStreamingRunner`
+ * checks `cached.health()` on every cache hit; `"dead"` evicts the
+ * cached instance, stderr-logs the underlying cause via
+ * `cached.lastError()`, and constructs a fresh supervisor on next
+ * call. Three transient crashes don't permadeath the daemon.
+ *
+ * **L3 redaction (round-7).** `classifyLastError` is the only path
+ * through which supervisor errors reach `/admin/status`. It maps the
+ * raw `err.message` to a closed `LastErrorCode` enum (see
+ * `types.mjs`). Future maintainers: adding a new code requires
+ * updating the union + this classifier + `docs/openai-facade.md`
+ * in lockstep. The "unknown" bucket is an explicit catch-all, not a
+ * coverage gap — exact-string lock-in tests in
+ * `tests/unit/streaming-registry.test.mjs` guard every real runner
+ * error shape.
+ *
+ * **M1 + P1 crash safety (rounds 7 + 11).** `getSupervisorStatuses`
+ * introspects `sup.health()` and `sup.lastError()` in SEPARATE
+ * try/catch blocks so a Proxy whose only one getter throws doesn't
+ * synthesize-away the other's truthful value, and a single bad entry
+ * never poisons the whole snapshot.
+ *
+ * **M7 (round-7).** `shutdownAllStreamingRunners` routes close errors
+ * to stderr instead of swallowing — a half-closed transport on
+ * process exit leaves zombie subprocesses worth chasing.
  *
  * Tests reset the store via `_resetStreamingRegistryForTest()`.
  *
