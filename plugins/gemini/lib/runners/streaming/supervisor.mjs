@@ -155,10 +155,7 @@ export function createSupervisor(opts) {
     }
     armIdleTimer();
     try {
-      const result = await /** @type {StreamingRunner} */ (runner).runTurn(
-        turnOpts,
-        context,
-      );
+      const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts, context);
       armIdleTimer();
       return result;
     } catch (err) {
@@ -173,7 +170,7 @@ export function createSupervisor(opts) {
         if (count > maxRestarts) {
           dead = true;
           onWarning(
-            `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead (last error: ${lastError.message})`,
+            `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead (last error: ${lastError.message})`
           );
         }
       }
@@ -192,7 +189,7 @@ export function createSupervisor(opts) {
         await current.close();
       } catch (err) {
         onWarning(
-          `supervisor: close failed during ${reason}: ${err instanceof Error ? err.message : String(err)}`,
+          `supervisor: close failed during ${reason}: ${err instanceof Error ? err.message : String(err)}`
         );
       }
     }
@@ -245,7 +242,7 @@ export function createSupervisor(opts) {
      */
     lastError() {
       return lastError;
-    },
+    }
   };
 
   return supervisor;

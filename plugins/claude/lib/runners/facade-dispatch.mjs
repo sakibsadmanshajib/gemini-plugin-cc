@@ -121,6 +121,15 @@ export async function runViaFacade(backend, options, context) {
     headers["X-Artagon-New-Session"] = "1";
   }
 
+  // I3: forward the client's cwd so the daemon's streaming runner can
+  // pass the correct per-turn cwd to session/new / thread/start.
+  // Without this header, the daemon serves every request with its
+  // boot cwd — broken for multi-workspace operators.
+  const clientCwd = options.cwd ?? context?.cwd;
+  if (typeof clientCwd === "string" && clientCwd.length > 0) {
+    headers["X-Artagon-Cwd"] = clientCwd;
+  }
+
   const body = JSON.stringify({
     model: resolveModel(backend, options.model),
     messages: [{ role: "user", content: options.prompt }],
@@ -182,7 +191,7 @@ export async function runViaFacade(backend, options, context) {
     ) {
       throw new Error(
         `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
-          `Start the daemon with \`artagon-openai-server\` or pass --no-facade to bypass.`,
+          "Start the daemon with `artagon-openai-server` or pass --no-facade to bypass.",
       );
     }
     throw err;

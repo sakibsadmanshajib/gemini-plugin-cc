@@ -49,7 +49,10 @@ import http from "node:http";
 import getRawBody from "raw-body";
 
 import { createAgentContext, withOverrides } from "#lib/agent-context.mjs";
-import { getAllBackendModels, toOpenAiModelEntries } from "#lib/backends/discover-models.mjs";
+import {
+  getAllBackendModels,
+  toOpenAiModelEntries,
+} from "#lib/backends/discover-models.mjs";
 import { BACKEND_NAMES, isBackendName } from "#lib/backends/names.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
 
@@ -70,7 +73,8 @@ function parseSessionHeaders(req) {
   const freshStr = Array.isArray(fresh) ? fresh[0] : fresh;
   const sidSet = typeof sidStr === "string" && sidStr.trim().length > 0;
   const freshSet =
-    typeof freshStr === "string" && (freshStr === "1" || freshStr.toLowerCase() === "true");
+    typeof freshStr === "string" &&
+    (freshStr === "1" || freshStr.toLowerCase() === "true");
   if (sidSet && freshSet) {
     return { policy: null, conflict: true };
   }
@@ -88,17 +92,17 @@ function parseSessionHeaders(req) {
     return {
       policy: /** @type {import("#lib/agent-context.mjs").SessionPolicy} */ ({
         action: "resume",
-        id: trimmed
+        id: trimmed,
       }),
-      conflict: false
+      conflict: false,
     };
   }
   if (freshSet) {
     return {
       policy: /** @type {import("#lib/agent-context.mjs").SessionPolicy} */ ({
-        action: "fresh"
+        action: "fresh",
       }),
-      conflict: false
+      conflict: false,
     };
   }
   return { policy: null, conflict: false };
@@ -144,15 +148,27 @@ export function mapFinishReason(reason) {
   if (!reason) return "stop";
   const lower = String(reason).toLowerCase();
   // Length / token-limit dialects.
-  if (lower === "length" || lower === "max_tokens" || lower === "error_max_turns") {
+  if (
+    lower === "length" ||
+    lower === "max_tokens" ||
+    lower === "error_max_turns"
+  ) {
     return "length";
   }
   // Content-filter / safety dialects.
-  if (lower === "content_filter" || lower === "safety" || lower === "recitation") {
+  if (
+    lower === "content_filter" ||
+    lower === "safety" ||
+    lower === "recitation"
+  ) {
     return "content_filter";
   }
   // Tool-call dialects.
-  if (lower === "tool_calls" || lower === "tool_use" || lower === "function_call") {
+  if (
+    lower === "tool_calls" ||
+    lower === "tool_use" ||
+    lower === "function_call"
+  ) {
     return lower === "function_call" ? "function_call" : "tool_calls";
   }
   // Stop / end-of-turn dialects + everything else.
@@ -191,7 +207,8 @@ export function resolveApiKeyPolicy(key, _env) {
       .filter(Boolean);
     return list.length > 0 ? list : null;
   }
-  if (Array.isArray(key) && key.length > 0) return key.filter((k) => typeof k === "string" && k);
+  if (Array.isArray(key) && key.length > 0)
+    return key.filter((k) => typeof k === "string" && k);
   return null;
 }
 
@@ -399,7 +416,11 @@ export function resolveModelToBackend(model) {
   ) {
     return { backend: BACKEND_NAMES.CODEX, modelOverride: model };
   }
-  if (lower === "gemini" || lower.startsWith("gemini-") || lower.startsWith("auto-gemini")) {
+  if (
+    lower === "gemini" ||
+    lower.startsWith("gemini-") ||
+    lower.startsWith("auto-gemini")
+  ) {
     return { backend: BACKEND_NAMES.GEMINI, modelOverride: model };
   }
   return null;
@@ -418,7 +439,12 @@ export function flattenMessages(messages) {
   if (!Array.isArray(messages) || messages.length === 0) return "";
   return messages
     .map((m) => {
-      const role = m.role === "user" ? "User" : m.role === "system" ? "System" : "Assistant";
+      const role =
+        m.role === "user"
+          ? "User"
+          : m.role === "system"
+            ? "System"
+            : "Assistant";
       const content = typeof m.content === "string" ? m.content : "";
       return `${role}: ${content}`;
     })
@@ -439,7 +465,8 @@ export function turnResultToOpenAiResponse(requestModel, turn) {
   /** @type {any} */
   const u = usage;
   const prompt = u.input_tokens ?? u.promptTokenCount ?? u.prompt_tokens ?? 0;
-  const completion = u.output_tokens ?? u.candidatesTokenCount ?? u.completion_tokens ?? 0;
+  const completion =
+    u.output_tokens ?? u.candidatesTokenCount ?? u.completion_tokens ?? 0;
   const total = u.total_tokens ?? u.totalTokenCount ?? prompt + completion;
 
   return {
@@ -451,14 +478,14 @@ export function turnResultToOpenAiResponse(requestModel, turn) {
       {
         index: 0,
         message: { role: "assistant", content: turn.text },
-        finish_reason: mapFinishReason(turn.reason)
-      }
+        finish_reason: mapFinishReason(turn.reason),
+      },
     ],
     usage: {
       prompt_tokens: prompt,
       completion_tokens: completion,
-      total_tokens: total
-    }
+      total_tokens: total,
+    },
   };
 }
 
@@ -471,7 +498,7 @@ function sendJson(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json",
-    "Content-Length": Buffer.byteLength(payload).toString()
+    "Content-Length": Buffer.byteLength(payload).toString(),
   });
   res.end(payload);
 }
@@ -493,7 +520,7 @@ function sendError(res, status, message, extra = {}) {
   /** @type {Record<string, string>} */
   const error = {
     message,
-    type: extra.type ?? "invalid_request_error"
+    type: extra.type ?? "invalid_request_error",
   };
   if (extra.code) error.code = extra.code;
   if (extra.param) error.param = extra.param;
@@ -522,7 +549,7 @@ async function readJsonBody(req, options = {}) {
   const text = await getRawBody(req, {
     length: req.headers["content-length"],
     limit,
-    encoding: "utf-8"
+    encoding: "utf-8",
   });
   return text ? JSON.parse(text) : {};
 }
@@ -548,7 +575,7 @@ async function handleStreamingChatCompletion(
   resolved,
   dispatch,
   prompt,
-  serverContext
+  serverContext,
 ) {
   const id = generateChatCompletionId();
   const created = Math.floor(Date.now() / 1000);
@@ -557,7 +584,7 @@ async function handleStreamingChatCompletion(
     "Content-Type": "text/event-stream",
     "Cache-Control": "no-cache",
     Connection: "keep-alive",
-    "X-Accel-Buffering": "no" // Disable nginx buffering when proxied.
+    "X-Accel-Buffering": "no", // Disable nginx buffering when proxied.
   });
 
   // Single source of truth for "is this stream still alive?" — set by
@@ -596,7 +623,7 @@ async function handleStreamingChatCompletion(
       object: "chat.completion.chunk",
       created,
       model: body.model,
-      choices: [{ index: 0, delta, finish_reason: finishReason }]
+      choices: [{ index: 0, delta, finish_reason: finishReason }],
     };
     try {
       res.write(`data: ${JSON.stringify(chunk)}\n\n`);
@@ -631,9 +658,9 @@ async function handleStreamingChatCompletion(
           // are NOT mapped to delta content — OpenAI's streaming format
           // doesn't have a clean home for them. Tools especially would
           // need delta.tool_calls; deferred (see facade comment).
-        }
+        },
       },
-      serverContext
+      serverContext,
     );
 
     if (!aborted) {
@@ -646,9 +673,12 @@ async function handleStreamingChatCompletion(
       if (body.stream_options?.include_usage && !res.writableEnded) {
         /** @type {any} */
         const u = turn.usage ?? {};
-        const prompt = u.input_tokens ?? u.promptTokenCount ?? u.prompt_tokens ?? 0;
-        const completion = u.output_tokens ?? u.candidatesTokenCount ?? u.completion_tokens ?? 0;
-        const total = u.total_tokens ?? u.totalTokenCount ?? prompt + completion;
+        const prompt =
+          u.input_tokens ?? u.promptTokenCount ?? u.prompt_tokens ?? 0;
+        const completion =
+          u.output_tokens ?? u.candidatesTokenCount ?? u.completion_tokens ?? 0;
+        const total =
+          u.total_tokens ?? u.totalTokenCount ?? prompt + completion;
         try {
           res.write(
             `data: ${JSON.stringify({
@@ -660,9 +690,9 @@ async function handleStreamingChatCompletion(
               usage: {
                 prompt_tokens: prompt,
                 completion_tokens: completion,
-                total_tokens: total
-              }
-            })}\n\n`
+                total_tokens: total,
+              },
+            })}\n\n`,
           );
         } catch {
           // best-effort; if the socket dies between the final delta
@@ -683,7 +713,9 @@ async function handleStreamingChatCompletion(
             ? `${resolved.backend} CLI exited ${/** @type {any} */ (err).exitCode}: ${/** @type {any} */ (err).stderr}`
             : String(err);
       try {
-        process.stderr.write(`openai-facade: backend_error (${resolved.backend}) ${detail}\n`);
+        process.stderr.write(
+          `openai-facade: backend_error (${resolved.backend}) ${detail}\n`,
+        );
       } catch {
         // best-effort
       }
@@ -695,9 +727,9 @@ async function handleStreamingChatCompletion(
               error: {
                 message: `${resolved.backend} backend failed; check server logs for detail`,
                 type: "backend_error",
-                backend: resolved.backend
-              }
-            })}\n\n`
+                backend: resolved.backend,
+              },
+            })}\n\n`,
           );
           res.write("data: [DONE]\n\n");
         } catch {
@@ -757,7 +789,10 @@ export function createOpenAiFacadeServer(options = {}) {
     res.setHeader("Access-Control-Allow-Origin", originValue);
     res.setHeader("Vary", "Origin");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    res.setHeader(
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization",
+    );
     res.setHeader("Access-Control-Max-Age", "600");
   }
 
@@ -793,14 +828,19 @@ export function createOpenAiFacadeServer(options = {}) {
       // can still preflight.
       if (apiKeyPolicy) {
         const presented = extractBearerToken(req);
-        const ok = presented != null && apiKeyPolicy.some((k) => constantTimeEquals(presented, k));
+        const ok =
+          presented != null &&
+          apiKeyPolicy.some((k) => constantTimeEquals(presented, k));
         if (!ok) {
-          res.setHeader("WWW-Authenticate", 'Bearer realm="artagon-openai-server"');
+          res.setHeader(
+            "WWW-Authenticate",
+            'Bearer realm="artagon-openai-server"',
+          );
           sendError(
             res,
             401,
             "Missing or invalid API key. Send Authorization: Bearer <key> matching the server's configured key.",
-            { code: "invalid_api_key" }
+            { code: "invalid_api_key" },
           );
           return;
         }
@@ -828,7 +868,8 @@ export function createOpenAiFacadeServer(options = {}) {
       if (req.method === "GET" && req.url?.startsWith("/v1/models/")) {
         const id = decodeURIComponent(req.url.slice("/v1/models/".length));
         const all = [];
-        for (const m of getAllBackendModels()) all.push(...toOpenAiModelEntries(m));
+        for (const m of getAllBackendModels())
+          all.push(...toOpenAiModelEntries(m));
         const found = all.find((entry) => entry.id === id);
         if (found) {
           sendJson(res, 200, found);
@@ -837,7 +878,7 @@ export function createOpenAiFacadeServer(options = {}) {
             res,
             404,
             `model "${id}" not found. See GET /v1/models for the supported list.`,
-            { param: "id" }
+            { param: "id" },
           );
         }
         return;
@@ -872,7 +913,7 @@ export function createOpenAiFacadeServer(options = {}) {
           sendError(
             res,
             400,
-            `Cannot resolve model "${body.model}" to a backend. Use claude*, codex*, gemini*, or "<backend>:<model-id>".`
+            `Cannot resolve model "${body.model}" to a backend. Use claude*, codex*, gemini*, or "<backend>:<model-id>".`,
           );
           return;
         }
@@ -882,7 +923,7 @@ export function createOpenAiFacadeServer(options = {}) {
           sendError(
             res,
             400,
-            "messages[] is required and must contain at least one message with content."
+            "messages[] is required and must contain at least one message with content.",
           );
           return;
         }
@@ -899,7 +940,7 @@ export function createOpenAiFacadeServer(options = {}) {
             400,
             "n != 1 is not supported. The runners produce one completion per turn; " +
               "issue parallel requests if you need multiple completions.",
-            { param: "n" }
+            { param: "n" },
           );
           return;
         }
@@ -913,26 +954,47 @@ export function createOpenAiFacadeServer(options = {}) {
             "Invalid session header: either X-Artagon-Session and X-Artagon-New-Session " +
               "were both set (they are mutually exclusive — pick one per request), " +
               "OR X-Artagon-Session contained characters outside /^[A-Za-z0-9_-]{1,128}$/.",
-            { type: "invalid_request_error", param: "x-artagon-session" }
+            { type: "invalid_request_error", param: "x-artagon-session" },
           );
           return;
         }
+        // I3: per-request cwd override via X-Artagon-Cwd. Required for
+        // multi-workspace operators — the daemon's boot cwd is wrong
+        // for any slash-command not invoked from the daemon's CWD.
+        // Validation: must be an absolute path; no `..` segments.
+        const cwdHeaderRaw = /** @type {string | undefined} */ (
+          req.headers["x-artagon-cwd"]
+        );
+        const cwdHeader = Array.isArray(cwdHeaderRaw)
+          ? cwdHeaderRaw[0]
+          : cwdHeaderRaw;
+        /** @type {string | null} */
+        let requestCwd = null;
+        if (typeof cwdHeader === "string" && cwdHeader.length > 0) {
+          const trimmed = cwdHeader.trim();
+          if (!trimmed.startsWith("/") || trimmed.includes("..")) {
+            sendError(
+              res,
+              400,
+              "Invalid X-Artagon-Cwd: must be an absolute POSIX path with no `..` segments.",
+              { type: "invalid_request_error", param: "x-artagon-cwd" },
+            );
+            return;
+          }
+          requestCwd = trimmed;
+        }
+
+        const overrides = /** @type {any} */ ({});
+        if (sessionHdr.policy) overrides.session = sessionHdr.policy;
+        if (requestCwd) overrides.cwd = requestCwd;
+
         let requestContext = serverContext;
-        if (sessionHdr.policy) {
-          // G5: when serverContext is present, layer the session
-          // override on top of it (inheriting cwd, env, logging, cost,
-          // etc.). When the caller built the facade WITHOUT a
-          // serverContext (a test injecting a fake dispatch), build a
-          // minimal default context — but do NOT hard-code streaming
-          // on. That would silently route through the streaming runner
-          // when the test owner expected cold-start. Defaults are
-          // tri-state "default" across the board; the bin layer is
-          // responsible for opting into streaming.
+        if (Object.keys(overrides).length > 0) {
           requestContext = serverContext
-            ? withOverrides(serverContext, { session: sessionHdr.policy })
+            ? withOverrides(serverContext, overrides)
             : createAgentContext({
-                session: sessionHdr.policy,
-                dispatch: { streaming: "default", facade: "default" }
+                ...overrides,
+                dispatch: { streaming: "default", facade: "default" },
               });
         }
 
@@ -944,7 +1006,7 @@ export function createOpenAiFacadeServer(options = {}) {
             resolved,
             dispatch,
             prompt,
-            requestContext
+            requestContext,
           );
           return;
         }
@@ -955,9 +1017,9 @@ export function createOpenAiFacadeServer(options = {}) {
             {
               prompt,
               model: resolved.modelOverride,
-              timeoutMs: 5 * 60 * 1000
+              timeoutMs: 5 * 60 * 1000,
             },
-            requestContext
+            requestContext,
           );
           // Echo the effective session id back so clients can persist
           // it for follow-up requests.
@@ -978,14 +1040,21 @@ export function createOpenAiFacadeServer(options = {}) {
                 ? `${resolved.backend} CLI exited ${/** @type {any} */ (err).exitCode}: ${/** @type {any} */ (err).stderr}`
                 : String(err);
           try {
-            process.stderr.write(`openai-facade: backend_error (${resolved.backend}) ${detail}\n`);
+            process.stderr.write(
+              `openai-facade: backend_error (${resolved.backend}) ${detail}\n`,
+            );
           } catch {
             // best-effort
           }
-          sendError(res, 502, `${resolved.backend} backend failed; check server logs for detail`, {
-            type: "backend_error",
-            backend: resolved.backend
-          });
+          sendError(
+            res,
+            502,
+            `${resolved.backend} backend failed; check server logs for detail`,
+            {
+              type: "backend_error",
+              backend: resolved.backend,
+            },
+          );
         }
         return;
       }
@@ -998,7 +1067,7 @@ export function createOpenAiFacadeServer(options = {}) {
       // the right place for the detail.
       try {
         process.stderr.write(
-          `openai-facade: server_error ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`
+          `openai-facade: server_error ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
         );
       } catch {
         // best-effort
@@ -1015,7 +1084,9 @@ export function createOpenAiFacadeServer(options = {}) {
         server.once("error", reject);
         server.listen(targetPort, host, () => {
           server.removeListener("error", reject);
-          const address = /** @type {import("node:net").AddressInfo} */ (server.address());
+          const address = /** @type {import("node:net").AddressInfo} */ (
+            server.address()
+          );
           resolve({ port: address.port, host });
         });
       });
@@ -1027,6 +1098,6 @@ export function createOpenAiFacadeServer(options = {}) {
       const a = server.address();
       if (!a || typeof a === "string") return null;
       return { port: a.port, host: a.address };
-    }
+    },
   };
 }

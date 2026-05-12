@@ -76,15 +76,13 @@ export function getStreamingRunner(backend, opts = {}) {
       process.stderr.write(
         `[streaming:${backend}] evicting dead supervisor` +
           (cause ? ` (last error: ${cause})` : "") +
-          "\n",
+          "\n"
       );
       supervisors.delete(backend);
       // G3: route close failures to stderr instead of swallowing.
       cached.close().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(
-          `[streaming:${backend}] eviction close failed: ${message}\n`,
-        );
+        process.stderr.write(`[streaming:${backend}] eviction close failed: ${message}\n`);
       });
     } else {
       return cached;
@@ -97,7 +95,7 @@ export function getStreamingRunner(backend, opts = {}) {
   const factory = factoryFor(backend, {
     cwd: factoryCwd,
     env: opts.context?.env ?? opts.env,
-    context: opts.context,
+    context: opts.context
   });
   if (!factory) return null;
 
@@ -106,7 +104,7 @@ export function getStreamingRunner(backend, opts = {}) {
     idleMs: opts.idleMs,
     onWarning: (msg) => {
       process.stderr.write(`[streaming:${backend}] ${msg}\n`);
-    },
+    }
   });
   supervisors.set(backend, supervisor);
   return supervisor;
@@ -143,21 +141,21 @@ function factoryFor(backend, ctx) {
         createGeminiStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context,
+          context: ctx.context
         });
     case BACKEND_NAMES.CODEX:
       return () =>
         createCodexStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context,
+          context: ctx.context
         });
     case BACKEND_NAMES.CLAUDE:
       return () =>
         createClaudeStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context,
+          context: ctx.context
         });
     default:
       return null;
@@ -178,8 +176,8 @@ export async function shutdownAllStreamingRunners() {
     entries.map((s) =>
       s.close().catch(() => {
         // best-effort during shutdown
-      }),
-    ),
+      })
+    )
   );
 }
 

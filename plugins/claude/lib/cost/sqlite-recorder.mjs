@@ -181,7 +181,7 @@ export function insertTurnStat(record, options = {}) {
          (ts, backend, model, prompt_chars,
           input_tokens, output_tokens, total_tokens, cached_tokens,
           duration_ms, reason, ok, transport, session_id, trace_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`
       );
     }
     /** @type {any} */
@@ -206,7 +206,7 @@ export function insertTurnStat(record, options = {}) {
       record.ok ? 1 : 0,
       record.transport ?? null,
       record.sessionId ?? null,
-      options.context?.logging?.traceId ?? null,
+      options.context?.logging?.traceId ?? null
     );
   } catch (err) {
     // H2: count failures; re-warn periodically so a sustained failure
@@ -218,7 +218,7 @@ export function insertTurnStat(record, options = {}) {
       const message = err instanceof Error ? err.message : String(err);
       try {
         process.stderr.write(
-          `[sqlite-recorder] ${failureCount} failed insert(s); last error writing ${dbPath}: ${message}\n`,
+          `[sqlite-recorder] ${failureCount} failed insert(s); last error writing ${dbPath}: ${message}\n`
         );
       } catch {
         // best-effort
@@ -292,7 +292,7 @@ export function readTurnStats(options = {}) {
         `SELECT ts, backend, model, prompt_chars, input_tokens, output_tokens,
                 total_tokens, cached_tokens, duration_ms, reason, ok, transport,
                 session_id, trace_id
-         FROM turns${where} ORDER BY ts ASC;`,
+         FROM turns${where} ORDER BY ts ASC;`
       )
       .all(...params);
     db.close();
@@ -307,20 +307,18 @@ export function readTurnStats(options = {}) {
             prompt_tokens: r.input_tokens ?? 0,
             completion_tokens: r.output_tokens ?? 0,
             total_tokens: r.total_tokens ?? 0,
-            ...(r.cached_tokens != null
-              ? { cache_read_tokens: r.cached_tokens }
-              : {}),
+            ...(r.cached_tokens != null ? { cache_read_tokens: r.cached_tokens } : {})
           },
           durationMs: r.duration_ms,
           reason: r.reason,
           ok: r.ok === 1,
           transport: r.transport ?? undefined,
-          sessionId: r.session_id ?? undefined,
-        }),
+          sessionId: r.session_id ?? undefined
+        })
     );
   } catch (err) {
     process.stderr.write(
-      `[sqlite-recorder] read failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      `[sqlite-recorder] read failed: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return [];
   }
@@ -335,7 +333,7 @@ export function getSqliteRecorderHealth() {
   return {
     failureCount,
     lastWarnedAt,
-    dbPath: cachedDbPath,
+    dbPath: cachedDbPath
   };
 }
 

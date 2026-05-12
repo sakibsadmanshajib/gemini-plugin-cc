@@ -120,13 +120,13 @@ const KNOWN_INTERNAL_ENV_KEYS = new Set([
   "ARTAGON_ACP_BACKEND",
   "ARTAGON_ACP_IDLE_MS",
   "ACP_WIRE_LOG",
-  "ACP_WIRE_LOG_RAW",
+  "ACP_WIRE_LOG_RAW"
 ]);
 
 /** Default policy when nothing else is specified. */
 const DEFAULT_DISPATCH = Object.freeze({
   streaming: /** @type {TriState} */ ("default"),
-  facade: /** @type {TriState} */ ("default"),
+  facade: /** @type {TriState} */ ("default")
 });
 const DEFAULT_LOGGING = Object.freeze({});
 const DEFAULT_COST = Object.freeze({});
@@ -159,63 +159,59 @@ const DEFAULT_SESSION = Object.freeze({ action: "reuse" });
 export function createAgentContext(partial = {}) {
   const dispatch = Object.freeze({
     ...DEFAULT_DISPATCH,
-    ...(partial.dispatch ?? {}),
+    ...(partial.dispatch ?? {})
   });
   const logging = Object.freeze({
     ...DEFAULT_LOGGING,
-    ...(partial.logging ?? {}),
+    ...(partial.logging ?? {})
   });
   const cost = Object.freeze({
     ...DEFAULT_COST,
-    ...(partial.cost ?? {}),
+    ...(partial.cost ?? {})
   });
   const facade = Object.freeze({
     ...DEFAULT_FACADE,
-    ...(partial.facade ?? {}),
+    ...(partial.facade ?? {})
   });
   // Session policy is a tagged union. TypeScript rejects the illegal
   // {action: "fresh", id: "x"} combo at compile time, but JS-only and
   // HTTP callers can still construct one — and the runner's switch
   // would silently drop the `id`. Reject loudly at the factory.
-  const session = /** @type {SessionPolicy} */ (
-    Object.freeze(partial.session ?? DEFAULT_SESSION)
-  );
+  const session = /** @type {SessionPolicy} */ (Object.freeze(partial.session ?? DEFAULT_SESSION));
   const sessionAny = /** @type {any} */ (session);
   if (session.action === "resume") {
     if (typeof session.id !== "string" || session.id.length === 0) {
-      throw new Error(
-        'AgentContext: session.action="resume" requires a non-empty string id',
-      );
+      throw new Error('AgentContext: session.action="resume" requires a non-empty string id');
     }
   } else if (session.action === "reuse" || session.action === "fresh") {
     if (sessionAny.id !== undefined) {
       throw new Error(
         `AgentContext: session.action="${session.action}" must not carry an id ` +
           `(got id=${JSON.stringify(sessionAny.id)}). ` +
-          'Use {action:"resume", id:"<sid>"} to resume.',
+          'Use {action:"resume", id:"<sid>"} to resume.'
       );
     }
   } else {
     throw new Error(
       `AgentContext: session.action must be one of "reuse" | "fresh" | "resume" ` +
-        `(got ${JSON.stringify(sessionAny.action)})`,
+        `(got ${JSON.stringify(sessionAny.action)})`
     );
   }
   if (dispatch.facade === "on" && !facade.apiKey) {
     throw new Error(
       'AgentContext: dispatch.facade is "on" but facade.apiKey is unset. ' +
-        "Pass --facade-key <token> or set ARTAGON_FACADE_API_KEY.",
+        "Pass --facade-key <token> or set ARTAGON_FACADE_API_KEY."
     );
   }
   if (cost.disabled === true && cost.logPath !== undefined) {
     throw new Error(
-      "AgentContext: cost.disabled is true and cost.logPath is set — these are mutually exclusive.",
+      "AgentContext: cost.disabled is true and cost.logPath is set — these are mutually exclusive."
     );
   }
   if (partial.timeoutMs !== undefined) {
     if (!Number.isFinite(partial.timeoutMs) || partial.timeoutMs <= 0) {
       throw new Error(
-        `AgentContext: timeoutMs must be a finite positive number; got ${partial.timeoutMs}`,
+        `AgentContext: timeoutMs must be a finite positive number; got ${partial.timeoutMs}`
       );
     }
   }
@@ -239,7 +235,7 @@ export function createAgentContext(partial = {}) {
       session,
       ...(partial.model !== undefined && { model: partial.model }),
       ...(partial.timeoutMs !== undefined && { timeoutMs: partial.timeoutMs }),
-      ...(partial.debug !== undefined && { debug: partial.debug }),
+      ...(partial.debug !== undefined && { debug: partial.debug })
     })
   );
   return ctx;
@@ -283,7 +279,7 @@ export function withOverrides(ctx, overrides = {}) {
     session: overrides.session ?? ctx.session,
     model: overrides.model ?? ctx.model,
     timeoutMs: overrides.timeoutMs ?? ctx.timeoutMs,
-    debug: overrides.debug ?? ctx.debug,
+    debug: overrides.debug ?? ctx.debug
   });
 }
 
@@ -310,7 +306,7 @@ export function migrateAgentContext(ctx) {
     return /** @type {AgentContext} */ (ctx);
   }
   throw new Error(
-    `migrateAgentContext: unsupported schemaVersion ${JSON.stringify(ctx.schemaVersion)}; expected 1`,
+    `migrateAgentContext: unsupported schemaVersion ${JSON.stringify(ctx.schemaVersion)}; expected 1`
   );
 }
 
@@ -332,15 +328,13 @@ export function buildAgentContextFromArgv(argv, env = process.env, opts = {}) {
       context: createAgentContext({ env }),
       prompt: parsed.prompt,
       rest: parsed.rest,
-      helpRequested: true,
+      helpRequested: true
     };
   }
 
   // `--strict-env` flag or `ARTAGON_STRICT_ENV=1` env var.
   const strict =
-    opts.strict === true ||
-    parsed.flags.strictEnv === true ||
-    env.ARTAGON_STRICT_ENV === "1";
+    opts.strict === true || parsed.flags.strictEnv === true || env.ARTAGON_STRICT_ENV === "1";
 
   auditEnvKeys(env, { strict });
 
@@ -362,14 +356,14 @@ export function buildAgentContextFromArgv(argv, env = process.env, opts = {}) {
     session,
     model: parsed.flags.model,
     timeoutMs: parsed.flags.timeoutMs,
-    debug: (parsed.flags.debug ?? env.DEBUG === "1") ? true : undefined,
+    debug: (parsed.flags.debug ?? env.DEBUG === "1") ? true : undefined
   });
 
   return {
     context,
     prompt: parsed.prompt,
     rest: parsed.rest,
-    helpRequested: false,
+    helpRequested: false
   };
 }
 
@@ -385,22 +379,12 @@ function resolveDispatch(flags, env) {
   // streaming: tri-state
   const flagStreaming = flags.streaming;
   const envStreaming = triFromEnvBool(env.ARTAGON_STREAMING);
-  out.streaming = mergeTri(
-    "--streaming",
-    flagStreaming,
-    "ARTAGON_STREAMING",
-    envStreaming,
-  );
+  out.streaming = mergeTri("--streaming", flagStreaming, "ARTAGON_STREAMING", envStreaming);
 
   // facade: tri-state
   const flagFacade = flags.facade;
   const envFacade = triFromEnvBool(env.ARTAGON_USE_FACADE);
-  out.facade = mergeTri(
-    "--facade",
-    flagFacade,
-    "ARTAGON_USE_FACADE",
-    envFacade,
-  );
+  out.facade = mergeTri("--facade", flagFacade, "ARTAGON_USE_FACADE", envFacade);
 
   return out;
 }
@@ -447,9 +431,7 @@ function resolveCost(flags, env) {
   const pricing = flags.pricing ?? env.ARTAGON_PRICING_OVERRIDE;
   if (pricing !== undefined && pricing.length > 0) {
     if (!fs.existsSync(pricing)) {
-      throw new Error(
-        `--pricing/ARTAGON_PRICING_OVERRIDE path does not exist: ${pricing}`,
-      );
+      throw new Error(`--pricing/ARTAGON_PRICING_OVERRIDE path does not exist: ${pricing}`);
     }
     out.pricingOverride = pricing;
   }
@@ -469,9 +451,7 @@ function resolveSession(flags) {
     return /** @type {SessionPolicy} */ (Object.freeze({ action: "fresh" }));
   }
   if (flags.sessionId !== undefined) {
-    return /** @type {SessionPolicy} */ (
-      Object.freeze({ action: "resume", id: flags.sessionId })
-    );
+    return /** @type {SessionPolicy} */ (Object.freeze({ action: "resume", id: flags.sessionId }));
   }
   return /** @type {SessionPolicy} */ (Object.freeze({ action: "reuse" }));
 }
@@ -488,10 +468,7 @@ function resolveFacade(flags, env) {
   if (apiKey !== undefined && apiKey.length > 0) {
     out.apiKey = apiKey;
   }
-  if (
-    env.ARTAGON_FACADE_CORS !== undefined &&
-    env.ARTAGON_FACADE_CORS.length > 0
-  ) {
+  if (env.ARTAGON_FACADE_CORS !== undefined && env.ARTAGON_FACADE_CORS.length > 0) {
     out.cors = env.ARTAGON_FACADE_CORS;
   }
   return /** @type {FacadePolicy} */ (Object.freeze(out));
@@ -521,13 +498,9 @@ function triFromEnvBool(value) {
  * @returns {TriState}
  */
 function mergeTri(flagToken, flagValue, envKey, envValue) {
-  if (
-    flagValue !== undefined &&
-    envValue !== undefined &&
-    flagValue !== envValue
-  ) {
+  if (flagValue !== undefined && envValue !== undefined && flagValue !== envValue) {
     throw new Error(
-      `Conflicting config: ${flagToken}=${flagValue} but ${envKey}=${envValue === "on" ? "1" : "0"} in env. Unset one.`,
+      `Conflicting config: ${flagToken}=${flagValue} but ${envKey}=${envValue === "on" ? "1" : "0"} in env. Unset one.`
     );
   }
   return flagValue ?? envValue ?? "default";
@@ -554,13 +527,11 @@ function validateWritableDir(filePath, sourceLabel) {
       } catch (mkErr) {
         throw new Error(
           `${sourceLabel}: directory does not exist and cannot be created: ${dir}` +
-            ` (${mkErr instanceof Error ? mkErr.message : String(mkErr)})`,
+            ` (${mkErr instanceof Error ? mkErr.message : String(mkErr)})`
         );
       }
     }
-    throw new Error(
-      `${sourceLabel}: directory is not writable: ${dir} (${code ?? err})`,
-    );
+    throw new Error(`${sourceLabel}: directory is not writable: ${dir} (${code ?? err})`);
   }
 }
 
@@ -594,9 +565,7 @@ export function auditEnvKeys(env, opts) {
       : `unknown internal env var: ${key}`;
   });
   if (opts.strict) {
-    throw new Error(
-      `[agent-context] strict env check failed:\n  ${messages.join("\n  ")}`,
-    );
+    throw new Error(`[agent-context] strict env check failed:\n  ${messages.join("\n  ")}`);
   }
   for (const message of messages) {
     process.stderr.write(`[agent-context] warn: ${message}\n`);

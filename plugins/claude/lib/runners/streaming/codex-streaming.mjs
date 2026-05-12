@@ -50,7 +50,7 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
 const CLIENT_INFO = Object.freeze({
   name: "artagon-codex-streaming",
   title: "Artagon Codex Streaming Runner",
-  version: "0.1.0",
+  version: "0.1.0"
 });
 
 /**
@@ -137,7 +137,7 @@ export function createCodexStreamingRunner(options = {}) {
         activeTurn.chunkChars += delta.length;
         emitUpdate({
           sessionUpdate: "agent_message_chunk",
-          content: { text: delta },
+          content: { text: delta }
         });
         return;
       }
@@ -149,8 +149,7 @@ export function createCodexStreamingRunner(options = {}) {
         // delta accumulator above, not as tool calls.
         if (item.type === "agentMessage") return;
         const toolName = typeof item.type === "string" ? item.type : "unknown";
-        const toolUseId =
-          typeof item.id === "string" ? item.id : String(item.id ?? "");
+        const toolUseId = typeof item.id === "string" ? item.id : String(item.id ?? "");
         if (!toolUseId) return;
         const argsPayload = extractToolArgs(item);
         activeTurn.toolCalls.push({ toolName, toolUseId, args: argsPayload });
@@ -158,7 +157,7 @@ export function createCodexStreamingRunner(options = {}) {
           sessionUpdate: "tool_call",
           toolName,
           toolUseId,
-          args: argsPayload,
+          args: argsPayload
         });
         return;
       }
@@ -166,19 +165,17 @@ export function createCodexStreamingRunner(options = {}) {
         const item = params.item;
         if (!item || typeof item !== "object") return;
         if (item.type === "agentMessage") return;
-        const toolUseId =
-          typeof item.id === "string" ? item.id : String(item.id ?? "");
+        const toolUseId = typeof item.id === "string" ? item.id : String(item.id ?? "");
         if (!toolUseId) return;
         const isError =
-          item.status === "failed" ||
-          (typeof item.exitCode === "number" && item.exitCode !== 0);
+          item.status === "failed" || (typeof item.exitCode === "number" && item.exitCode !== 0);
         const result = extractToolResult(item);
         activeTurn.toolResults.push({ toolUseId, result, isError });
         emitUpdate({
           sessionUpdate: "tool_result",
           toolUseId,
           result,
-          isError,
+          isError
         });
         return;
       }
@@ -194,7 +191,7 @@ export function createCodexStreamingRunner(options = {}) {
           sessionUpdate: "turn_completed",
           reason: activeTurn.reason ?? undefined,
           usage: activeTurn.usage ?? undefined,
-          model: activeTurn.model ?? undefined,
+          model: activeTurn.model ?? undefined
         });
         // Settle the runTurn waiter. Notification arrival is the
         // terminal signal — turn/start's response only acknowledges
@@ -248,26 +245,24 @@ export function createCodexStreamingRunner(options = {}) {
         args,
         env,
         cwd,
-        wireLog: openWireLog(factoryLogging),
+        wireLog: openWireLog(factoryLogging)
       });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);
       try {
         await transport.start();
         await client.request("initialize", {
-          clientInfo: CLIENT_INFO,
+          clientInfo: CLIENT_INFO
         });
         client.notify("initialized", {});
         /** @type {any} */
         const threadResponse = await client.request("thread/start", {
           cwd,
-          ...(defaultModel ? { model: resolveCodexModel(defaultModel) } : {}),
+          ...(defaultModel ? { model: resolveCodexModel(defaultModel) } : {})
         });
         threadId = threadResponse?.thread?.id ?? null;
         if (!threadId) {
-          throw new Error(
-            "createCodexStreamingRunner: thread/start returned no thread id",
-          );
+          throw new Error("createCodexStreamingRunner: thread/start returned no thread id");
         }
         started = true;
         health = "healthy";
@@ -302,7 +297,7 @@ export function createCodexStreamingRunner(options = {}) {
         reason: null,
         model: turnOpts.model ?? defaultModel ?? null,
         sessionId: threadId,
-        updates: [],
+        updates: []
       };
       activeTurn = turn;
       activeOnUpdate = turnOpts.onUpdate ?? null;
@@ -334,20 +329,13 @@ export function createCodexStreamingRunner(options = {}) {
         switch (context?.session?.action ?? "reuse") {
           case "fresh": {
             /** @type {any} */
-            const fresh = await /** @type {any} */ (client).request(
-              "thread/start",
-              {
-                cwd: turnCwd,
-                ...(defaultModel
-                  ? { model: resolveCodexModel(defaultModel) }
-                  : {}),
-              },
-            );
+            const fresh = await /** @type {any} */ (client).request("thread/start", {
+              cwd: turnCwd,
+              ...(defaultModel ? { model: resolveCodexModel(defaultModel) } : {})
+            });
             const freshId = fresh?.thread?.id;
             if (!freshId) {
-              throw new Error(
-                "codex streaming runner: thread/start returned no thread id",
-              );
+              throw new Error("codex streaming runner: thread/start returned no thread id");
             }
             threadId = freshId;
             turn.sessionId = freshId;
@@ -358,7 +346,7 @@ export function createCodexStreamingRunner(options = {}) {
               /** @type {any} */ (context.session)
             ).id;
             await /** @type {any} */ (client).request("thread/resume", {
-              threadId: resumeId,
+              threadId: resumeId
             });
             threadId = resumeId;
             turn.sessionId = resumeId;
@@ -382,7 +370,7 @@ export function createCodexStreamingRunner(options = {}) {
           onAbort = () => {
             try {
               /** @type {any} */ (client).notify("turn/cancel", {
-                threadId,
+                threadId
               });
             } catch {
               // best-effort
@@ -394,33 +382,24 @@ export function createCodexStreamingRunner(options = {}) {
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
-            reject(
-              new Error(
-                `codex streaming runner: turn timed out after ${timeoutMs}ms`,
-              ),
-            );
+            reject(new Error(`codex streaming runner: turn timed out after ${timeoutMs}ms`));
           }, timeoutMs);
         });
 
         const work = (async () => {
           /** @type {any} */
-          const startResp = await /** @type {any} */ (client).request(
-            "turn/start",
-            {
-              threadId,
-              // Per the v2 TurnStartParams schema (generated via
-              // `codex app-server generate-json-schema`), `input` is a
-              // required array of UserInput objects, NOT a `userInput`
-              // string. An earlier draft of this runner followed a
-              // stale doc that called it `userInput`; the codex 0.130.0
-              // app-server rejects that with "Invalid request: missing
-              // field `input`".
-              input: [{ type: "text", text: turnOpts.prompt }],
-              ...(turnOpts.model
-                ? { model: resolveCodexModel(turnOpts.model) }
-                : {}),
-            },
-          );
+          const startResp = await /** @type {any} */ (client).request("turn/start", {
+            threadId,
+            // Per the v2 TurnStartParams schema (generated via
+            // `codex app-server generate-json-schema`), `input` is a
+            // required array of UserInput objects, NOT a `userInput`
+            // string. An earlier draft of this runner followed a
+            // stale doc that called it `userInput`; the codex 0.130.0
+            // app-server rejects that with "Invalid request: missing
+            // field `input`".
+            input: [{ type: "text", text: turnOpts.prompt }],
+            ...(turnOpts.model ? { model: resolveCodexModel(turnOpts.model) } : {})
+          });
           // turn/start response is acknowledgment only; terminal signal
           // arrives via turn/completed notification.
           if (!turn.model && startResp?.turn?.model) {
@@ -440,9 +419,9 @@ export function createCodexStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: true,
-            transport: TRANSPORT_NAMES.CODEX_APP_SERVER,
+            transport: TRANSPORT_NAMES.CODEX_APP_SERVER
           },
-          { context },
+          { context }
         );
         return turn;
       } catch (err) {
@@ -457,9 +436,9 @@ export function createCodexStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: false,
-            transport: TRANSPORT_NAMES.CODEX_APP_SERVER,
+            transport: TRANSPORT_NAMES.CODEX_APP_SERVER
           },
-          { context },
+          { context }
         );
         throw err;
       } finally {
@@ -501,7 +480,7 @@ export function createCodexStreamingRunner(options = {}) {
 
     health() {
       return health;
-    },
+    }
   };
 
   async function safeCloseTransport() {
@@ -524,8 +503,7 @@ export function createCodexStreamingRunner(options = {}) {
  * @returns {any}
  */
 function extractToolArgs(item) {
-  if (item.command !== undefined)
-    return { command: item.command, cwd: item.cwd };
+  if (item.command !== undefined) return { command: item.command, cwd: item.cwd };
   if (item.arguments !== undefined) return item.arguments;
   if (item.input !== undefined) return item.input;
   return {};
