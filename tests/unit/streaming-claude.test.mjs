@@ -349,6 +349,90 @@ describe("runTurn:rpc", () => {
     expect(result.model).not.toBe("sonnet");
   });
 
+  test("turn-level model fires session/set_model with the resolved id", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "x", model: "opus-1m" });
+    const setModelCall = client._calls.find((c) => c.method === "session/set_model");
+    expect(setModelCall).toBeDefined();
+    expect(setModelCall.params.modelId).toBe("claude-opus-4-7-1m");
+    expect(setModelCall.params.sessionId).toBeTruthy();
+  });
+
+  test("no model on turn AND no default → no session/set_model emitted", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "x" });
+    expect(client._calls.some((c) => c.method === "session/set_model")).toBe(false);
+  });
+
+  test("second turn with same model skips the set_model round-trip", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", model: "haiku" });
+    await runner.runTurn({ prompt: "2", model: "haiku" });
+    const setModelCalls = client._calls.filter((c) => c.method === "session/set_model");
+    expect(setModelCalls).toHaveLength(1);
+  });
+
+  test("changing model on the second turn re-applies", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", model: "haiku" });
+    await runner.runTurn({ prompt: "2", model: "opus" });
+    const setModelCalls = client._calls.filter((c) => c.method === "session/set_model");
+    expect(setModelCalls).toHaveLength(2);
+    expect(setModelCalls[1].params.modelId).toBe("claude-opus-4-7");
+  });
+
+  test("fresh session resets applied-model — set_model re-fires for same alias", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/new", { sessionId: "sess-fresh" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", model: "sonnet" });
+    await runner.runTurn(
+      { prompt: "2", model: "sonnet" },
+      /** @type {any} */ ({ session: { action: "fresh" } })
+    );
+    const setModelCalls = client._calls.filter((c) => c.method === "session/set_model");
+    // Same alias on both turns — but the fresh-session reset forces
+    // a re-apply. Otherwise the fresh session would have NO model.
+    expect(setModelCalls).toHaveLength(2);
+    expect(setModelCalls[1].params.sessionId).toBe("sess-fresh");
+  });
+
+  test("session/set_model rejection aborts the turn before session/prompt", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/set_model", new Error("unknown model id"));
+    await expect(runner.runTurn({ prompt: "x", model: "claude-not-a-real-model" })).rejects.toThrow(
+      /unknown model id/
+    );
+    // No prompt should have been issued.
+    expect(client._calls.some((c) => c.method === "session/prompt")).toBe(false);
+  });
+
+  test("start() applies the factory's defaultModel via set_model", async () => {
+    const transport = makeFakeTransport();
+    const client = makeFakeClient();
+    client._enqueue("initialize", {});
+    client._enqueue("session/new", { sessionId: "sess-default" });
+    const runner = createClaudeStreamingRunner({
+      cwd: "/tmp",
+      model: "opus-1m",
+      createTransport: /** @type {any} */ (() => transport),
+      createClient: /** @type {any} */ (() => client),
+      resolveEntry: () => "/fake/index.js"
+    });
+    await runner.start();
+    const setModelCall = client._calls.find((c) => c.method === "session/set_model");
+    expect(setModelCall).toBeDefined();
+    expect(setModelCall.params.modelId).toBe("claude-opus-4-7-1m");
+    expect(setModelCall.params.sessionId).toBe("sess-default");
+  });
+
   test("context.session.fresh → session/new before session/prompt; new id wins", async () => {
     const { runner, client } = await startedRunner({ sessionId: "sess-orig" });
     client._enqueue("session/new", { sessionId: "sess-fresh" });
