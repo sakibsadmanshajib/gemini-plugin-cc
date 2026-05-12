@@ -78,5 +78,20 @@ jobs:
         # offending files listed if there's any drift.
         run: pnpm vendor:lib:check
 
+      - name: Lint (biome)
+        # Without this step lint was only enforced on the publish
+        # workflow (which fires on release tags). PRs to main could
+        # ship lint-failing code without CI catching it. Running here
+        # is ~70ms on the cache hit — well within the fail-fast budget.
+        run: pnpm lint
+
+      - name: Typecheck (tsgo --noEmit)
+        # The tsgo-fallback workflow runs tsc weekly as a regression
+        # detector for tsgo itself, but typecheck wasn't enforced on
+        # PRs at all. A PR introducing a type error could merge and
+        # only fail the weekly job. Running tsgo here on every PR
+        # gives synchronous PR-level type protection.
+        run: pnpm typecheck
+
       - name: Run tests
         run: pnpm test
