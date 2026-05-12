@@ -70,5 +70,13 @@ jobs:
           HUSKY: 0
         run: pnpm install --frozen-lockfile
 
+      - name: Verify vendored plugin trees match canonical lib/
+        # The three plugins/<host>/lib/ trees are vendored byte-equal
+        # copies of repo-root lib/. Without this CI check, a PR that
+        # touches lib/ without running `pnpm vendor:lib` would ship
+        # plugin trees out of sync. The check exits non-zero with the
+        # offending files listed if there's any drift.
+        run: pnpm vendor:lib:check
+
       - name: Run tests
         run: pnpm test
