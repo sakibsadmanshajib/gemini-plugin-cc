@@ -20,6 +20,7 @@ await facade.listen();
 | Method  | Path                   | Auth required? | Description                                            |
 | ------- | ---------------------- | -------------- | ------------------------------------------------------ |
 | GET     | `/health`              | no             | Liveness probe — always 200                            |
+| GET     | `/admin/status`        | yes (when set) | Per-supervisor health + SQLite stats snapshot          |
 | GET     | `/v1/models`           | yes (when set) | OpenAI list shape; per-backend canonical ids + aliases |
 | GET     | `/v1/models/{id}`      | yes (when set) | Single-model retrieval; 404 on unknown                 |
 | POST    | `/v1/chat/completions` | yes (when set) | Standard OpenAI request → backend dispatch             |
@@ -27,6 +28,37 @@ await facade.listen();
 
 `/health` is intentionally exempt from API-key auth so load
 balancers can probe without credentials (matches OpenAI's pattern).
+
+### `/admin/status`
+
+Operator-facing snapshot. Uses the same bearer auth as `/v1/*`. Body:
+
+```json
+{
+  "pid": 4321,
+  "startedAt": "2026-05-11T19:00:00.000Z",
+  "uptimeMs": 1230456,
+  "supervisors": [
+    { "backend": "claude", "health": "ready", "lastError": null },
+    { "backend": "codex", "health": "dead", "lastError": "auth_failed" }
+  ],
+  "stats": {
+    "sqlitePath": "/Users/me/.local/state/artagon-agent-cli-plugin/stats.db",
+    "failureCount": 0,
+    "lastWarnedAt": null
+  },
+  "auth": { "required": true }
+}
+```
+
+`supervisors` is empty until the first chat-completions request lazily
+constructs a supervisor for that backend. `lastError` is a redacted
+short code (`spawn_not_found`, `spawn_denied`, `auth_failed`,
+`transport_closed`, `restart_budget_exhausted`, `timeout`, `oom`, or
+`unknown`) — the full error message stays in the daemon's stderr log.
+The redaction is intentional: `/admin/status` is reachable without a
+bearer when `--api-key` is unset, and raw error strings can contain
+filesystem paths or auth hints.
 
 ## Backend routing — `model` field
 
