@@ -193,21 +193,25 @@ export async function runViaFacade(backend, options, context) {
     const cause = /** @type {any} */ (err)?.cause;
     const code = cause?.code ?? /** @type {any} */ (err)?.code;
     // M3: extend the wipe set with the other unambiguously-fatal
-    // network codes. EHOSTUNREACH / ENETUNREACH / EADDRNOTAVAIL all
-    // mean "the manifest claims a live daemon but the network says
-    // otherwise" — same semantic as ECONNREFUSED.
+    // network codes pointing at "this daemon is not there." EHOSTUNREACH
+    // and ENETUNREACH share the ECONNREFUSED semantic.
     //
-    // ECONNRESET stays OUT of the wipe set on purpose: it can fire
-    // mid-request when a single connection drops while the daemon
-    // keeps serving other concurrent clients. Unlinking the manifest
-    // on a single-connection reset would yank the daemon's discovery
-    // file out from under healthy parallel requests.
+    // ECONNRESET stays OUT of the wipe set: it can fire mid-request when
+    // a single connection drops while the daemon keeps serving other
+    // concurrent clients. Unlinking the manifest on a single-connection
+    // reset would yank the daemon's discovery file out from under
+    // healthy parallel requests.
+    //
+    // C1 (round-8): EADDRNOTAVAIL is also OUT. On a CLIENT connect it
+    // signals "this machine's local source address is unavailable" —
+    // a host-networking failure, not a daemon-is-gone signal. Wiping
+    // wouldn't help (the daemon is fine) and adds noise to operators
+    // chasing the actual network issue.
     if (
       code === "ECONNREFUSED" ||
       code === "ENOTFOUND" ||
       code === "EHOSTUNREACH" ||
-      code === "ENETUNREACH" ||
-      code === "EADDRNOTAVAIL"
+      code === "ENETUNREACH"
     ) {
       // M2: race-safe wipe. Between when WE captured `manifest` at the
       // top of runViaFacade and now, another slash-command's auto-start

@@ -173,12 +173,24 @@ describe("classifyLastError — L3 redaction enum (round-7 TC1)", () => {
   test("internal-error programmer assertions → internal_error", () => {
     expect(classifyLastError(new Error("runTurn before start"))).toBe("internal_error");
     expect(classifyLastError(new Error("invariant violation"))).toBe("internal_error");
+    expect(classifyLastError(new Error("programmer assertion failed"))).toBe("internal_error");
+  });
+
+  test("B1 (round-8): unrelated AssertionError from upstream SDK does NOT mis-classify as internal_error", () => {
+    // Pre-B1 the bare /assert/i pattern would catch this. Now scoped
+    // to project-specific shapes; a third-party AssertionError lands
+    // in "unknown" instead of taking the internal_error bucket.
+    expect(
+      classifyLastError(new Error("AssertionError: expected 200 to be 201 (anthropic-sdk)"))
+    ).toBe("unknown");
   });
 
   test("transport-closed dialects → transport_closed", () => {
     expect(classifyLastError(new Error("transport closed unexpectedly"))).toBe("transport_closed");
     expect(classifyLastError(new Error("EPIPE writing to stdin"))).toBe("transport_closed");
     expect(classifyLastError(new Error("child exited with exit code 1"))).toBe("transport_closed");
+    // C2 (round-8): raw ECONNRESET → transport_closed (not 'unknown').
+    expect(classifyLastError(new Error("connection ECONNRESET"))).toBe("transport_closed");
     expect(classifyLastError(new Error("stdin unavailable"))).toBe("transport_closed");
   });
 

@@ -228,11 +228,29 @@ test("default model derives from backend name when option omitted", async () => 
   expect(body.model).toBe("codex");
 });
 
-test("network error → reject and emit a cost record with ok=false", async () => {
+test("network error → reject and emit a cost record with ok=false (round-7 TC3)", async () => {
+  // Round-7 test reviewer flagged this test as a near-no-op: its title
+  // promised cost-record assertions but the body only checked the
+  // throw. Now reads the JSONL at $XDG_STATE_HOME and verifies one
+  // record was appended with ok=false, transport=facade.
   fetchMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /ECONNREFUSED/
   );
+
+  const logPath = path.join(tmpCostHome, "artagon-agent-cli-plugin", "cost.jsonl");
+  expect(fs.existsSync(logPath)).toBe(true);
+  const records = fs
+    .readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter((line) => line.length > 0)
+    .map((line) => JSON.parse(line));
+  expect(records).toHaveLength(1);
+  expect(records[0]).toMatchObject({
+    backend: BACKEND_NAMES.CLAUDE,
+    ok: false,
+    transport: "facade"
+  });
 });
 
 test("K2: ECONNREFUSED with err.code → deleteManifest fires + actionable error", async () => {

@@ -215,8 +215,20 @@ export function classifyLastError(err) {
     return "session_init_failed";
   }
   if (/timed?\s*out|ETIMEDOUT/i.test(msg)) return "timeout";
-  if (/runTurn before start|invariant|assert/i.test(msg)) return "internal_error";
-  if (/stdin unavailable|closed|EPIPE|exit code|signal/i.test(msg)) return "transport_closed";
+  // B1 (round-8): scope internal_error to project-specific shapes. The
+  // earlier `/assert/i` substring collided with any upstream library
+  // error that mentions assertions (e.g. an unrelated AssertionError
+  // from a third-party SDK would mis-classify as internal_error). The
+  // patterns here match only what our own code throws.
+  if (/runTurn before start|invariant violation|programmer assertion/i.test(msg)) {
+    return "internal_error";
+  }
+  // C2 (round-8): include ECONNRESET in the transport-closed bucket.
+  // A supervisor that captured a raw ECONNRESET into lastError() is
+  // semantically a transport close, not "unknown".
+  if (/stdin unavailable|closed|EPIPE|exit code|signal|ECONNRESET/i.test(msg)) {
+    return "transport_closed";
+  }
   if (/out of memory|ENOMEM/i.test(msg)) return "oom";
   return "unknown";
 }
