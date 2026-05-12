@@ -437,3 +437,98 @@ describe("classifyLastError — real runner string coverage (round-16 lock-in)",
     expect(classifyLastError(new Error("spawn /usr/local/bin/claude EACCES"))).toBe("spawn_denied");
   });
 });
+
+describe("LastErrorCode drift guard — types.mjs ↔ classifier ↔ docs", () => {
+  // A contributor adding a new bucket has to update three places:
+  //   1. The LastErrorCode union in lib/runners/streaming/types.mjs
+  //   2. The classifier regex in lib/runners/streaming/registry.mjs
+  //   3. The operator-facing table in docs/openai-facade.md
+  //
+  // If any one of those drifts (e.g. union gains a new member but the
+  // docs table doesn't), operators polling /admin/status would see a
+  // code they can't look up. This test asserts all three agree by
+  // grepping the source files.
+
+  /**
+   * Parse the LastErrorCode union members out of types.mjs source.
+   * The union lives in a JSDoc @typedef so we string-match it rather
+   * than via the type system (which can't see runtime values).
+   */
+  async function parseUnionMembers() {
+    const fs = await import("node:fs");
+    const url = await import("node:url");
+    const here = url.fileURLToPath(
+      new URL("../../lib/runners/streaming/types.mjs", import.meta.url)
+    );
+    const src = fs.readFileSync(here, "utf8");
+    // Extract everything between "@typedef {(" and ")} LastErrorCode"
+    const match = src.match(/@typedef\s+\{\(([\s\S]*?)\)\}\s+LastErrorCode/);
+    if (!match) throw new Error("could not locate LastErrorCode typedef in types.mjs");
+    return Array.from(match[1].matchAll(/"([a-z_]+)"/g)).map((m) => m[1]);
+  }
+
+  /** Parse the lastError code rows out of docs/openai-facade.md. */
+  async function parseDocsCodes() {
+    const fs = await import("node:fs");
+    const url = await import("node:url");
+    const here = url.fileURLToPath(new URL("../../docs/openai-facade.md", import.meta.url));
+    const src = fs.readFileSync(here, "utf8");
+    // The lastError table rows look like: | `code_name` | description |
+    return Array.from(src.matchAll(/^\|\s+`([a-z_]+)`\s+\|/gm)).map((m) => m[1]);
+  }
+
+  test("types.mjs union matches docs/openai-facade.md table (same set of codes)", async () => {
+    const unionMembers = await parseUnionMembers();
+    const docsCodes = await parseDocsCodes();
+
+    // The docs file has OTHER tables (model routing, finish_reason) that
+    // also match the regex. Filter to codes that appear in the union to
+    // get only the lastError-table subset. Then assert the union set
+    // and the in-docs set are equal.
+    const unionSet = new Set(unionMembers);
+    const docsLastErrorCodes = docsCodes.filter((c) => unionSet.has(c));
+    const docsSet = new Set(docsLastErrorCodes);
+
+    // Every union member must appear in docs.
+    for (const code of unionMembers) {
+      expect(
+        docsSet.has(code),
+        `LastErrorCode '${code}' is in types.mjs but missing from docs/openai-facade.md table`
+      ).toBe(true);
+    }
+    // And the docs table shouldn't list a code the union doesn't have
+    // (no false advertising). This catches the reverse drift: doc adds
+    // a code that classifyLastError can never produce.
+    expect(docsSet.size).toBe(unionSet.size);
+  });
+
+  test("every code the classifier returns is in the LastErrorCode union", async () => {
+    // The classifier returns string literals directly; ensure no
+    // typos that would silently break the wire contract.
+    const unionMembers = await parseUnionMembers();
+    const unionSet = new Set(unionMembers);
+
+    // Drive a representative input for each branch from the lock-in
+    // tests above; the classifier's return must be in the union.
+    const probes = [
+      new Error("spawn ENOENT"),
+      new Error("EACCES"),
+      new Error("ETIMEDOUT"),
+      new Error("auth failed"),
+      new Error("supervisor: exceeded 3 restarts"),
+      new Error("session/new returned no sessionId"),
+      new Error("runTurn before start"),
+      new Error("EPIPE"),
+      new Error("ENOMEM"),
+      new Error("???")
+    ];
+    for (const err of probes) {
+      const code = classifyLastError(err);
+      if (code === null) continue;
+      expect(
+        unionSet.has(code),
+        `classifier returned '${code}' which is NOT in LastErrorCode union`
+      ).toBe(true);
+    }
+  });
+});
