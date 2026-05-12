@@ -75,7 +75,6 @@ program
   .option("--no-streaming", "veto the streaming runner")
   .option("--facade", "route via the OpenAI facade")
   .option("--no-facade", "veto the facade")
-  .option("--no-broker", "gemini: skip the legacy broker probe")
   // ── observability ──
   .option("--wire-log <path>", "capture every JSON-RPC frame to <path>")
   .option("--wire-log-raw", "disable secret redaction in wire log")

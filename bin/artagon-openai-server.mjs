@@ -246,11 +246,22 @@ try {
 //
 // F3: runner-level flags (--debug, --wire-log) are propagated through
 // the context so per-request dispatch picks them up.
+// Step 1.5: SQLite stats path is set on the daemon by default — every
+// turn the daemon handles inserts into stats.sqlite (in addition to
+// the JSONL cost log). The slash-command path inherits CostPolicy via
+// per-request withOverrides, so SQLite writes happen on the daemon
+// side regardless of whether the slash-command set --cost-log.
+const statsSqlitePath = path.join(
+  process.env.XDG_STATE_HOME?.trim() || path.join(process.env.HOME ?? "", ".local", "state"),
+  "artagon-agent-cli-plugin",
+  "stats.sqlite"
+);
 const serverContext = createAgentContext({
   cwd: process.cwd(),
   env: process.env,
   dispatch: { streaming: "on", facade: "default" },
   logging: opts.wireLog ? { wireLogPath: opts.wireLog } : {},
+  cost: { sqlitePath: statsSqlitePath },
   debug: opts.debug === true ? true : undefined
 });
 

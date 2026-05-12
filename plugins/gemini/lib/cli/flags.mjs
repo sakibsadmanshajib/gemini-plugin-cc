@@ -73,7 +73,7 @@ const STRING_FLAGS = new Set([
   "--facade-key",
   "--model",
   "--cwd",
-  "--session",
+  "--session"
 ]);
 
 /**
@@ -87,7 +87,7 @@ const TRI_STATE_FLAGS = [
   { flag: "--streaming", field: "streaming", value: "on" },
   { flag: "--no-streaming", field: "streaming", value: "off" },
   { flag: "--facade", field: "facade", value: "on" },
-  { flag: "--no-facade", field: "facade", value: "off" },
+  { flag: "--no-facade", field: "facade", value: "off" }
 ];
 
 /**
@@ -114,9 +114,7 @@ export function parseRunnerArgs(argv) {
   function setTriState(field, value, token) {
     const prior = setBy.get(field);
     if (prior !== undefined && flags[field] !== value) {
-      throw new Error(
-        `Conflicting flags: \`${prior}\` and \`${token}\` both set \`${field}\``,
-      );
+      throw new Error(`Conflicting flags: \`${prior}\` and \`${token}\` both set \`${field}\``);
     }
     /** @type {any} */ (flags)[field] = value;
     setBy.set(field, token);
@@ -203,15 +201,11 @@ export function parseRunnerArgs(argv) {
     if (arg === "--timeout") {
       const value = argv[i + 1];
       if (value === undefined) {
-        throw new Error(
-          "Flag `--timeout` requires a positive number of milliseconds",
-        );
+        throw new Error("Flag `--timeout` requires a positive number of milliseconds");
       }
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error(
-          `Flag \`--timeout\` requires a positive finite number; got \`${value}\``,
-        );
+        throw new Error(`Flag \`--timeout\` requires a positive finite number; got \`${value}\``);
       }
       if (setBy.get("timeoutMs") !== undefined) {
         throw new Error("Flag `--timeout` was already set");
@@ -237,7 +231,7 @@ export function parseRunnerArgs(argv) {
     // Anything starting with `--` past this point is an unknown flag.
     if (arg.startsWith("--") || (arg.startsWith("-") && arg.length > 1)) {
       throw new Error(
-        `Unknown flag \`${arg}\` — use \`--\` to separate flags from prompt text starting with dashes`,
+        `Unknown flag \`${arg}\` — use \`--\` to separate flags from prompt text starting with dashes`
       );
     }
 
@@ -248,13 +242,11 @@ export function parseRunnerArgs(argv) {
 
   // Cross-flag conflict checks that can't be expressed via setBy alone.
   if (flags.costLog !== undefined && flags.noCostLog) {
-    throw new Error(
-      "Conflicting flags: `--cost-log` and `--no-cost-log` are mutually exclusive",
-    );
+    throw new Error("Conflicting flags: `--cost-log` and `--no-cost-log` are mutually exclusive");
   }
   if (flags.sessionId !== undefined && flags.newSession) {
     throw new Error(
-      "Conflicting flags: `--session <id>` and `--new-session` are mutually exclusive",
+      "Conflicting flags: `--session <id>` and `--new-session` are mutually exclusive"
     );
   }
 
@@ -262,7 +254,7 @@ export function parseRunnerArgs(argv) {
     flags,
     prompt: rest.join(" "),
     rest,
-    helpRequested,
+    helpRequested
   };
 }
 
