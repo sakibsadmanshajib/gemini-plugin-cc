@@ -123,8 +123,7 @@ let warnedOnce = false;
 export function getCostLogPath(env, context) {
   if (context?.cost?.logPath) return context.cost.logPath;
   const e = env ?? process.env;
-  const stateHome =
-    e.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
+  const stateHome = e.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state");
   return path.join(stateHome, "artagon-agent-cli-plugin", "cost.jsonl");
 }
 
@@ -153,10 +152,7 @@ export function normalizeUsage(usage) {
   //   cache_read_input_tokens     — cache hits  (priced at 10% of input)
   // These are NOT included in input_tokens (per Anthropic's billing
   // semantics), so we surface them as separate normalized fields.
-  if (
-    typeof u.input_tokens === "number" ||
-    typeof u.output_tokens === "number"
-  ) {
+  if (typeof u.input_tokens === "number" || typeof u.output_tokens === "number") {
     const p = Number(u.input_tokens ?? 0);
     const c = Number(u.output_tokens ?? 0);
     const cacheCreate = Number(u.cache_creation_input_tokens ?? 0);
@@ -166,9 +162,7 @@ export function normalizeUsage(usage) {
       prompt_tokens: p,
       completion_tokens: c,
       total_tokens:
-        typeof u.total_tokens === "number"
-          ? u.total_tokens
-          : p + c + cacheCreate + cacheRead,
+        typeof u.total_tokens === "number" ? u.total_tokens : p + c + cacheCreate + cacheRead
     };
     if (cacheCreate > 0) out.cache_creation_tokens = cacheCreate;
     if (cacheRead > 0) out.cache_read_tokens = cacheRead;
@@ -204,7 +198,7 @@ export function normalizeUsage(usage) {
       total_tokens:
         typeof u.totalTokens === "number"
           ? u.totalTokens
-          : p + c + claudeCacheCreate + claudeCacheRead,
+          : p + c + claudeCacheCreate + claudeCacheRead
     };
     if (claudeCacheCreate > 0) out.cache_creation_tokens = claudeCacheCreate;
     if (claudeCacheRead > 0) out.cache_read_tokens = claudeCacheRead;
@@ -213,17 +207,13 @@ export function normalizeUsage(usage) {
   }
 
   // Gemini bare shape: { promptTokenCount, candidatesTokenCount, totalTokenCount }
-  if (
-    typeof u.promptTokenCount === "number" ||
-    typeof u.candidatesTokenCount === "number"
-  ) {
+  if (typeof u.promptTokenCount === "number" || typeof u.candidatesTokenCount === "number") {
     const p = Number(u.promptTokenCount ?? 0);
     const c = Number(u.candidatesTokenCount ?? 0);
     return {
       prompt_tokens: p,
       completion_tokens: c,
-      total_tokens:
-        typeof u.totalTokenCount === "number" ? u.totalTokenCount : p + c,
+      total_tokens: typeof u.totalTokenCount === "number" ? u.totalTokenCount : p + c
     };
   }
 
@@ -234,10 +224,7 @@ export function normalizeUsage(usage) {
   // cache_read_tokens as a derived view without subtracting from
   // prompt_tokens. The pricing layer is responsible for crediting the
   // discount: regular = prompt_tokens - cache_read; discounted = cache_read.
-  if (
-    typeof u.prompt_tokens === "number" ||
-    typeof u.completion_tokens === "number"
-  ) {
+  if (typeof u.prompt_tokens === "number" || typeof u.completion_tokens === "number") {
     const p = Number(u.prompt_tokens ?? 0);
     const c = Number(u.completion_tokens ?? 0);
     const cacheRead = Number(u.prompt_tokens_details?.cached_tokens ?? 0);
@@ -245,7 +232,7 @@ export function normalizeUsage(usage) {
     const out = {
       prompt_tokens: p,
       completion_tokens: c,
-      total_tokens: typeof u.total_tokens === "number" ? u.total_tokens : p + c,
+      total_tokens: typeof u.total_tokens === "number" ? u.total_tokens : p + c
     };
     if (cacheRead > 0) out.cache_read_tokens = cacheRead;
     return out;
@@ -259,8 +246,7 @@ export function normalizeUsage(usage) {
     return {
       prompt_tokens: extracted.input ?? 0,
       completion_tokens: extracted.output ?? 0,
-      total_tokens:
-        extracted.total ?? (extracted.input ?? 0) + (extracted.output ?? 0),
+      total_tokens: extracted.total ?? (extracted.input ?? 0) + (extracted.output ?? 0)
     };
   }
 
@@ -300,9 +286,7 @@ export function appendCostRecord(record, options = {}) {
       warnedOnce = true;
       const message = err instanceof Error ? err.message : String(err);
       try {
-        process.stderr.write(
-          `[cost-recorder] disabled — failed to write ${logPath}: ${message}\n`,
-        );
+        process.stderr.write(`[cost-recorder] disabled — failed to write ${logPath}: ${message}\n`);
       } catch {
         // best-effort
       }

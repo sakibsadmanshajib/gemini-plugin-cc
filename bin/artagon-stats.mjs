@@ -137,15 +137,38 @@ try {
   process.exit(2);
 }
 
-// readCostRecords swallows per-line JSON parse failures (log
-// corruption is recoverable) but throws on file-level errors —
-// EACCES from wrong perms, EISDIR from a path collision, etc.
-// Catch those and print a one-liner instead of dumping a raw Node
-// stack at the user. Exit 1 (runtime error), not 2 (usage error)
-// — the args were fine, the environment is misconfigured.
+// H7: When the daemon's SQLite stats DB exists, merge its rows with
+// the JSONL records. The daemon writes both stores; the slash-command
+// path writes only JSONL. Reading from both gives a complete picture
+// for hybrid deployments where some turns went through the daemon and
+// some did not.
 let records;
 try {
-  records = readCostRecords({ since: opts.since, until: opts.until, context });
+  const jsonl = readCostRecords({
+    since: opts.since,
+    until: opts.until,
+    context
+  });
+  const { readTurnStats } = await import("#lib/cost/sqlite-recorder.mjs");
+  const sqliteRows = readTurnStats({
+    env: process.env,
+    since: opts.since,
+    until: opts.until
+  });
+  // De-dup by (timestamp, backend, sessionId) — daemon-routed turns
+  // appear in BOTH stores. JSONL is the canonical superset for
+  // non-daemon turns; SQLite adds traceId / strongly-typed columns
+  // for daemon-routed turns. When duplicates exist, the SQLite row
+  // takes precedence (it has traceId; JSONL doesn't).
+  /** @type {Map<string, import("#lib/cost/aggregate.mjs").CostRecord>} */
+  const merged = new Map();
+  for (const r of jsonl) {
+    merged.set(`${r.timestamp}::${r.backend}::${r.sessionId ?? ""}`, r);
+  }
+  for (const r of sqliteRows) {
+    merged.set(`${r.timestamp}::${r.backend}::${r.sessionId ?? ""}`, r);
+  }
+  records = Array.from(merged.values()).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 } catch (err) {
   const message = err instanceof Error ? err.message : String(err);
   process.stderr.write(`artagon-stats: failed to read cost log: ${message}\n`);

@@ -93,7 +93,9 @@ function resolveBearer(options, context) {
 export async function runViaFacade(backend, options, context) {
   const manifest = readManifest(context?.env ?? options.env ?? process.env);
   if (!manifest) {
-    throw new Error("runViaFacade: no running facade found (manifest absent or stale)");
+    throw new Error(
+      "runViaFacade: no running facade found (manifest absent or stale)",
+    );
   }
 
   const startedAtMs = Date.now();
@@ -111,9 +113,10 @@ export async function runViaFacade(backend, options, context) {
   // from these so the streaming runner inside the daemon honors them.
   const sessionAction = context?.session?.action;
   if (sessionAction === "resume") {
-    headers["X-Artagon-Session"] = /** @type {{ action: "resume", id: string }} */ (
-      /** @type {any} */ (context.session)
-    ).id;
+    headers["X-Artagon-Session"] =
+      /** @type {{ action: "resume", id: string }} */ (
+        /** @type {any} */ (context.session)
+      ).id;
   } else if (sessionAction === "fresh") {
     headers["X-Artagon-New-Session"] = "1";
   }
@@ -121,7 +124,7 @@ export async function runViaFacade(backend, options, context) {
   const body = JSON.stringify({
     model: resolveModel(backend, options.model),
     messages: [{ role: "user", content: options.prompt }],
-    stream: false
+    stream: false,
   });
 
   const controller = new AbortController();
@@ -141,7 +144,7 @@ export async function runViaFacade(backend, options, context) {
     reason: null,
     model: null,
     sessionId: null,
-    updates: []
+    updates: [],
   };
 
   let response;
@@ -150,7 +153,7 @@ export async function runViaFacade(backend, options, context) {
       method: "POST",
       headers,
       body,
-      signal: controller.signal
+      signal: controller.signal,
     });
   } catch (err) {
     appendCostRecord(
@@ -162,11 +165,26 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE
+        transport: TRANSPORT_NAMES.FACADE,
       },
-      { context }
+      { context },
     );
     clearTimeout(timer);
+    // H4: wrap connection-level errors with an actionable hint so the
+    // user knows to start the daemon (or bypass with --no-facade)
+    // instead of seeing "fetch failed".
+    const cause = /** @type {any} */ (err)?.cause;
+    const code = cause?.code ?? /** @type {any} */ (err)?.code;
+    if (
+      code === "ECONNREFUSED" ||
+      code === "ENOTFOUND" ||
+      code === "ECONNRESET"
+    ) {
+      throw new Error(
+        `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
+          `Start the daemon with \`artagon-openai-server\` or pass --no-facade to bypass.`,
+      );
+    }
     throw err;
   }
   clearTimeout(timer);
@@ -182,12 +200,12 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE
+        transport: TRANSPORT_NAMES.FACADE,
       },
-      { context }
+      { context },
     );
     throw new Error(
-      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`
+      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`,
     );
   }
 
@@ -237,9 +255,9 @@ export async function runViaFacade(backend, options, context) {
       durationMs: Date.now() - startedAtMs,
       reason: turn.reason ?? null,
       ok: true,
-      transport: TRANSPORT_NAMES.FACADE
+      transport: TRANSPORT_NAMES.FACADE,
     },
-    { context }
+    { context },
   );
 
   return turn;

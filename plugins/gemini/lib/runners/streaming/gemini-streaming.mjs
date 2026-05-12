@@ -112,7 +112,9 @@ export function createGeminiStreamingRunner(options = {}) {
     if (!params || !params.update) return;
     const sessionUpdate = translateGeminiStreamEvent(params.update);
     if (!sessionUpdate) return;
-    const updates = Array.isArray(sessionUpdate) ? sessionUpdate : [sessionUpdate];
+    const updates = Array.isArray(sessionUpdate)
+      ? sessionUpdate
+      : [sessionUpdate];
     for (const u of updates) {
       activeTurn.updates.push(u);
       if (activeOnUpdate) {
@@ -142,7 +144,7 @@ export function createGeminiStreamingRunner(options = {}) {
             activeTurn.toolCalls.push({
               toolName: u.toolName,
               toolUseId: u.toolUseId,
-              args: u.args ?? {}
+              args: u.args ?? {},
             });
           }
           break;
@@ -151,7 +153,7 @@ export function createGeminiStreamingRunner(options = {}) {
             activeTurn.toolResults.push({
               toolUseId: u.toolUseId,
               result: u.result ?? null,
-              isError: Boolean(u.isError)
+              isError: Boolean(u.isError),
             });
           }
           break;
@@ -174,7 +176,7 @@ export function createGeminiStreamingRunner(options = {}) {
         args,
         env,
         cwd,
-        wireLog: openWireLog(factoryLogging)
+        wireLog: openWireLog(factoryLogging),
       });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);
@@ -182,15 +184,17 @@ export function createGeminiStreamingRunner(options = {}) {
         await transport.start();
         await client.request("initialize", {
           protocolVersion,
-          clientCapabilities: {}
+          clientCapabilities: {},
         });
         const session = await client.request("session/new", {
           cwd,
-          mcpServers: []
+          mcpServers: [],
         });
         sessionId = /** @type {any} */ (session)?.sessionId ?? null;
         if (!sessionId) {
-          throw new Error("createGeminiStreamingRunner: broker returned no sessionId");
+          throw new Error(
+            "createGeminiStreamingRunner: broker returned no sessionId",
+          );
         }
         started = true;
         health = "healthy";
@@ -226,7 +230,7 @@ export function createGeminiStreamingRunner(options = {}) {
         reason: null,
         model: null,
         sessionId,
-        updates: []
+        updates: [],
       };
       activeTurn = turn;
       activeOnUpdate = turnOpts.onUpdate ?? null;
@@ -242,16 +246,25 @@ export function createGeminiStreamingRunner(options = {}) {
         // try so a failure here marks supervisor health, writes a cost
         // record with ok:false, and clears activeTurn in the finally.
         // SessionPolicy is a tagged union (F6) — exhaustive switch.
+        // H3: per-turn cwd flows here. turnOpts.cwd > context.cwd >
+        // factory-default. Lets the daemon serve many workspaces over
+        // one cached supervisor.
+        const turnCwd = turnOpts.cwd ?? context?.cwd ?? cwd;
         switch (context?.session?.action ?? "reuse") {
           case "fresh": {
             /** @type {any} */
-            const fresh = await /** @type {any} */ (client).request("session/new", {
-              cwd,
-              mcpServers: []
-            });
+            const fresh = await /** @type {any} */ (client).request(
+              "session/new",
+              {
+                cwd: turnCwd,
+                mcpServers: [],
+              },
+            );
             const freshId = fresh?.sessionId;
             if (!freshId) {
-              throw new Error("gemini streaming runner: session/new returned no sessionId");
+              throw new Error(
+                "gemini streaming runner: session/new returned no sessionId",
+              );
             }
             sessionId = freshId;
             turn.sessionId = freshId;
@@ -263,8 +276,8 @@ export function createGeminiStreamingRunner(options = {}) {
             ).id;
             await /** @type {any} */ (client).request("session/load", {
               sessionId: resumeId,
-              cwd,
-              mcpServers: []
+              cwd: turnCwd,
+              mcpServers: [],
             });
             sessionId = resumeId;
             turn.sessionId = resumeId;
@@ -285,7 +298,7 @@ export function createGeminiStreamingRunner(options = {}) {
           onAbort = () => {
             try {
               /** @type {any} */ (client).notify("session/cancel", {
-                sessionId
+                sessionId,
               });
             } catch {
               // best-effort — transport may be closed
@@ -297,14 +310,21 @@ export function createGeminiStreamingRunner(options = {}) {
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
-            reject(new Error(`gemini streaming runner: turn timed out after ${timeoutMs}ms`));
+            reject(
+              new Error(
+                `gemini streaming runner: turn timed out after ${timeoutMs}ms`,
+              ),
+            );
           }, timeoutMs);
         });
         const work = (async () => {
-          const response = await /** @type {any} */ (client).request("session/prompt", {
-            sessionId,
-            prompt: [{ type: "text", text: turnOpts.prompt }]
-          });
+          const response = await /** @type {any} */ (client).request(
+            "session/prompt",
+            {
+              sessionId,
+              prompt: [{ type: "text", text: turnOpts.prompt }],
+            },
+          );
           const r = /** @type {any} */ (response);
           if (r?.stopReason && !turn.reason) turn.reason = String(r.stopReason);
           // Gemini CLI 0.38+ puts per-turn usage in `_meta.quota.token_count`
@@ -343,9 +363,9 @@ export function createGeminiStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: true,
-            transport: TRANSPORT_NAMES.ACP_SERVER
+            transport: TRANSPORT_NAMES.ACP_SERVER,
           },
-          { context }
+          { context },
         );
         return turn;
       } catch (err) {
@@ -363,9 +383,9 @@ export function createGeminiStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: false,
-            transport: TRANSPORT_NAMES.ACP_SERVER
+            transport: TRANSPORT_NAMES.ACP_SERVER,
           },
-          { context }
+          { context },
         );
         throw err;
       } finally {
@@ -403,7 +423,7 @@ export function createGeminiStreamingRunner(options = {}) {
 
     health() {
       return health;
-    }
+    },
   };
 
   async function safeCloseTransport() {

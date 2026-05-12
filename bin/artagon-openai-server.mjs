@@ -355,6 +355,14 @@ const shutdown = async (/** @type {string} */ signal) => {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`artagon-openai-server: error during shutdown: ${message}\n`);
   }
+  // H2: checkpoint and close the SQLite stats DB so the next opener
+  // sees the latest rows without replaying a giant WAL.
+  try {
+    const { closeStatsDb } = await import("#lib/cost/sqlite-recorder.mjs");
+    closeStatsDb();
+  } catch {
+    // best-effort during shutdown
+  }
   // Best-effort manifest cleanup. ENOENT is silent; other errors warn
   // but don't block exit.
   deleteManifest();

@@ -60,7 +60,7 @@ const CLIENT_CAPABILITIES = Object.freeze({
   // Decline terminal-auth advertisement — we don't run interactive
   // login flows from the streaming runner; the user must authenticate
   // out of band (claude login or ANTHROPIC_API_KEY).
-  auth: { terminal: false }
+  auth: { terminal: false },
 });
 
 /**
@@ -176,7 +176,7 @@ export function createClaudeStreamingRunner(options = {}) {
           activeTurn.toolCalls.push({
             toolName: update.toolName,
             toolUseId: String(update.toolUseId),
-            args: update.args ?? {}
+            args: update.args ?? {},
           });
         }
         break;
@@ -185,7 +185,7 @@ export function createClaudeStreamingRunner(options = {}) {
           activeTurn.toolResults.push({
             toolUseId: String(update.toolUseId),
             result: update.result ?? null,
-            isError: Boolean(update.isError)
+            isError: Boolean(update.isError),
           });
         }
         break;
@@ -193,7 +193,8 @@ export function createClaudeStreamingRunner(options = {}) {
         if (update.usage) activeTurn.usage = update.usage;
         break;
       case "turn_completed":
-        if (update.reason && !activeTurn.reason) activeTurn.reason = update.reason;
+        if (update.reason && !activeTurn.reason)
+          activeTurn.reason = update.reason;
         if (update.usage && !activeTurn.usage) activeTurn.usage = update.usage;
         if (update.model && !activeTurn.model) activeTurn.model = update.model;
         break;
@@ -211,7 +212,7 @@ export function createClaudeStreamingRunner(options = {}) {
         args: resolvedArgs,
         env,
         cwd,
-        wireLog: openWireLog(factoryLogging)
+        wireLog: openWireLog(factoryLogging),
       });
       client = clientFactory(/** @type {any} */ (transport));
       unsubscribeNotifications = client.onNotification(handleNotification);
@@ -219,16 +220,18 @@ export function createClaudeStreamingRunner(options = {}) {
         await transport.start();
         await client.request("initialize", {
           protocolVersion,
-          clientCapabilities: CLIENT_CAPABILITIES
+          clientCapabilities: CLIENT_CAPABILITIES,
         });
         /** @type {any} */
         const sessionResponse = await client.request("session/new", {
           cwd,
-          mcpServers: []
+          mcpServers: [],
         });
         sessionId = sessionResponse?.sessionId ?? null;
         if (!sessionId) {
-          throw new Error("createClaudeStreamingRunner: session/new returned no sessionId");
+          throw new Error(
+            "createClaudeStreamingRunner: session/new returned no sessionId",
+          );
         }
         started = true;
         health = "healthy";
@@ -263,7 +266,7 @@ export function createClaudeStreamingRunner(options = {}) {
         reason: null,
         model: modelForTurn ? resolveClaudeModel(modelForTurn) : null,
         sessionId,
-        updates: []
+        updates: [],
       };
       activeTurn = turn;
       activeOnUpdate = turnOpts.onUpdate ?? null;
@@ -277,16 +280,25 @@ export function createClaudeStreamingRunner(options = {}) {
       try {
         // Apply per-turn session intent INSIDE the try (F1). Tagged-
         // union switch (F6): exactly one of reuse/fresh/resume.
+        // H3: per-turn cwd flows here. Order: turnOpts.cwd > context.cwd
+        // > factory-default. Lets a daemon serve many workspaces over
+        // one cached supervisor.
+        const turnCwd = turnOpts.cwd ?? context?.cwd ?? cwd;
         switch (context?.session?.action ?? "reuse") {
           case "fresh": {
             /** @type {any} */
-            const fresh = await /** @type {any} */ (client).request("session/new", {
-              cwd,
-              mcpServers: []
-            });
+            const fresh = await /** @type {any} */ (client).request(
+              "session/new",
+              {
+                cwd: turnCwd,
+                mcpServers: [],
+              },
+            );
             const freshId = fresh?.sessionId;
             if (!freshId) {
-              throw new Error("claude streaming runner: session/new returned no sessionId");
+              throw new Error(
+                "claude streaming runner: session/new returned no sessionId",
+              );
             }
             sessionId = freshId;
             turn.sessionId = freshId;
@@ -298,8 +310,8 @@ export function createClaudeStreamingRunner(options = {}) {
             ).id;
             await /** @type {any} */ (client).request("session/load", {
               sessionId: resumeId,
-              cwd,
-              mcpServers: []
+              cwd: turnCwd,
+              mcpServers: [],
             });
             sessionId = resumeId;
             turn.sessionId = resumeId;
@@ -315,7 +327,7 @@ export function createClaudeStreamingRunner(options = {}) {
           onAbort = () => {
             try {
               /** @type {any} */ (client).notify("session/cancel", {
-                sessionId
+                sessionId,
               });
             } catch {
               // best-effort
@@ -327,15 +339,22 @@ export function createClaudeStreamingRunner(options = {}) {
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
-            reject(new Error(`claude streaming runner: turn timed out after ${timeoutMs}ms`));
+            reject(
+              new Error(
+                `claude streaming runner: turn timed out after ${timeoutMs}ms`,
+              ),
+            );
           }, timeoutMs);
         });
         const work = (async () => {
           /** @type {any} */
-          const response = await /** @type {any} */ (client).request("session/prompt", {
-            sessionId,
-            prompt: [{ type: "text", text: turnOpts.prompt }]
-          });
+          const response = await /** @type {any} */ (client).request(
+            "session/prompt",
+            {
+              sessionId,
+              prompt: [{ type: "text", text: turnOpts.prompt }],
+            },
+          );
           if (response?.stopReason && !turn.reason) {
             turn.reason = String(response.stopReason);
           }
@@ -354,9 +373,9 @@ export function createClaudeStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: true,
-            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP
+            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP,
           },
-          { context }
+          { context },
         );
         return turn;
       } catch (err) {
@@ -371,9 +390,9 @@ export function createClaudeStreamingRunner(options = {}) {
             durationMs: Date.now() - startedAtMs,
             reason: turn.reason ?? null,
             ok: false,
-            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP
+            transport: TRANSPORT_NAMES.CLAUDE_AGENT_ACP,
           },
-          { context }
+          { context },
         );
         throw err;
       } finally {
@@ -411,7 +430,7 @@ export function createClaudeStreamingRunner(options = {}) {
 
     health() {
       return health;
-    }
+    },
   };
 
   async function safeCloseTransport() {

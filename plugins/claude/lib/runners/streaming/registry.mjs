@@ -65,13 +65,26 @@ export function getStreamingRunner(backend, opts = {}) {
     // start. The supervisor's restart-budget protection still applies
     // inside each new instance — we just don't pin the dead instance.
     if (cached.health() === "dead") {
+      // H5: surface the underlying cause when evicting a dead
+      // supervisor, so operators see "auth expired" / "spawn ENOENT"
+      // instead of just "evicting dead supervisor".
+      const lastErr =
+        typeof (/** @type {any} */ (cached).lastError) === "function"
+          ? /** @type {any} */ (cached).lastError()
+          : null;
+      const cause = lastErr instanceof Error ? lastErr.message : null;
+      process.stderr.write(
+        `[streaming:${backend}] evicting dead supervisor` +
+          (cause ? ` (last error: ${cause})` : "") +
+          "\n",
+      );
       supervisors.delete(backend);
-      // G3: route close failures to stderr instead of swallowing —
-      // mid-life eviction during a crash storm is exactly when
-      // operators need to see "subprocess X failed to terminate".
+      // G3: route close failures to stderr instead of swallowing.
       cached.close().catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
-        process.stderr.write(`[streaming:${backend}] eviction close failed: ${message}\n`);
+        process.stderr.write(
+          `[streaming:${backend}] eviction close failed: ${message}\n`,
+        );
       });
     } else {
       return cached;
@@ -84,7 +97,7 @@ export function getStreamingRunner(backend, opts = {}) {
   const factory = factoryFor(backend, {
     cwd: factoryCwd,
     env: opts.context?.env ?? opts.env,
-    context: opts.context
+    context: opts.context,
   });
   if (!factory) return null;
 
@@ -93,7 +106,7 @@ export function getStreamingRunner(backend, opts = {}) {
     idleMs: opts.idleMs,
     onWarning: (msg) => {
       process.stderr.write(`[streaming:${backend}] ${msg}\n`);
-    }
+    },
   });
   supervisors.set(backend, supervisor);
   return supervisor;
@@ -130,21 +143,21 @@ function factoryFor(backend, ctx) {
         createGeminiStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context
+          context: ctx.context,
         });
     case BACKEND_NAMES.CODEX:
       return () =>
         createCodexStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context
+          context: ctx.context,
         });
     case BACKEND_NAMES.CLAUDE:
       return () =>
         createClaudeStreamingRunner({
           cwd: ctx.cwd,
           env: ctx.env,
-          context: ctx.context
+          context: ctx.context,
         });
     default:
       return null;
@@ -165,8 +178,8 @@ export async function shutdownAllStreamingRunners() {
     entries.map((s) =>
       s.close().catch(() => {
         // best-effort during shutdown
-      })
-    )
+      }),
+    ),
   );
 }
 

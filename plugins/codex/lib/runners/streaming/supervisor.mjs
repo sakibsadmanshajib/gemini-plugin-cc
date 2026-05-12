@@ -68,6 +68,8 @@ export function createSupervisor(opts) {
   /** @type {number[]} */
   const restartTimestamps = [];
   let dead = false;
+  /** @type {Error | null} */
+  let lastError = null;
   // FIFO turn queue. Two concurrent runTurn() calls would otherwise
   // race the underlying runner's single `activeTurn`/`activeCompletion`
   // slot (each protocol — codex app-server, claude-agent-acp,
@@ -153,10 +155,16 @@ export function createSupervisor(opts) {
     }
     armIdleTimer();
     try {
-      const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts, context);
+      const result = await /** @type {StreamingRunner} */ (runner).runTurn(
+        turnOpts,
+        context,
+      );
       armIdleTimer();
       return result;
     } catch (err) {
+      // H5: stamp the most recent cause so registry eviction can
+      // surface it alongside the "evicting dead supervisor" line.
+      lastError = err instanceof Error ? err : new Error(String(err));
       const wrapped = runner;
       const wrappedHealth = wrapped ? wrapped.health() : "dead";
       if (wrappedHealth === "dead" || wrappedHealth === "restarting") {
@@ -165,7 +173,7 @@ export function createSupervisor(opts) {
         if (count > maxRestarts) {
           dead = true;
           onWarning(
-            `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead`
+            `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead (last error: ${lastError.message})`,
           );
         }
       }
@@ -184,13 +192,13 @@ export function createSupervisor(opts) {
         await current.close();
       } catch (err) {
         onWarning(
-          `supervisor: close failed during ${reason}: ${err instanceof Error ? err.message : String(err)}`
+          `supervisor: close failed during ${reason}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
   }
 
-  /** @type {StreamingRunner & { _restartCount: () => number }} */
+  /** @type {StreamingRunner & { _restartCount: () => number, lastError: () => Error | null }} */
   const supervisor = {
     async start() {
       await startInner();
@@ -226,7 +234,18 @@ export function createSupervisor(opts) {
      */
     _restartCount() {
       return restartTimestamps.length;
-    }
+    },
+
+    /**
+     * H5: most recent error from a runTurn failure. Registry eviction
+     * reads this so the operator-visible stderr line cites the cause
+     * (e.g. "auth required") rather than just "evicting dead supervisor".
+     *
+     * @returns {Error | null}
+     */
+    lastError() {
+      return lastError;
+    },
   };
 
   return supervisor;
