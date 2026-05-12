@@ -101,6 +101,8 @@ The facade also supports:
 - **CORS**: `--cors '*'` (or single-origin / comma-separated allowlist; or `$ARTAGON_FACADE_CORS`). Off by default for safety. Required when calling from a browser-based client.
 - **API-key auth**: `--api-key sk-...` (single or comma-separated; or `$ARTAGON_FACADE_API_KEY`). Off by default. When set, every `/v1/*` request must carry `Authorization: Bearer <key>`. `/health` is exempt.
 - **finish_reason mapping**: each backend's stop dialect (`end_turn` / `MAX_TOKENS` / `tool_use`) maps to OpenAI's canonical set (`stop` / `length` / `content_filter` / `tool_calls`).
+- **Auto-start**: slash-commands launched from a host plugin auto-spawn the daemon if no live manifest is present at `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json`. A disk-backed circuit breaker refuses fresh spawns after 3 failures in 5 minutes; check `$XDG_STATE_HOME/artagon-agent-cli-plugin/auto-start.log` if it trips.
+- **`/admin/status`**: bearer-gated GET endpoint reporting pid, uptime, per-supervisor health (`starting | healthy | degraded | restarting | dead`), and a redacted `lastError` enum (`spawn_not_found | auth_failed | transport_closed | ...` — see `docs/openai-facade.md` for the full set). The raw error message stays in the daemon's stderr log; the enum prevents leaking filesystem paths or auth hints through an unauth'd endpoint.
 
 ### Cross-driver from inside a host
 
