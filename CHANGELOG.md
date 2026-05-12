@@ -7,8 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /admin/status` endpoint on the OpenAI facade**. Bearer-gated when
+  `--api-key` is configured; unauthed when not (mirrors `/v1/*`). Returns
+  `{pid, startedAt, uptimeMs, supervisors: [{backend, health, lastError}], stats: {sqlitePath, failureCount, lastWarnedAt}, auth: {required}}`.
+  Operators chasing "why is claude failing?" can now poll the daemon directly
+  instead of grepping logs.
+- **Auto-start of the facade daemon from slash-commands**. When a slash-command
+  finds no live manifest at `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json`,
+  it spawns the daemon in the background via proper-lockfile-serialized
+  `autoStartFacade`. The daemon's stdio lands in `auto-start.log` under XDG
+  state for diagnostics; spawn-level failures surface in the thrown error
+  message.
+- **Disk-backed circuit breaker for sustained-crash daemons**. Tracks failed
+  spawns in `auto-start-failures.json`; 3 failures in a 5-minute rolling
+  window refuses fresh spawn with an actionable `rm <path>` instruction. A
+  successful daemon boot clears the breaker; future-dated and stale-window
+  entries are filtered out.
+- **Atomic stale-manifest recovery**. `compareAndDeleteManifest` in
+  `lib/server/facade-endpoint.mjs` claims the manifest via `rename()` to a
+  unique tombstone, verifies pid+port + ownership match the caller's
+  expectation, and either commits the delete or restores via atomic-or-fail
+  `link()`. Closes the TOCTOU race where the previous read-then-delete path
+  could wipe a healthy daemon's discovery file. ECONNREFUSED / ENOTFOUND /
+  EHOSTUNREACH / ENETUNREACH all route through this path; ECONNRESET is
+  intentionally excluded (it can fire mid-stream while the daemon stays up).
+- **Tombstone sweep** on every `autoStartFacade` entry — recovers disk after
+  a slash-command SIGKILL between rename and cleanup. Only unlinks files
+  older than 1 hour so we don't race a concurrent `compareAndDeleteManifest`.
+- **Machine-readable `.code` on facade-failure throws**. Dispatcher
+  rethrows on wipe-eligible network codes attach `.code: "FACADE_UNREACHABLE" | "FACADE_RACE_REPLACED" | "FACADE_CONN_RESET"`
+  so downstream `catch` blocks switch on the class instead of substring-matching prose.
+
 ### Changed
 
+- **`lastError` on `/admin/status` is now a redacted enum**, not raw
+  `err.message`. The closed `LastErrorCode` union in
+  `lib/runners/streaming/types.mjs` defines 11 codes (`spawn_not_found`,
+  `spawn_denied`, `auth_failed`, `transport_closed`, `restart_budget_exhausted`,
+  `session_init_failed`, `internal_error`, `introspect_failed`, `oom`,
+  `timeout`, `unknown`). The full message stays in the daemon's stderr log.
+  Operators in a misconfigured deployment binding to `0.0.0.0` with no API
+  key no longer leak filesystem paths or auth hints through the unauthed
+  endpoint.
+- **`isManifestOwned` uses `lstatSync`** to refuse symlinks at the manifest
+  path. Previous `statSync` followed symlinks; an attacker with
+  `$XDG_STATE_HOME` write access could place a symlink to a foreign-owned
+  file. The followed target's foreign uid would have already failed the
+  ownership check, but lstat makes the refusal explicit.
+- **Non-2xx response bodies are JSON-parsed for `model` + `usage`** in cost
+  records. A 429 from an upstream provider that returns an OpenAI-shape
+  body with the request's token tally now propagates both fields to
+  `cost.jsonl` instead of recording `model: null, usage: null`.
+- **Throwing `onUpdate` callbacks in SSE streaming** are now stderr-logged
+  once per turn via a one-shot latch in `consumeSseStream`, instead of
+  being silently swallowed. The latch is per-call so a new turn deserves a
+  fresh signal but a permanently-broken callback can't flood the log.
 - **OpenAI facade error response builder consolidated**. The
   `{error: {message, type, code?, param?, backend?}}` shape was
   rebuilt inline at 8 call sites. New `sendError(res, status,
