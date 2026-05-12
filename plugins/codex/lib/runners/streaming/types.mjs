@@ -1,13 +1,26 @@
 /**
- * Streaming runner contract — shared interface for per-backend
- * long-lived runners that own one CLI subprocess and multiplex turns
- * through it.
+ * Streaming runner contract + redacted error wire contract.
  *
- * Each backend's streaming runner conforms to `StreamingRunner`. The
- * supervisor (`supervisor.mjs`) wraps each runner with lifecycle
- * (start/restart/idle-reap/health) so the per-backend code can focus on
- * the protocol details (gemini --acp / codex app-server / claude
- * --input-format stream-json).
+ * Two closely related JSDoc-only contracts live in this file:
+ *
+ *   1. **`StreamingRunner`** — shared interface for per-backend
+ *      long-lived runners that own one CLI subprocess and multiplex
+ *      turns through it. Each backend's streaming runner conforms;
+ *      the supervisor (`supervisor.mjs`) wraps each runner with
+ *      lifecycle (start/restart/idle-reap/health). Per-backend code
+ *      focuses on the protocol details:
+ *        - gemini: `gemini --acp`
+ *        - codex:  `codex app-server --listen stdio://`
+ *        - claude: `@agentclientprotocol/claude-agent-acp` (Zed's ACP
+ *                  server backed by the Claude Agent SDK)
+ *
+ *   2. **`LastErrorCode`** — the closed string-literal union exposed
+ *      to operators via `/admin/status`. The classifier in
+ *      `registry.mjs::classifyLastError` is the only function allowed
+ *      to produce these values; the union prevents accidentally
+ *      passing raw `err.message` through the unauthed admin endpoint.
+ *      Adding a new code requires updating this union + the
+ *      classifier regex + `docs/openai-facade.md` table in lockstep.
  *
  * Health vocabulary (mirrors what the legacy gemini broker uses):
  *   - "starting"   → spawn issued, not yet ready for turns
@@ -22,6 +35,8 @@
  *   - close() MUST be safe to call on a dead/restarting runner
  *   - runTurn() MUST reject (not throw synchronously) when health is dead
  *   - health() is sync and must never block on I/O
+ *   - lastError() is OPTIONAL on the runner; the supervisor wrapper
+ *     provides it. Callers MUST duck-type via `typeof rnr.lastError === "function"`.
  */
 
 /**
