@@ -86,17 +86,35 @@ A 1-page tour of the runtime layers. For deep detail see the per-capability spec
 └─────────────────────────────────────────────────────────────┘
 ```
 
+## Unified-facade daemon (2026-05-11)
+
+The `artagon-openai-server` daemon is a long-lived process operators can run
+once to serve all slash-command requests. Instead of cold-spawning a CLI per
+turn, slash-commands route HTTP to the daemon, which owns warm streaming
+runners for each backend.
+
+- **Discovery** — daemon writes `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json` (mode 0o600, parent dir 0o700) on listen, deletes on close. Readers gate on `lstat + isFile + uid match + pid liveness`; symlinks are refused.
+- **Auto-start** — `lib/server/auto-start.mjs::autoStartFacade` spawns the daemon when a slash-command finds no live manifest. proper-lockfile serializes concurrent spawns; spawn errors are routed to a log file under XDG state.
+- **Stale-manifest recovery** — when `runViaFacade` hits `ECONNREFUSED/ENOTFOUND/EHOSTUNREACH/ENETUNREACH`, `compareAndDeleteManifest` atomically renames the manifest to a unique tombstone, verifies pid+port match the captured manifest, and either commits the delete or restores via `link()`. `ECONNRESET` is excluded — it can fire mid-stream while the daemon stays up for other clients.
+- **Circuit breaker** — `$XDG_STATE_HOME/artagon-agent-cli-plugin/auto-start-failures.json` tracks daemon spawn failures in a 5-minute rolling window. Three failures → next `autoStartFacade` refuses with an actionable message. Successful spawn clears the log. Stale entries pruned on read.
+- **Tombstone sweep** — `autoStartFacade` scans for `facade-endpoint.json.tomb.*` files older than 1 hour and unlinks them, recovering disk after a slash-command SIGKILL between rename and cleanup.
+- **/admin/status** — bearer-gated (or unauthed when `apiKey` is unset) GET endpoint reporting pid, uptime, per-supervisor health, and SQLite recorder stats. `lastError` is redacted to a closed `LastErrorCode` enum (see `lib/runners/streaming/types.mjs`) — never raw `err.message`, so spawn paths and auth hints stay in the daemon's stderr log.
+- **Machine-readable errors** — dispatcher facade-failure throws carry `.code: "FACADE_UNREACHABLE" | "FACADE_RACE_REPLACED" | "FACADE_CONN_RESET"` so downstream catch blocks switch on the class rather than substring-matching prose.
+
+See `docs/openai-facade.md` for the endpoint reference and `lib/server/facade-endpoint.mjs` for the manifest contract.
+
 ## Where to add things
 
-| Want to add…                     | Touch…                                                                                                       |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| A new backend (Bedrock, custom)  | `lib/backends/<name>.mjs` — declare modelAliases + `transports.cli` + `setupHints`; export `build<Name>Args` |
-| A new launch-time CLI flag       | The backend's `BackendConfig` typedef + its `build<Name>Args` function + a unit test in tests/unit/          |
-| A new transport (gRPC, MCP)      | `lib/transport/<name>.mjs`, conform to `ClientTransport`, run conformance suite                              |
-| A new slash command              | `plugins/<plugin>/commands/<verb>.md` + handler in `gemini-companion.mjs` or the future v2 dispatcher        |
-| A new middleware                 | `lib/middleware/<name>.mjs`, conform to the `Middleware` typedef in `compose.mjs`                            |
-| Observability (logging, tracing) | `lib/logger.mjs`, `lib/tracing.mjs` — already wired, just add child-loggers                                  |
-| A new spec capability            | `openspec/changes/<name>/specs/<capability>/spec.md`                                                         |
+| Want to add…                     | Touch…                                                                                                                                                 |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A new backend (Bedrock, custom)  | `lib/backends/<name>.mjs` — declare modelAliases + `transports.cli` + `setupHints`; export `build<Name>Args`                                           |
+| A new launch-time CLI flag       | The backend's `BackendConfig` typedef + its `build<Name>Args` function + a unit test in tests/unit/                                                    |
+| A new transport (gRPC, MCP)      | `lib/transport/<name>.mjs`, conform to `ClientTransport`, run conformance suite                                                                        |
+| A new slash command              | `plugins/<plugin>/commands/<verb>.md` + handler in `gemini-companion.mjs` or the future v2 dispatcher                                                  |
+| A new middleware                 | `lib/middleware/<name>.mjs`, conform to the `Middleware` typedef in `compose.mjs`                                                                      |
+| Observability (logging, tracing) | `lib/logger.mjs`, `lib/tracing.mjs` — already wired, just add child-loggers                                                                            |
+| A new spec capability            | `openspec/changes/<name>/specs/<capability>/spec.md`                                                                                                   |
+| A new `LastErrorCode` bucket     | `lib/runners/streaming/types.mjs::LastErrorCode` union + `lib/runners/streaming/registry.mjs::classifyLastError` regex + `docs/openai-facade.md` table |
 
 ## Key invariants
 
@@ -109,6 +127,8 @@ A 1-page tour of the runtime layers. For deep detail see the per-capability spec
 - **Subpath imports** — runtime modules import via `#lib/*` (Node subpath imports configured in `package.json::imports`); deep relative paths like `../../../../lib/...` are forbidden.
 - **Wire log = fixture format** — `ACP_WIRE_LOG=/path.jsonl` produces a file directly consumable by `replayFixture()` in tests.
 - **Redaction is index 0** — middleware composer enforces `redaction` first; throws in dev if violated.
+- **`LastErrorCode` is the wire contract** — `/admin/status` exposes only the closed enum from `lib/runners/streaming/types.mjs`. Future changes that pass raw `err.message` to operators must update the union AND the classifier in lockstep; the typecheck makes the wire shape exhaustive.
+- **Manifest deletion is compare-and-set** — `compareAndDeleteManifest` atomically claims the manifest via rename before verifying pid+port; never use bare `deleteManifest` from the dispatcher's wipe path.
 
 ## Reading order for newcomers
 
