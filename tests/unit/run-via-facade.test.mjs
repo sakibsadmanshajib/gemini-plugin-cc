@@ -19,10 +19,11 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("#lib/server/facade-endpoint.mjs", () => ({
-  readManifest: vi.fn()
+  readManifest: vi.fn(),
+  deleteManifest: vi.fn()
 }));
 
-const { readManifest } = await import("#lib/server/facade-endpoint.mjs");
+const { readManifest, deleteManifest } = await import("#lib/server/facade-endpoint.mjs");
 const { runViaFacade } = await import("#lib/runners/facade-dispatch.mjs");
 const { BACKEND_NAMES } = await import("#lib/backends/names.mjs");
 
@@ -232,4 +233,40 @@ test("network error → reject and emit a cost record with ok=false", async () =
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /ECONNREFUSED/
   );
+});
+
+test("K2: ECONNREFUSED with err.code → deleteManifest fires + actionable error", async () => {
+  vi.mocked(deleteManifest).mockReset();
+  // Mimic undici's structured network error: err.cause.code === "ECONNREFUSED"
+  const netErr = /** @type {any} */ (new Error("fetch failed"));
+  netErr.cause = { code: "ECONNREFUSED" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /Stale manifest deleted.*retry the command/
+  );
+
+  // Manifest was actually wiped so the next slash-command's auto-start
+  // spawns a fresh daemon instead of getting refused again.
+  expect(deleteManifest).toHaveBeenCalledTimes(1);
+});
+
+test("K2: ENOTFOUND with err.code → also deletes manifest (same recovery path)", async () => {
+  vi.mocked(deleteManifest).mockReset();
+  const netErr = /** @type {any} */ (new Error("dns lookup"));
+  netErr.cause = { code: "ENOTFOUND" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /Stale manifest deleted/
+  );
+  expect(deleteManifest).toHaveBeenCalledTimes(1);
+});
+
+test("K2: non-network rejection (e.g. AbortError) does NOT delete manifest", async () => {
+  vi.mocked(deleteManifest).mockReset();
+  fetchMock.mockRejectedValueOnce(new Error("aborted"));
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(/aborted/);
+  expect(deleteManifest).not.toHaveBeenCalled();
 });

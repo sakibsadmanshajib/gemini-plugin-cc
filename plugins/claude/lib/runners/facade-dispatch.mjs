@@ -34,7 +34,7 @@ import { createParser } from "eventsource-parser";
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
-import { readManifest } from "#lib/server/facade-endpoint.mjs";
+import { deleteManifest, readManifest } from "#lib/server/facade-endpoint.mjs";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -200,9 +200,16 @@ export async function runViaFacade(backend, options, context) {
       code === "ENOTFOUND" ||
       code === "ECONNRESET"
     ) {
+      // K2: the manifest claims a live daemon (its pid is alive — readManifest
+      // gates on that) but the listening socket is unreachable. The daemon
+      // crashed or is mid-shutdown; the manifest is stale. Delete it so the
+      // next slash-command's auto-start sees a clean slate and spawns a
+      // fresh daemon instead of getting refused again.
+      deleteManifest(context?.env ?? options.env ?? process.env);
       throw new Error(
         `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
-          "Start the daemon with `artagon-openai-server` or pass --no-facade to bypass.",
+          "Stale manifest deleted — retry the command and it will auto-start a new daemon, " +
+          "or pass --no-facade to bypass.",
       );
     }
     throw err;

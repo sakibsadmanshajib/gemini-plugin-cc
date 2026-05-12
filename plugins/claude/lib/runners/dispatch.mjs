@@ -60,18 +60,6 @@ import { getStreamingRunner } from "./streaming/registry.mjs";
  */
 
 /**
- * Reset the warning latches. Used by tests that need a fresh dispatcher
- * state to assert each warning fires exactly once. Not part of the
- * public API. After Step 5 there are no fallback warnings; the function
- * remains a no-op for callers that still import it.
- *
- * @internal
- */
-export function _resetBrokerWarningForTest() {
-  // intentionally empty — no fallback warnings exist post-Step 5
-}
-
-/**
  * Dispatch a stateless one-shot turn to the appropriate runner.
  *
  * @param {BackendName} backendName
@@ -114,12 +102,12 @@ async function runStreaming(backendName, options, context) {
   const runner = getStreamingRunner(backendName, {
     cwd: context?.cwd ?? options.cwd,
     env: context?.env ?? options.env,
-    context
+    context,
   });
   if (!runner) {
     throw new Error(
       `runStatelessTurn: unknown backend "${String(backendName)}" — ` +
-        `expected one of ${Object.values(BACKEND_NAMES).join(", ")}`
+        `expected one of ${Object.values(BACKEND_NAMES).join(", ")}`,
     );
   }
   return runner.runTurn(
@@ -130,9 +118,9 @@ async function runStreaming(backendName, options, context) {
       model: context?.model ?? options.model,
       timeoutMs: context?.timeoutMs ?? options.timeoutMs,
       signal: options.signal,
-      onUpdate: options.onUpdate
+      onUpdate: options.onUpdate,
     },
-    context
+    context,
   );
 }
 
@@ -152,8 +140,8 @@ async function runFacade(backendName, options, context) {
       model: context?.model ?? options.model,
       timeoutMs: context?.timeoutMs ?? options.timeoutMs,
       bearerToken: context?.facade?.apiKey ?? options.bearerToken,
-      onUpdate: options.onUpdate
+      onUpdate: options.onUpdate,
     },
-    context
+    context,
   );
 }
