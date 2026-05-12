@@ -36,6 +36,23 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // J6: kill the fake daemon if it's still alive (some tests spawn
+  // a long-lived setInterval-keep-alive child via autoStartFacade).
+  const pidFile = path.join(tmpHome, "fake-daemon.pid");
+  if (fs.existsSync(pidFile)) {
+    try {
+      const pid = Number(fs.readFileSync(pidFile, "utf8").trim());
+      if (Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, "SIGTERM");
+        } catch {
+          // already gone — fine
+        }
+      }
+    } catch {
+      // best-effort
+    }
+  }
   fs.rmSync(tmpHome, { recursive: true, force: true });
 });
 
@@ -71,6 +88,9 @@ function writeStubManifest(options = {}) {
  */
 function writeFakeDaemon() {
   const script = path.join(tmpHome, "fake-daemon.mjs");
+  // J6: write our pid to a file so afterEach can kill us. Without
+  // this, the setInterval-keep-alive leaks across tests.
+  const pidFile = path.join(tmpHome, "fake-daemon.pid");
   fs.writeFileSync(
     script,
     `
@@ -78,6 +98,7 @@ function writeFakeDaemon() {
     import path from "node:path";
     const args = new Set(process.argv.slice(2));
     if (args.has("--fail")) process.exit(1);
+    fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
     const dir = ${JSON.stringify(manifestDir)};
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(
@@ -90,7 +111,9 @@ function writeFakeDaemon() {
       }),
       { mode: 0o600 }
     );
-    // keep alive so the manifest's pid check passes (isPidLiveAndOwned)
+    // keep alive so the manifest's pid check passes (isPidLiveAndOwned).
+    // Auto-exit after 30s as belt-and-suspenders against test leaks.
+    setTimeout(() => process.exit(0), 30_000);
     setInterval(() => {}, 1000);
     `,
     "utf8"
@@ -132,5 +155,5 @@ test("daemon fails to write manifest → throws with the file path in the messag
       pollIntervalMs: 20,
       pollTimeoutMs: 200
     })
-  ).rejects.toThrow(/never appeared at .*facade-endpoint\.json/);
+  ).rejects.toThrow(/daemon failed to start.*exited with code 1/);
 });

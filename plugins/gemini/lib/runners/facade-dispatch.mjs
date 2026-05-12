@@ -316,13 +316,23 @@ export async function runViaFacade(backend, options, context) {
  * @param {import("#lib/translate/stream-runner.mjs").TurnResult} turn
  * @param {((u: import("#lib/translate/stream-runner.mjs").SessionUpdate) => void) | undefined} onUpdate
  */
-async function consumeSseStream(response, turn, onUpdate) {
+export async function consumeSseStream(response, turn, onUpdate) {
   if (!response.body) {
     throw new Error("runViaFacade: streaming response has no body");
   }
+  // [DONE] terminator: once we've seen it, ignore any subsequent
+  // events. In production the server closes the stream right after
+  // writing [DONE], but a misbehaving facade (or a test fixture) might
+  // emit more events; we MUST ignore them so they don't appear in the
+  // user's transcript.
+  let doneSeen = false;
   const parser = createParser({
     onEvent(event) {
-      if (event.data === "[DONE]") return;
+      if (doneSeen) return;
+      if (event.data === "[DONE]") {
+        doneSeen = true;
+        return;
+      }
       let chunk;
       try {
         chunk = JSON.parse(event.data);
@@ -356,9 +366,29 @@ async function consumeSseStream(response, turn, onUpdate) {
     }
   });
   const decoder = new TextDecoder();
-  // @ts-ignore — Response.body is a ReadableStream<Uint8Array> in undici
-  for await (const part of response.body) {
-    parser.feed(decoder.decode(part, { stream: true }));
+  try {
+    // @ts-ignore — Response.body is a ReadableStream<Uint8Array> in undici
+    for await (const part of response.body) {
+      parser.feed(decoder.decode(part, { stream: true }));
+    }
+    // J5: final flush of any half-buffered multibyte sequence.
+    // Without this, a UTF-8 character split across a chunk boundary at
+    // end-of-stream would be silently dropped.
+    parser.feed(decoder.decode());
+  } catch (err) {
+    // J4: mid-stream transport error. By the time we get here, onUpdate
+    // may have already piped partial output to the caller's stdout.
+    // Emit a stderr marker so the operator can correlate the visible
+    // partial response with the subsequent failure / retry.
+    try {
+      process.stderr.write(
+        `[facade] streaming response interrupted: ${err instanceof Error ? err.message : String(err)}. ` +
+          "Partial output already emitted via onUpdate.\n"
+      );
+    } catch {
+      // best-effort during stderr write
+    }
+    throw err;
   }
 }
 
