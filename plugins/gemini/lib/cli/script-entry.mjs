@@ -14,10 +14,35 @@
  *     scriptName: "codex-prompt"
  *   });
  *
- * The helper is the **boundary** for the new AgentContext flow: it
- * reads CLI argv + env exactly once, builds a frozen context, and
- * passes that context to `runStatelessTurn`. Lib code downstream
- * reads from context, not from env.
+ * Three responsibilities at this boundary:
+ *
+ *   1. **AgentContext build** — reads CLI argv + env exactly once,
+ *      builds a frozen context, and passes that context to
+ *      `runStatelessTurn`. Lib code downstream reads from context,
+ *      not from env. This is the single place `ARTAGON_*` env vars
+ *      are read (Phase 4 of the AgentContext refactor).
+ *
+ *   2. **Facade auto-start** (Step 4a) — when no live manifest is
+ *      present and `context.dispatch.facade !== "off"`, calls
+ *      `autoStartFacade` to background-spawn the daemon. The daemon
+ *      auto-starts come with the Q4 circuit breaker, T1 tombstone
+ *      sweep, and R1 lock-serialized breaker read/append from
+ *      `lib/server/auto-start.mjs`. Spawn failure is non-fatal — we
+ *      emit a one-line stderr hint and fall through to in-process
+ *      streaming.
+ *
+ *   3. **G6 auto-key resolution** — when the auto-started daemon
+ *      uses `--auto-key`, the resulting manifest names the
+ *      `autoKey.store` ("file" or "keychain"). For "file" we read
+ *      the 0o600 key file directly (no extra consent — same uid)
+ *      and inject it into `context.facade.apiKey`. For "keychain"
+ *      we emit the retrieve-command hint so the operator can export
+ *      `ARTAGON_FACADE_API_KEY` once, instead of getting an opaque
+ *      401 on every slash-command.
+ *
+ * On success: prints `turn.text`, optional tool-calls summary, usage,
+ * and the session id (when the runner exposed one). Exits 0/1/2 per
+ * the standard bin contract.
  */
 
 import process from "node:process";
