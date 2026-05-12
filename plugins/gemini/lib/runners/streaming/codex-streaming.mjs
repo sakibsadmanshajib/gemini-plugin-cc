@@ -175,7 +175,28 @@ export function createCodexStreamingRunner(options = {}) {
       case "item/completed": {
         const item = params.item;
         if (!item || typeof item !== "object") return;
-        if (item.type === "agentMessage") return;
+        // V1 (real-world smoke test, 2026-05-12): codex app-server in
+        // some configurations emits an `item/completed` for type
+        // `agentMessage` carrying the FULL `text` field, WITHOUT any
+        // prior `item/agentMessage/delta` events. Previously we
+        // skipped agentMessage in the completed handler, assuming all
+        // text came via the delta accumulator. That dropped the
+        // entire message content on those configs. Fix: if no deltas
+        // were accumulated for this turn but the completed item
+        // carries text, fold it into the accumulator now.
+        if (item.type === "agentMessage") {
+          const finalText = typeof item.text === "string" ? item.text : "";
+          if (finalText && activeTurn.text.length === 0) {
+            activeTurn.text = finalText;
+            activeTurn.chunkCount = 1;
+            activeTurn.chunkChars = finalText.length;
+            emitUpdate({
+              sessionUpdate: "agent_message_chunk",
+              content: { text: finalText }
+            });
+          }
+          return;
+        }
         const toolUseId = typeof item.id === "string" ? item.id : String(item.id ?? "");
         if (!toolUseId) return;
         const isError =
@@ -204,12 +225,26 @@ export function createCodexStreamingRunner(options = {}) {
           usage: activeTurn.usage ?? undefined,
           model: activeTurn.model ?? undefined
         });
-        // Settle the runTurn waiter. Notification arrival is the
-        // terminal signal — turn/start's response only acknowledges
-        // acceptance.
+        // V2 (real-binary smoke test, 2026-05-12): when codex app-server
+        // reports turn.status === "failed", it bundles the upstream
+        // error in turn.error.message. Previously we resolved the
+        // waiter and let the caller see "reason:'failed', text:''" —
+        // a silent failure dressed up as a completion. Surface the
+        // error message as a rejection so operators see e.g.
+        // "The 'codex' model is not supported when using Codex with a
+        // ChatGPT account." rather than an empty response.
         const completion = activeCompletion;
         activeCompletion = null;
-        completion?.resolve();
+        if (turn.status === "failed" && turn.error) {
+          const upstream =
+            typeof turn.error?.message === "string" ? turn.error.message : "(no message)";
+          completion?.reject(new Error(`codex turn failed: ${upstream}`));
+        } else {
+          // Happy path: settle the runTurn waiter. Notification arrival
+          // is the terminal signal — turn/start's response only
+          // acknowledges acceptance.
+          completion?.resolve();
+        }
         return;
       }
       case "thread/tokenUsage/updated": {
