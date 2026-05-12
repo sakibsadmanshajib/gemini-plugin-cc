@@ -100,6 +100,10 @@ function assertGemini3ModelVersionCompatibility(requestedModel) {
   }
 }
 
+// Keep in sync with lib/backends/gemini.mjs::MODEL_ALIASES — values
+// must match the agent's session/new model catalog. `gemini-3-pro-preview`
+// (3.0) was removed when verified against gemini CLI 0.41.2's actual
+// availableModels list — it would be rejected by session/set_model.
 const MODEL_ALIASES = new Map([
   // Auto-routing aliases (recommended — CLI routes to best available model in tier)
   ["auto-gemini-3", "auto-gemini-3"], // Routes to Gemini 3.1 or 3 models
@@ -107,10 +111,9 @@ const MODEL_ALIASES = new Map([
   ["pro", "gemini-3.1-pro-preview"], // "pro" maps to Gemini 3.1 Pro
   ["flash", "gemini-3-flash-preview"],
   ["flash-lite", "gemini-3.1-flash-lite-preview"],
-  // Gemini 3.x concrete model IDs
+  // Gemini 3.x concrete model IDs (3.0 pro-preview dropped — see comment above)
   ["gemini-3.1-pro-preview", "gemini-3.1-pro-preview"],
   ["gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"],
-  ["gemini-3-pro-preview", "gemini-3-pro-preview"],
   ["gemini-3-flash-preview", "gemini-3-flash-preview"],
   // Gemini 2.5 concrete model IDs
   ["gemini-2.5-pro", "gemini-2.5-pro"],
