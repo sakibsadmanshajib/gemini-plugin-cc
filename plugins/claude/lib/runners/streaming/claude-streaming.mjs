@@ -12,6 +12,17 @@
  * (no external broker daemon), the way `codex-streaming.mjs` owns
  * `codex app-server`.
  *
+ * **Error-message contract (round-16 lock-in).** This file's `throw new
+ * Error("…")` strings are part of a test contract — the byte-exact
+ * strings appear in `tests/unit/streaming-registry.test.mjs` so the
+ * `classifyLastError` redaction stays correct against the actual runner
+ * shapes. Rewording any of these messages will fail a specific lock-in
+ * test pointing at the affected line; if you intentionally reword one,
+ * update the matching test case in lockstep:
+ *   - "session/new returned no sessionId"   → session_init_failed
+ *   - "runTurn before start"                → internal_error
+ *   - "turn timed out after Xms"            → timeout
+ *
  * Auth model:
  *   claude-agent-acp authenticates via either:
  *     - the user's existing `claude login` (Claude Pro/Max OAuth);

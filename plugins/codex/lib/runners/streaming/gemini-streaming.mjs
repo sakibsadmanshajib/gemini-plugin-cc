@@ -8,6 +8,18 @@
  * runner symmetric with codex/claude — all three streaming runners now
  * spawn their CLI directly via `lib/transport/cli.mjs::createCliTransport`.
  *
+ * **Error-message contract (round-16 lock-in).** This file's `throw new
+ * Error("…")` strings are part of a test contract — the byte-exact
+ * strings appear in `tests/unit/streaming-registry.test.mjs` so the
+ * `classifyLastError` redaction stays correct against the actual runner
+ * shapes. Rewording any of these messages will fail a specific lock-in
+ * test pointing at the affected line; if you intentionally reword one,
+ * update the matching test case in lockstep:
+ *   - "broker returned no sessionId"           → session_init_failed
+ *   - "session/new returned no sessionId"      → session_init_failed
+ *   - "runTurn before start"                   → internal_error
+ *   - "turn timed out after Xms"               → timeout
+ *
  * Lifecycle:
  *   start()    → spawn gemini --acp → initialize → session/new → ready
  *   runTurn()  → (apply session policy) → session/prompt → accumulate
