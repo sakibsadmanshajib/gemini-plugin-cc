@@ -38,7 +38,6 @@ import { test } from "vitest";
 
 import {
   AGENTS_DIR_NAME,
-  BROKER_SCRIPT_RELATIVE,
   CLAUDE_HOST_SIGNAL_ENV,
   CLAUDE_MARKETPLACE_DIR_RELATIVE,
   CLAUDE_PLUGIN_DATA_ENV,
@@ -294,11 +293,17 @@ test("install: state paths under Claude vs Codex env shapes are different roots"
     // protects against users who export CLAUDE_PLUGIN_DATA in shell rc and
     // accidentally pull Codex into Claude's state tree.
     const claudeState = withEnv(
-      { [CLAUDE_HOST_SIGNAL_ENV]: claudeEnvFile, [CLAUDE_PLUGIN_DATA_ENV]: pluginDataDir },
+      {
+        [CLAUDE_HOST_SIGNAL_ENV]: claudeEnvFile,
+        [CLAUDE_PLUGIN_DATA_ENV]: pluginDataDir
+      },
       () => resolveStateDir(workspace)
     );
     const codexState = withEnv(
-      { [CLAUDE_HOST_SIGNAL_ENV]: undefined, [CLAUDE_PLUGIN_DATA_ENV]: undefined },
+      {
+        [CLAUDE_HOST_SIGNAL_ENV]: undefined,
+        [CLAUDE_PLUGIN_DATA_ENV]: undefined
+      },
       () => resolveStateDir(workspace)
     );
 
@@ -316,7 +321,10 @@ test("install: state paths under Claude vs Codex env shapes are different roots"
     // (e.g. user exported CLAUDE_PLUGIN_DATA in shell rc but is running Codex)
     // must NOT leak into Claude's state root.
     const codexWithLooseClaudeData = withEnv(
-      { [CLAUDE_HOST_SIGNAL_ENV]: undefined, [CLAUDE_PLUGIN_DATA_ENV]: pluginDataDir },
+      {
+        [CLAUDE_HOST_SIGNAL_ENV]: undefined,
+        [CLAUDE_PLUGIN_DATA_ENV]: pluginDataDir
+      },
       () => resolveStateDir(workspace)
     );
     assert.ok(
@@ -350,11 +358,17 @@ test("install: state dir is identical when accessed via symlink vs realpath", as
 
     // Force Codex env shape so both calls land under the fallback state root.
     const stateFromReal = withEnv(
-      { [CLAUDE_HOST_SIGNAL_ENV]: undefined, [CLAUDE_PLUGIN_DATA_ENV]: undefined },
+      {
+        [CLAUDE_HOST_SIGNAL_ENV]: undefined,
+        [CLAUDE_PLUGIN_DATA_ENV]: undefined
+      },
       () => resolveStateDir(realRepo)
     );
     const stateFromSymlink = withEnv(
-      { [CLAUDE_HOST_SIGNAL_ENV]: undefined, [CLAUDE_PLUGIN_DATA_ENV]: undefined },
+      {
+        [CLAUDE_HOST_SIGNAL_ENV]: undefined,
+        [CLAUDE_PLUGIN_DATA_ENV]: undefined
+      },
       () => resolveStateDir(symlinkRepo)
     );
 
@@ -402,7 +416,9 @@ test("install: plugin source dir contains all files Codex's marketplace install 
     SKILL_MANIFEST_FILENAME, // Codex skill discovery (must be in installed subtree)
     path.join(AGENTS_DIR_NAME, OPENAI_AGENT_FILENAME), // Codex implicit-invocation interface ($gemini)
     RUNTIME_SCRIPT_RELATIVE,
-    BROKER_SCRIPT_RELATIVE,
+    // BROKER_SCRIPT_RELATIVE removed: Step 5 of the unified-facade
+    // plan deleted the gemini --acp broker daemon. Gemini's streaming
+    // runner now spawns its own subprocess via createCliTransport.
     HOOKS_FILE_RELATIVE
   ];
 
@@ -566,6 +582,12 @@ test(`install: ${MARKETPLACE_MANIFEST_FILENAME} validates both Codex and Claude 
 function initGitRepo(cwd) {
   spawnSync("git", ["init", "-b", "main"], { cwd, stdio: "ignore" });
   spawnSync("git", ["config", "user.name", "Test"], { cwd, stdio: "ignore" });
-  spawnSync("git", ["config", "user.email", "t@example.com"], { cwd, stdio: "ignore" });
-  spawnSync("git", ["config", "commit.gpgsign", "false"], { cwd, stdio: "ignore" });
+  spawnSync("git", ["config", "user.email", "t@example.com"], {
+    cwd,
+    stdio: "ignore"
+  });
+  spawnSync("git", ["config", "commit.gpgsign", "false"], {
+    cwd,
+    stdio: "ignore"
+  });
 }
