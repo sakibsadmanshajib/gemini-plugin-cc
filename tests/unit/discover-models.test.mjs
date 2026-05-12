@@ -20,24 +20,33 @@ import { ALL_BACKEND_NAMES, BACKEND_NAMES } from "#lib/backends/names.mjs";
 describe("getBackendModels(claude)", () => {
   const models = getBackendModels(BACKEND_NAMES.CLAUDE);
 
-  test("includes the three canonical claude ids", () => {
+  test("canonical ids match claude-agent-acp's session/new catalog", () => {
+    // claude-agent-acp 0.33 advertises `default`, `sonnet`, `haiku`
+    // in `models.availableModels` — those are the modelIds it accepts
+    // on session/set_model. Our MODEL_ALIASES collapses opus / opus-1m
+    // / claude-opus-4-7-1m onto `default` (the only opus flavor the
+    // agent exposes), and sonnet/haiku canonicals onto their short
+    // forms. See lib/backends/claude.mjs for the table.
     const ids = models.map((m) => m.id).sort();
-    expect(ids).toContain("claude-sonnet-4-6");
-    expect(ids).toContain("claude-opus-4-7");
-    expect(ids).toContain("claude-haiku-4-5");
+    expect(ids).toEqual(["default", "haiku", "sonnet"]);
   });
 
   test("aliases collected against canonical ids", () => {
-    const sonnet = models.find((m) => m.id === "claude-sonnet-4-6");
-    expect(sonnet?.aliases).toEqual(["sonnet"]);
-    const opus = models.find((m) => m.id === "claude-opus-4-7");
-    expect(opus?.aliases).toEqual(["opus"]);
+    const sonnet = models.find((m) => m.id === "sonnet");
+    expect(sonnet?.aliases).toEqual(["claude-sonnet-4-6"]);
+    const haiku = models.find((m) => m.id === "haiku");
+    expect(haiku?.aliases).toEqual(["claude-haiku-4-5"]);
+    // opus / opus-1m / claude-opus-4-7 / claude-opus-4-7-1m all
+    // alias to `default` (claude-agent-acp's 1M-context opus).
+    const opus = models.find((m) => m.id === "default");
+    expect(opus?.aliases).toEqual(["claude-opus-4-7", "claude-opus-4-7-1m", "opus", "opus-1m"]);
   });
 
   test("default model flagged + sorted first", () => {
     expect(models[0].is_default).toBe(true);
-    // Claude default is "sonnet" → resolves to claude-sonnet-4-6.
-    expect(models[0].id).toBe("claude-sonnet-4-6");
+    // Claude's `defaultModel` is "sonnet" → resolves to "sonnet"
+    // (matches claude-agent-acp's accepted short id).
+    expect(models[0].id).toBe("sonnet");
     // No other model has is_default = true.
     expect(models.filter((m) => m.is_default)).toHaveLength(1);
   });

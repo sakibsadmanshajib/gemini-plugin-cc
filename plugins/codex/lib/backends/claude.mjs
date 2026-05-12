@@ -95,34 +95,52 @@
  */
 
 /**
- * Claude model aliases — verified against the Anthropic SDK's Model
- * union type (anthropics/anthropic-sdk-python/src/anthropic/types/model.py)
- * retrieved via context7 on 2026-05-12. Current canonical IDs:
- *   - claude-opus-4-7        (latest opus — what this session runs on)
- *   - claude-opus-4-6
- *   - claude-sonnet-4-6
- *   - claude-haiku-4-5       (claude-haiku-4-5-20251001 pinned)
+ * Claude model aliases — values are the model IDs that the
+ * `claude-agent-acp` server accepts on `session/set_model`. Verified
+ * 2026-05-12 by inspecting the `models.availableModels` block of a
+ * fresh `session/new` response:
  *
- * Opus 4.7 1M-context: the SDK does NOT define a separate
- * `claude-opus-4-7-1m` model ID. The 1M extended-context window is
- * a billing tier toggled by the `context-1m-2025-08-07` anthropic-beta
- * header on a regular `claude-opus-4-7` request. We expose `opus-1m`
- * and `claude-opus-4-7-1m` as routing aliases so callers can request
- * the 1M window by name; the claude-agent-acp runner (or any future
- * adapter that talks directly to the Anthropic API) is responsible for
- * setting the beta header when the resolved alias ends in `-1m`.
+ *   - `default` — "Opus 4.7 with 1M context" (the ONLY opus flavor
+ *     claude-agent-acp currently exposes — there is no plain
+ *     non-1m opus option, so opus aliases all route here)
+ *   - `sonnet`  — Sonnet 4.6  (also accepts the canonical
+ *                 `claude-sonnet-4-6` form via the agent's
+ *                 resolveModelPreference fallback)
+ *   - `haiku`   — Haiku 4.5
+ *
+ * Why not the Anthropic SDK's canonical IDs (`claude-opus-4-7-1m`,
+ * `claude-opus-4-7`): claude-agent-acp doesn't recognise either —
+ * a set_model call with `claude-opus-4-7-1m` is rejected by the
+ * spawned `claude` CLI as "model may not exist or you may not have
+ * access to it". The agent owns its own catalog with `default` /
+ * `sonnet` / `haiku` ids, and only those (plus a handful of
+ * SDK-style aliases its internal `resolveModelPreference` matches)
+ * are valid here.
+ *
+ * The aliases below cover both:
+ *   - user-facing short forms (`opus`, `opus-1m`, `sonnet`, `haiku`)
+ *   - Anthropic SDK canonical IDs the OpenAI facade may forward
+ *     (e.g. `claude-opus-4-7-1m` from the docs)
+ * They all collapse onto the agent's authoritative ids so an
+ * end-to-end request lands on a model the agent accepts.
  *
  * @type {ReadonlyMap<string, string>}
  */
 const MODEL_ALIASES = new Map([
-  ["sonnet", "claude-sonnet-4-6"],
-  ["opus", "claude-opus-4-7"],
-  ["opus-1m", "claude-opus-4-7-1m"],
-  ["haiku", "claude-haiku-4-5"],
-  ["claude-sonnet-4-6", "claude-sonnet-4-6"],
-  ["claude-opus-4-7", "claude-opus-4-7"],
-  ["claude-opus-4-7-1m", "claude-opus-4-7-1m"],
-  ["claude-haiku-4-5", "claude-haiku-4-5"]
+  // Opus 4.7 / Opus 4.7 1M — both spellings (and the SDK canonical
+  // ids) map to `default` because that's the only opus flavor
+  // claude-agent-acp exposes (1M is baked in).
+  ["opus", "default"],
+  ["opus-1m", "default"],
+  ["claude-opus-4-7", "default"],
+  ["claude-opus-4-7-1m", "default"],
+  ["default", "default"],
+  // Sonnet — agent accepts both short and canonical forms.
+  ["sonnet", "sonnet"],
+  ["claude-sonnet-4-6", "sonnet"],
+  // Haiku — same.
+  ["haiku", "haiku"],
+  ["claude-haiku-4-5", "haiku"]
 ]);
 
 const NOT_YET_SUPPORTED_MESSAGE =

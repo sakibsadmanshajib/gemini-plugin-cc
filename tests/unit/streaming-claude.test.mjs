@@ -340,13 +340,13 @@ describe("runTurn:rpc", () => {
   test("turn-level model is resolved via resolveClaudeModel and lands on turn.model", async () => {
     const { runner, client } = await startedRunner();
     client._enqueue("session/prompt", { stopReason: "end_turn" });
-    const result = await runner.runTurn({ prompt: "x", model: "sonnet" });
-    // resolveClaudeModel("sonnet") returns the concrete id; we don't pin
-    // the exact string here (it changes with model rev) but it must NOT
-    // equal "sonnet" literally — the alias should have resolved.
-    expect(result.model).toBeTruthy();
-    expect(typeof result.model).toBe("string");
-    expect(result.model).not.toBe("sonnet");
+    // `claude-sonnet-4-6` is an Anthropic-SDK canonical id that
+    // resolveClaudeModel maps onto the agent's short `sonnet` form.
+    const result = await runner.runTurn({
+      prompt: "x",
+      model: "claude-sonnet-4-6"
+    });
+    expect(result.model).toBe("sonnet");
   });
 
   test("turn-level model fires session/set_model with the resolved id", async () => {
@@ -355,7 +355,9 @@ describe("runTurn:rpc", () => {
     await runner.runTurn({ prompt: "x", model: "opus-1m" });
     const setModelCall = client._calls.find((c) => c.method === "session/set_model");
     expect(setModelCall).toBeDefined();
-    expect(setModelCall.params.modelId).toBe("claude-opus-4-7-1m");
+    // opus-1m / claude-opus-4-7-1m / opus / claude-opus-4-7 all
+    // collapse onto the agent's `default` id (its only opus flavor).
+    expect(setModelCall.params.modelId).toBe("default");
     expect(setModelCall.params.sessionId).toBeTruthy();
   });
 
@@ -384,7 +386,8 @@ describe("runTurn:rpc", () => {
     await runner.runTurn({ prompt: "2", model: "opus" });
     const setModelCalls = client._calls.filter((c) => c.method === "session/set_model");
     expect(setModelCalls).toHaveLength(2);
-    expect(setModelCalls[1].params.modelId).toBe("claude-opus-4-7");
+    // opus → `default` (claude-agent-acp's only opus flavor).
+    expect(setModelCalls[1].params.modelId).toBe("default");
   });
 
   test("fresh session resets applied-model — set_model re-fires for same alias", async () => {
@@ -429,7 +432,8 @@ describe("runTurn:rpc", () => {
     await runner.start();
     const setModelCall = client._calls.find((c) => c.method === "session/set_model");
     expect(setModelCall).toBeDefined();
-    expect(setModelCall.params.modelId).toBe("claude-opus-4-7-1m");
+    // opus-1m collapses onto `default` (the agent's 1M-context opus id).
+    expect(setModelCall.params.modelId).toBe("default");
     expect(setModelCall.params.sessionId).toBe("sess-default");
   });
 
@@ -926,11 +930,12 @@ describe("cost-recorder", () => {
   test("turn-level model override is resolved before being recorded", async () => {
     const { runner, client } = await startedRunner();
     client._enqueue("session/prompt", { stopReason: "end_turn" });
-    await runner.runTurn({ prompt: "x", model: "haiku" });
+    // `claude-haiku-4-5` (SDK canonical) → `haiku` (agent-acp id) is
+    // resolved at runner entry, so the cost log stores the resolved
+    // value, not the user-facing canonical alias.
+    await runner.runTurn({ prompt: "x", model: "claude-haiku-4-5" });
     const log = readCostLog();
-    expect(log[0].model).toBeTruthy();
-    // resolveClaudeModel("haiku") should produce a concrete id.
-    expect(log[0].model).not.toBe("haiku");
+    expect(log[0].model).toBe("haiku");
   });
 
   test("timeout path still emits a cost record with ok=false", async () => {
