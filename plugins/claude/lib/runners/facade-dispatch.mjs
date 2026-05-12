@@ -29,6 +29,8 @@
  * and falls back to the cold-start path.
  */
 
+import { createParser } from "eventsource-parser";
+
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
@@ -93,9 +95,7 @@ function resolveBearer(options, context) {
 export async function runViaFacade(backend, options, context) {
   const manifest = readManifest(context?.env ?? options.env ?? process.env);
   if (!manifest) {
-    throw new Error(
-      "runViaFacade: no running facade found (manifest absent or stale)",
-    );
+    throw new Error("runViaFacade: no running facade found (manifest absent or stale)");
   }
 
   const startedAtMs = Date.now();
@@ -113,10 +113,9 @@ export async function runViaFacade(backend, options, context) {
   // from these so the streaming runner inside the daemon honors them.
   const sessionAction = context?.session?.action;
   if (sessionAction === "resume") {
-    headers["X-Artagon-Session"] =
-      /** @type {{ action: "resume", id: string }} */ (
-        /** @type {any} */ (context.session)
-      ).id;
+    headers["X-Artagon-Session"] = /** @type {{ action: "resume", id: string }} */ (
+      /** @type {any} */ (context.session)
+    ).id;
   } else if (sessionAction === "fresh") {
     headers["X-Artagon-New-Session"] = "1";
   }
@@ -130,10 +129,19 @@ export async function runViaFacade(backend, options, context) {
     headers["X-Artagon-Cwd"] = clientCwd;
   }
 
+  // Step 4b: when the caller supplied an `onUpdate` hook (e.g. the
+  // slash-command piping live tokens to stdout), request SSE from the
+  // facade and stream chunks back. Without onUpdate, stay with the
+  // non-streaming JSON response — simpler + cheaper for callers that
+  // just want the final TurnResult.
+  const wantStream = typeof options.onUpdate === "function";
+  if (wantStream) {
+    headers.Accept = "text/event-stream";
+  }
   const body = JSON.stringify({
     model: resolveModel(backend, options.model),
     messages: [{ role: "user", content: options.prompt }],
-    stream: false,
+    stream: wantStream
   });
 
   const controller = new AbortController();
@@ -153,7 +161,7 @@ export async function runViaFacade(backend, options, context) {
     reason: null,
     model: null,
     sessionId: null,
-    updates: [],
+    updates: []
   };
 
   let response;
@@ -162,7 +170,7 @@ export async function runViaFacade(backend, options, context) {
       method: "POST",
       headers,
       body,
-      signal: controller.signal,
+      signal: controller.signal
     });
   } catch (err) {
     appendCostRecord(
@@ -174,9 +182,9 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE,
+        transport: TRANSPORT_NAMES.FACADE
       },
-      { context },
+      { context }
     );
     clearTimeout(timer);
     // H4: wrap connection-level errors with an actionable hint so the
@@ -184,14 +192,10 @@ export async function runViaFacade(backend, options, context) {
     // instead of seeing "fetch failed".
     const cause = /** @type {any} */ (err)?.cause;
     const code = cause?.code ?? /** @type {any} */ (err)?.code;
-    if (
-      code === "ECONNREFUSED" ||
-      code === "ENOTFOUND" ||
-      code === "ECONNRESET"
-    ) {
+    if (code === "ECONNREFUSED" || code === "ENOTFOUND" || code === "ECONNRESET") {
       throw new Error(
         `runViaFacade: cannot reach artagon-openai-server at http://${manifest.host}:${manifest.port} (${code}). ` +
-          "Start the daemon with `artagon-openai-server` or pass --no-facade to bypass.",
+          "Start the daemon with `artagon-openai-server` or pass --no-facade to bypass."
       );
     }
     throw err;
@@ -209,13 +213,43 @@ export async function runViaFacade(backend, options, context) {
         durationMs: Date.now() - startedAtMs,
         reason: null,
         ok: false,
-        transport: TRANSPORT_NAMES.FACADE,
+        transport: TRANSPORT_NAMES.FACADE
       },
-      { context },
+      { context }
     );
     throw new Error(
-      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`,
+      `runViaFacade: facade returned ${response.status} ${response.statusText} ${text}`
     );
+  }
+
+  // Step 3 (early — applies to both streaming + non-streaming paths):
+  // surface the daemon's effective session id from the response header.
+  const echoedSession = response.headers.get("x-artagon-session");
+  if (echoedSession) {
+    turn.sessionId = echoedSession;
+  }
+
+  // Step 4b: SSE branch. The facade emits OpenAI-shaped chunks plus a
+  // final usage chunk (when stream_options.include_usage is set —
+  // facade defaults that on). Each `data:` line is a JSON object;
+  // `[DONE]` terminates. We accumulate deltas into turn.text and call
+  // onUpdate per chunk so the slash-command can print live tokens.
+  if (wantStream) {
+    await consumeSseStream(response, turn, options.onUpdate);
+    appendCostRecord(
+      {
+        backend,
+        model: turn.model ?? null,
+        promptChars: options.prompt.length,
+        usage: normalizeUsage(turn.usage ?? null),
+        durationMs: Date.now() - startedAtMs,
+        reason: turn.reason ?? null,
+        ok: true,
+        transport: TRANSPORT_NAMES.FACADE
+      },
+      { context }
+    );
+    return turn;
   }
 
   const json = /** @type {any} */ (await response.json());
@@ -233,12 +267,6 @@ export async function runViaFacade(backend, options, context) {
   }
   if (json?.model) {
     turn.model = String(json.model);
-  }
-  // Step 3: surface the daemon's effective session id back to the
-  // caller via response header so they can persist it.
-  const echoedSession = response.headers.get("x-artagon-session");
-  if (echoedSession) {
-    turn.sessionId = echoedSession;
   }
   // Tool calls in OpenAI shape: choice.message.tool_calls = [{id, type, function:{name, arguments}}]
   if (Array.isArray(choice?.message?.tool_calls)) {
@@ -264,12 +292,74 @@ export async function runViaFacade(backend, options, context) {
       durationMs: Date.now() - startedAtMs,
       reason: turn.reason ?? null,
       ok: true,
-      transport: TRANSPORT_NAMES.FACADE,
+      transport: TRANSPORT_NAMES.FACADE
     },
-    { context },
+    { context }
   );
 
   return turn;
+}
+
+/**
+ * Step 4b: parse the facade's SSE response, emit per-chunk SessionUpdate
+ * events through `onUpdate`, and accumulate the final TurnResult.
+ *
+ * OpenAI SSE shape (from `lib/server/openai-facade.mjs::handleStreamingChatCompletion`):
+ *   data: {"choices":[{"delta":{"role":"assistant"}}]}        ← role announce
+ *   data: {"choices":[{"delta":{"content":"the "}}]}          ← N delta chunks
+ *   data: {"choices":[{"delta":{"content":"answer"}}]}
+ *   data: {"choices":[{"finish_reason":"stop"}]}              ← terminator
+ *   data: {"choices":[],"usage":{...}}                        ← usage tally
+ *   data: [DONE]
+ *
+ * @param {Response} response
+ * @param {import("#lib/translate/stream-runner.mjs").TurnResult} turn
+ * @param {((u: import("#lib/translate/stream-runner.mjs").SessionUpdate) => void) | undefined} onUpdate
+ */
+async function consumeSseStream(response, turn, onUpdate) {
+  if (!response.body) {
+    throw new Error("runViaFacade: streaming response has no body");
+  }
+  const parser = createParser({
+    onEvent(event) {
+      if (event.data === "[DONE]") return;
+      let chunk;
+      try {
+        chunk = JSON.parse(event.data);
+      } catch {
+        return; // ignore malformed
+      }
+      const choice = chunk?.choices?.[0];
+      if (!turn.model && chunk?.model) turn.model = String(chunk.model);
+      const deltaContent = choice?.delta?.content;
+      if (typeof deltaContent === "string" && deltaContent.length > 0) {
+        turn.text += deltaContent;
+        turn.chunkCount += 1;
+        turn.chunkChars += deltaContent.length;
+        if (onUpdate) {
+          try {
+            onUpdate({
+              sessionUpdate: "agent_message_chunk",
+              content: { text: deltaContent }
+            });
+          } catch {
+            // caller bug; best-effort
+          }
+        }
+      }
+      if (choice?.finish_reason && !turn.reason) {
+        turn.reason = String(choice.finish_reason);
+      }
+      if (chunk?.usage && !turn.usage) {
+        turn.usage = chunk.usage;
+      }
+    }
+  });
+  const decoder = new TextDecoder();
+  // @ts-ignore — Response.body is a ReadableStream<Uint8Array> in undici
+  for await (const part of response.body) {
+    parser.feed(decoder.decode(part, { stream: true }));
+  }
 }
 
 /**

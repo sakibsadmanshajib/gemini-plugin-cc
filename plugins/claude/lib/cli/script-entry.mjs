@@ -26,6 +26,7 @@ import { buildAgentContextFromArgv, withOverrides } from "#lib/agent-context.mjs
 import { formatHelp } from "#lib/cli/flags.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
 import { readFileStore } from "#lib/server/api-key-store.mjs";
+import { autoStartFacade } from "#lib/server/auto-start.mjs";
 import { readManifest } from "#lib/server/facade-endpoint.mjs";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -80,7 +81,27 @@ export async function runSlashCommandScript(opts) {
   // When no manifest exists, fall through to the previous behavior:
   // streaming=on directly in this process. That keeps the slash-
   // command functional without a daemon (cold-start tax on first call).
-  const manifest = readManifest(parsedContext.env);
+  //
+  // Step 4a: when no manifest exists AND the user didn't explicitly
+  // opt out via --no-facade, auto-start the daemon in the background.
+  // proper-lockfile prevents two parallel slash-commands from
+  // double-spawning the daemon. On success, autoStartFacade returns
+  // the live manifest; on failure (lock timeout, manifest poll
+  // timeout) it throws and we fall through to in-process streaming.
+  let manifest = readManifest(parsedContext.env);
+  if (!manifest && parsedContext.dispatch.facade !== "off") {
+    try {
+      manifest = await autoStartFacade({ env: parsedContext.env });
+    } catch (err) {
+      // Failure to auto-start isn't fatal — the slash-command can
+      // still run in-process. Emit a one-line stderr hint so the
+      // operator knows why latency may be higher than expected.
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(
+        `${scriptName}: auto-start failed (${message}); running in-process this turn.\n`
+      );
+    }
+  }
   /** @type {{ dispatch?: any, facade?: any }} */
   const overrides = {};
   if (manifest && parsedContext.dispatch.facade === "default") {
