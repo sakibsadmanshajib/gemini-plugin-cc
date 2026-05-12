@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=./config.schema.json
+#
+# artagon-openai-server — project-level configuration.
+#
+# Every field here corresponds to a CLI flag on `bin/artagon-openai-server.mjs`.
+# CLI flags override this file at boot. Slash-commands that auto-spawn the
+# daemon will pick up this config automatically when invoking through
+# `lib/server/auto-start.mjs::autoStartFacade`.
+#
+# Validation: VS Code / yaml-language-server / `pnpm dlx ajv-cli validate
+# -s .agents/artagon/config.schema.json -d .agents/artagon/config.yaml`.
+#
+# WARNING: do NOT commit `auth.value` (literal API keys). Use
+# `auth.source: file` with `auth.path` pointing at a 0o600 file outside
+# the repo, or `auth.source: keychain` so the key lives in macOS Keychain.
+
+# --- Network binding -------------------------------------------------------
+host: "127.0.0.1" # loopback only; set 0.0.0.0 ONLY with auth enabled
+port: 3000 # 0 = OS-assigned; manifest is written either way
+
+# --- CORS ------------------------------------------------------------------
+cors: false # false | "*" | "<origin>" | ["<o1>", "<o2>"]
+# cors: ["https://app.example.com", "https://admin.example.com"]
+
+# --- Authentication --------------------------------------------------------
+# `/v1/*` and `/admin/status` are bearer-gated when source != "none".
+# `/health` is always auth-exempt for LB probes.
+auth:
+  source: "none" # one of: none | explicit | file | keychain
+  # For source: explicit (less secure — visible in `ps`):
+  # value: "sk-..."
+  # For source: file:
+  # path: "/var/run/secrets/artagon-api-key"  # mode 0o600
+  # For source: keychain (macOS) / 0o600 file (linux):
+  # rotate: false  # set true to force-generate a fresh CSPRNG key
+
+# --- Diagnostics -----------------------------------------------------------
+diagnostics:
+  debug: false # verbose runner-path logging
+  strictEnv: false # fail at boot on typo'd ARTAGON_* / ACP_WIRE_LOG* env keys
+  # wireLog: "/tmp/artagon-wire.jsonl"  # capture every JSON-RPC frame (NDJSON)
+
+# --- Circuit-breaker tuning (slash-command auto-start path) ----------------
+# Defaults match the source constants in lib/server/auto-start.mjs and the
+# claims in README.md / docs/architecture.md / CHANGELOG.md. Changing these
+# also requires updating the source constants + doc claims, or the round-18
+# drift guards in tests/integration/auto-start.test.mjs will fail CI.
+breaker:
+  threshold: 3 # failures within `windowMs` that trip the breaker
+  windowMs: 300000 # rolling 5-minute window
+  tombstoneMaxAgeMs: 3600000 # sweep tombstones older than 1 hour

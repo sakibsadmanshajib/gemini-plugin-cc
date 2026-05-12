@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://artagon.dev/schemas/artagon-openai-server-config.schema.json",
+  "title": "artagon-openai-server config",
+  "description": "Schema for `.agents/artagon/config.yaml` — project-level configuration for the OpenAI Chat Completions facade daemon (bin/artagon-openai-server). Every field corresponds to an existing CLI flag; the config file is loaded once at boot and merged with CLI flags (CLI wins). Editors / VS Code with the YAML extension will validate edits against this schema when the YAML carries `# yaml-language-server: $schema=./config.schema.json`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Optional schema reference. When present, IDE / yaml-language-server validates this file against the named schema."
+    },
+    "host": {
+      "type": "string",
+      "description": "Bind address. Default 127.0.0.1 (loopback only). Setting to 0.0.0.0 exposes the daemon to the network — operator MUST also set `auth` when doing so, otherwise the unauthed `/admin/status` endpoint becomes readable from peers.",
+      "default": "127.0.0.1",
+      "examples": ["127.0.0.1", "0.0.0.0", "::1"]
+    },
+    "port": {
+      "type": "integer",
+      "description": "Listen port. 0 = OS-assigned (the chosen port is written to the facade-endpoint.json manifest so slash-commands can discover it).",
+      "minimum": 0,
+      "maximum": 65535,
+      "default": 0
+    },
+    "cors": {
+      "description": "CORS allowlist. Off by default. Specify `true` or `\"*\"` to allow any origin (only safe for development); a single origin string for one allowlist entry; or an array of origins for multi-origin. Maps to the --cors CLI flag.",
+      "default": false,
+      "oneOf": [
+        { "type": "boolean" },
+        {
+          "type": "string",
+          "minLength": 1,
+          "examples": ["*", "https://app.example.com"]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      ]
+    },
+    "auth": {
+      "type": "object",
+      "description": "API-key authentication for `/v1/*` and `/admin/status`. Off by default — safe only with the default loopback bind. `/health` is always auth-exempt (LB probe).",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["none", "explicit", "file", "keychain"],
+          "description": "How the bearer key reaches the daemon. `none` disables auth. `explicit` is the literal key in `value` (less secure: visible in `ps`). `file` reads `path` (0o600 expected). `keychain` provisions/reads a CSPRNG key from macOS Keychain (or `$XDG_STATE_HOME/.../api-key` 0o600 file on non-darwin)."
+        },
+        "value": {
+          "type": "string",
+          "description": "Literal key. Required when `source: explicit`. Single key OR comma-separated allowlist for multi-key rotation.",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "Filesystem path to a file containing the key(s). Required when `source: file`. File should be 0o600. One key per line OR comma-separated.",
+          "minLength": 1
+        },
+        "rotate": {
+          "type": "boolean",
+          "description": "Only meaningful for `source: keychain`. When true, force generation of a fresh CSPRNG key, overwriting any existing entry. Default false (idempotent re-read).",
+          "default": false
+        },
+        "store": {
+          "type": "string",
+          "enum": ["keychain", "file"],
+          "description": "Only meaningful for `source: keychain`. Override the auto-key backend. Default is keychain on macOS, file elsewhere."
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "source": { "const": "explicit" } },
+            "required": ["source"]
+          },
+          "then": { "required": ["value"] }
+        },
+        {
+          "if": {
+            "properties": { "source": { "const": "file" } },
+            "required": ["source"]
+          },
+          "then": { "required": ["path"] }
+        }
+      ]
+    },
+    "diagnostics": {
+      "type": "object",
+      "description": "Verbose-mode + strict-env + wire-log diagnostics propagated to the runner path via serverContext.",
+      "additionalProperties": false,
+      "properties": {
+        "debug": {
+          "type": "boolean",
+          "description": "Enable verbose diagnostics on the runner path (sets context.debug=true).",
+          "default": false
+        },
+        "strictEnv": {
+          "type": "boolean",
+          "description": "Fail at boot on unknown ARTAGON_*/ACP_WIRE_LOG* env keys (typo guard). Useful for CI / production deployments where surprise env-var typos shouldn't silently fall through.",
+          "default": false
+        },
+        "wireLog": {
+          "type": "string",
+          "description": "Capture every JSON-RPC frame from every backend request into <path> (NDJSON). Wire-log is bound at supervisor construction; changing the path on a running daemon requires shutdownAllStreamingRunners() to rebind.",
+          "minLength": 1,
+          "examples": ["/tmp/artagon-wire.jsonl", "/var/log/artagon/wire.jsonl"]
+        }
+      }
+    },
+    "breaker": {
+      "type": "object",
+      "description": "Circuit-breaker tuning for the slash-command auto-start path. ALL three fields here are reflected in `lib/server/auto-start.mjs` constants AND in operator-facing docs; changing them requires updating the constants + doc claims in lockstep, or the round-18 drift guards will fail CI.",
+      "additionalProperties": false,
+      "properties": {
+        "threshold": {
+          "type": "integer",
+          "description": "Number of recent failures within `windowMs` that trips the breaker. Default 3.",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 3
+        },
+        "windowMs": {
+          "type": "integer",
+          "description": "Rolling window for the breaker, in milliseconds. Default 300000 (5 minutes). Failures outside this window are pruned on read.",
+          "minimum": 60000,
+          "maximum": 86400000,
+          "default": 300000
+        },
+        "tombstoneMaxAgeMs": {
+          "type": "integer",
+          "description": "Tombstones from compareAndDeleteManifest older than this are swept on each autoStartFacade entry. Default 3600000 (1 hour). Don't set lower than ~1 minute or you risk racing concurrent compareAndDeleteManifest calls.",
+          "minimum": 60000,
+          "maximum": 604800000,
+          "default": 3600000
+        }
+      }
+    }
+  }
+}

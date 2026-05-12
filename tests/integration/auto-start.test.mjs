@@ -439,3 +439,36 @@ test("drift guard: breaker constants in code match the '3 failures / 5 min' clai
     expect(breakerBulletMatch[0]).toMatch(new RegExp(`\\b${windowMinutes}\\b`));
   }
 });
+
+test("drift guard: .agents/artagon/config.schema.json defaults match source constants", async () => {
+  // The config schema documents threshold/windowMs/tombstoneMaxAgeMs
+  // defaults — these MUST match the source constants in
+  // lib/server/auto-start.mjs. If they drift, operators following
+  // the schema would get behavior inconsistent with what the daemon
+  // actually does.
+  const url = await import("node:url");
+  const src = fs.readFileSync(
+    url.fileURLToPath(new URL("../../lib/server/auto-start.mjs", import.meta.url)),
+    "utf8"
+  );
+
+  const thresholdMatch = src.match(/const\s+FAILURE_THRESHOLD\s*=\s*(\d+)/);
+  const windowMatch = src.match(/const\s+FAILURE_WINDOW_MS\s*=\s*([\d_*\s]+)/);
+  const tombMatch = src.match(/const\s+TOMBSTONE_MAX_AGE_MS\s*=\s*([\d_*\s]+)/);
+  expect(thresholdMatch).not.toBeNull();
+  expect(windowMatch).not.toBeNull();
+  expect(tombMatch).not.toBeNull();
+  const threshold = Number(thresholdMatch?.[1]);
+  const windowMs = Number(new Function(`return ${windowMatch?.[1]}`)());
+  const tombMs = Number(new Function(`return ${tombMatch?.[1]}`)());
+
+  // Read the schema and check the documented defaults.
+  const schemaPath = url.fileURLToPath(
+    new URL("../../.agents/artagon/config.schema.json", import.meta.url)
+  );
+  const schema = JSON.parse(fs.readFileSync(schemaPath, "utf8"));
+  const breakerProps = schema.properties.breaker.properties;
+  expect(breakerProps.threshold.default).toBe(threshold);
+  expect(breakerProps.windowMs.default).toBe(windowMs);
+  expect(breakerProps.tombstoneMaxAgeMs.default).toBe(tombMs);
+});
