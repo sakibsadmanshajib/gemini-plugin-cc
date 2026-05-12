@@ -822,23 +822,37 @@ export function createOpenAiFacadeServer(options = {}) {
         // Empty `supervisors` array means no backend has been used yet
         // since boot — the daemon constructs supervisors lazily on
         // first chat-completions request per backend.
-        const nowMs = Date.now();
-        const sqliteHealth = getSqliteRecorderHealth();
-        sendJson(res, 200, {
-          pid: process.pid,
-          startedAt: new Date(serverStartedAtMs).toISOString(),
-          uptimeMs: nowMs - serverStartedAtMs,
-          supervisors: getSupervisorStatuses(),
-          stats: {
-            sqlitePath: sqliteHealth.dbPath,
-            failureCount: sqliteHealth.failureCount,
-            lastWarnedAt:
-              sqliteHealth.lastWarnedAt > 0
-                ? new Date(sqliteHealth.lastWarnedAt).toISOString()
-                : null
-          },
-          auth: { required: apiKeyPolicy !== null }
-        });
+        //
+        // M6: route-local try/catch around the introspection. If
+        // sqlite-recorder or registry helpers throw synchronously the
+        // generic 500 path would say "internal server error" with no
+        // hint that it was the status route specifically — operators
+        // polling /admin/status would see the same opaque error as a
+        // failed chat completion. Surface a route-tagged 500 instead.
+        try {
+          const nowMs = Date.now();
+          const sqliteHealth = getSqliteRecorderHealth();
+          sendJson(res, 200, {
+            pid: process.pid,
+            startedAt: new Date(serverStartedAtMs).toISOString(),
+            uptimeMs: nowMs - serverStartedAtMs,
+            supervisors: getSupervisorStatuses(),
+            stats: {
+              sqlitePath: sqliteHealth.dbPath,
+              failureCount: sqliteHealth.failureCount,
+              lastWarnedAt:
+                sqliteHealth.lastWarnedAt > 0
+                  ? new Date(sqliteHealth.lastWarnedAt).toISOString()
+                  : null
+            },
+            auth: { required: apiKeyPolicy !== null }
+          });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          sendError(res, 500, `/admin/status assembly failed: ${message}`, {
+            code: "admin_status_failed"
+          });
+        }
         return;
       }
 

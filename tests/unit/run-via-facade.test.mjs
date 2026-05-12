@@ -286,3 +286,62 @@ test("L1: ECONNRESET surfaces 'connection reset' error WITHOUT wiping manifest",
   );
   expect(deleteManifest).not.toHaveBeenCalled();
 });
+
+test("M3: EHOSTUNREACH triggers the same race-safe wipe path as ECONNREFUSED", async () => {
+  vi.mocked(deleteManifest).mockReset();
+  const netErr = /** @type {any} */ (new Error("host unreachable"));
+  netErr.cause = { code: "EHOSTUNREACH" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /Stale manifest deleted|EHOSTUNREACH/
+  );
+  expect(deleteManifest).toHaveBeenCalledTimes(1);
+});
+
+test("M3: ENETUNREACH also wipes (same fatal-network semantic)", async () => {
+  vi.mocked(deleteManifest).mockReset();
+  const netErr = /** @type {any} */ (new Error("network unreachable"));
+  netErr.cause = { code: "ENETUNREACH" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /Stale manifest deleted|ENETUNREACH/
+  );
+  expect(deleteManifest).toHaveBeenCalledTimes(1);
+});
+
+test("M2: race-safe wipe — manifest already replaced by another process is NOT deleted", async () => {
+  // Captured manifest at start of runViaFacade points at pid=31337/port=31337.
+  // Mid-call, another auto-start replaced it with pid=99999/port=44444.
+  // The race-safe check inspects the current on-disk manifest before
+  // unlinking; pid mismatch → DO NOT delete (we'd nuke a healthy daemon).
+  vi.mocked(deleteManifest).mockReset();
+  // First readManifest call (top of runViaFacade) sees the OLD manifest.
+  // Second readManifest call (inside the wipe branch) sees the NEW one.
+  vi.mocked(readManifest)
+    .mockReturnValueOnce({
+      host: "127.0.0.1",
+      port: 31337,
+      pid: process.pid,
+      startedAt: "2026-05-11T00:00:00.000Z",
+      autoKey: null
+    })
+    .mockReturnValueOnce({
+      host: "127.0.0.1",
+      port: 44444,
+      pid: process.pid,
+      startedAt: "2026-05-11T00:01:00.000Z",
+      autoKey: null
+    });
+  const netErr = /** @type {any} */ (new Error("connection refused"));
+  netErr.cause = { code: "ECONNREFUSED" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /Another process has already refreshed/
+  );
+  // The whole point: the wipe-check saw a different pid/port and bailed
+  // out, leaving the new daemon's manifest intact.
+  expect(deleteManifest).not.toHaveBeenCalled();
+});

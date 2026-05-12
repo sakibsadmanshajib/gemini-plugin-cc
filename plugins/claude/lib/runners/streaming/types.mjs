@@ -27,6 +27,28 @@
 /**
  * @typedef {"starting" | "healthy" | "degraded" | "restarting" | "dead"} StreamingHealth
  *
+ * Redacted error classifier shared between the registry's
+ * `getSupervisorStatuses()` and the `/admin/status` response. Closed
+ * set so consumers can `switch` exhaustively and any contributor adding
+ * a new code has to update the union (and any switch sites). The full
+ * unredacted message stays in the daemon's stderr log; this is the
+ * only thing reachable through the bearer-gated admin endpoint, which
+ * is open when `apiKey` is unset and the operator binds to 0.0.0.0.
+ *
+ * @typedef {(
+ *   | "spawn_not_found"
+ *   | "spawn_denied"
+ *   | "timeout"
+ *   | "auth_failed"
+ *   | "transport_closed"
+ *   | "restart_budget_exhausted"
+ *   | "session_init_failed"
+ *   | "internal_error"
+ *   | "introspect_failed"
+ *   | "oom"
+ *   | "unknown"
+ * )} LastErrorCode
+ *
  * @typedef {{
  *   prompt: string,
  *   cwd?: string,
@@ -39,6 +61,11 @@
  *
  * @typedef {import("#lib/translate/stream-runner.mjs").TurnResult} TurnResult
  *
+ * The optional `lastError()` getter exposes the supervisor's last
+ * captured error. Only the wrapping supervisor implements it; bare
+ * per-backend runners may not. Callers must duck-type via
+ * `typeof runner.lastError === "function"`.
+ *
  * @typedef {{
  *   start(): Promise<void>,
  *   runTurn(
@@ -46,7 +73,8 @@
  *     context?: import("#lib/agent-context.mjs").AgentContext
  *   ): Promise<TurnResult>,
  *   close(): Promise<void>,
- *   health(): StreamingHealth
+ *   health(): StreamingHealth,
+ *   lastError?(): Error | null
  * }} StreamingRunner
  *
  * @typedef {(env?: NodeJS.ProcessEnv) => StreamingRunner} StreamingRunnerFactory
