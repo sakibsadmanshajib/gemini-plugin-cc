@@ -336,6 +336,31 @@ test("T1 (round-13): tombstone sweep removes stale .tomb files older than 1 hour
   expect(fs.existsSync(unrelated)).toBe(true); // wrong name, untouched
 });
 
+test("drift guard: TOMBSTONE_MAX_AGE_MS matches the '1 hour' claim in docs", async () => {
+  // The tombstone-sweep age threshold is documented in:
+  //   - CHANGELOG.md ("older than 1 hour so we don't race")
+  //   - docs/architecture.md ("files older than 1 hour")
+  //   - lib/server/auto-start.mjs file header AND function docstring
+  //
+  // Drift would change sweep behavior in a way operators wouldn't
+  // notice (tombstones accumulate longer / get nuked sooner than docs
+  // claim). Parse the constant and assert.
+  const url = await import("node:url");
+  const src = fs.readFileSync(
+    url.fileURLToPath(new URL("../../lib/server/auto-start.mjs", import.meta.url)),
+    "utf8"
+  );
+  const match = src.match(/const\s+TOMBSTONE_MAX_AGE_MS\s*=\s*([\d_*\s]+)/);
+  expect(match).not.toBeNull();
+  const ms = Number(new Function(`return ${match?.[1]}`)());
+  expect(ms / 60_000 / 60).toBe(1); // exactly 1 hour
+
+  // Byte-exact assertion against the architecture doc claim.
+  const archPath = url.fileURLToPath(new URL("../../docs/architecture.md", import.meta.url));
+  const arch = fs.readFileSync(archPath, "utf8");
+  expect(arch).toMatch(/files older than 1 hour/);
+});
+
 test("drift guard: breaker constants in code match the '3 failures / 5 min' claim in docs", async () => {
   // FAILURE_THRESHOLD and FAILURE_WINDOW_MS are documented in:
   //   - README.md ("3 failures in 5 minutes")
