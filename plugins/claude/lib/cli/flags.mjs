@@ -36,9 +36,8 @@
  * @typedef {"on" | "off" | "default"} TriState
  *
  * @typedef {object} ParsedFlags
- * @property {TriState}  [streaming]       // --streaming / --no-streaming / --auto-streaming
- * @property {TriState}  [facade]          // --facade / --no-facade / --auto-facade
- * @property {"auto" | "disabled"} [broker] // --no-broker (sets "disabled")
+ * @property {TriState}  [streaming]       // --streaming / --no-streaming
+ * @property {TriState}  [facade]          // --facade / --no-facade
  * @property {string}    [wireLog]         // --wire-log <path>
  * @property {boolean}   [wireLogRaw]      // --wire-log-raw
  * @property {string}    [traceId]         // --trace-id <id>
@@ -74,7 +73,7 @@ const STRING_FLAGS = new Set([
   "--facade-key",
   "--model",
   "--cwd",
-  "--session"
+  "--session",
 ]);
 
 /**
@@ -87,10 +86,8 @@ const STRING_FLAGS = new Set([
 const TRI_STATE_FLAGS = [
   { flag: "--streaming", field: "streaming", value: "on" },
   { flag: "--no-streaming", field: "streaming", value: "off" },
-  { flag: "--auto-streaming", field: "streaming", value: "default" },
   { flag: "--facade", field: "facade", value: "on" },
   { flag: "--no-facade", field: "facade", value: "off" },
-  { flag: "--auto-facade", field: "facade", value: "default" }
 ];
 
 /**
@@ -117,7 +114,9 @@ export function parseRunnerArgs(argv) {
   function setTriState(field, value, token) {
     const prior = setBy.get(field);
     if (prior !== undefined && flags[field] !== value) {
-      throw new Error(`Conflicting flags: \`${prior}\` and \`${token}\` both set \`${field}\``);
+      throw new Error(
+        `Conflicting flags: \`${prior}\` and \`${token}\` both set \`${field}\``,
+      );
     }
     /** @type {any} */ (flags)[field] = value;
     setBy.set(field, token);
@@ -174,12 +173,6 @@ export function parseRunnerArgs(argv) {
     }
 
     // Boolean flags
-    if (arg === "--no-broker") {
-      setBool("broker", arg);
-      /** @type {any} */ (flags).broker = "disabled";
-      i += 1;
-      continue;
-    }
     if (arg === "--wire-log-raw") {
       setBool("wireLogRaw", arg);
       i += 1;
@@ -210,11 +203,15 @@ export function parseRunnerArgs(argv) {
     if (arg === "--timeout") {
       const value = argv[i + 1];
       if (value === undefined) {
-        throw new Error("Flag `--timeout` requires a positive number of milliseconds");
+        throw new Error(
+          "Flag `--timeout` requires a positive number of milliseconds",
+        );
       }
       const parsed = Number(value);
       if (!Number.isFinite(parsed) || parsed <= 0) {
-        throw new Error(`Flag \`--timeout\` requires a positive finite number; got \`${value}\``);
+        throw new Error(
+          `Flag \`--timeout\` requires a positive finite number; got \`${value}\``,
+        );
       }
       if (setBy.get("timeoutMs") !== undefined) {
         throw new Error("Flag `--timeout` was already set");
@@ -240,7 +237,7 @@ export function parseRunnerArgs(argv) {
     // Anything starting with `--` past this point is an unknown flag.
     if (arg.startsWith("--") || (arg.startsWith("-") && arg.length > 1)) {
       throw new Error(
-        `Unknown flag \`${arg}\` — use \`--\` to separate flags from prompt text starting with dashes`
+        `Unknown flag \`${arg}\` — use \`--\` to separate flags from prompt text starting with dashes`,
       );
     }
 
@@ -251,11 +248,13 @@ export function parseRunnerArgs(argv) {
 
   // Cross-flag conflict checks that can't be expressed via setBy alone.
   if (flags.costLog !== undefined && flags.noCostLog) {
-    throw new Error("Conflicting flags: `--cost-log` and `--no-cost-log` are mutually exclusive");
+    throw new Error(
+      "Conflicting flags: `--cost-log` and `--no-cost-log` are mutually exclusive",
+    );
   }
   if (flags.sessionId !== undefined && flags.newSession) {
     throw new Error(
-      "Conflicting flags: `--session <id>` and `--new-session` are mutually exclusive"
+      "Conflicting flags: `--session <id>` and `--new-session` are mutually exclusive",
     );
   }
 
@@ -263,7 +262,7 @@ export function parseRunnerArgs(argv) {
     flags,
     prompt: rest.join(" "),
     rest,
-    helpRequested
+    helpRequested,
   };
 }
 
@@ -307,14 +306,10 @@ function stringFlagToField(token) {
 export function formatHelp(scriptName) {
   return `Usage: ${scriptName} [flags] [--] <prompt...>
 
-Dispatch (tri-state):
-  --streaming           Route via streaming runner (warm path)
-  --no-streaming        Veto the streaming runner
-  --auto-streaming      Defer to context default
-  --facade              Route via OpenAI facade
-  --no-facade           Veto the facade
-  --auto-facade         Defer to context default
-  --no-broker           Gemini: skip the legacy broker probe
+Dispatch:
+  --streaming           Route via streaming runner (warm path; default)
+  --facade              Route via the daemon (artagon-openai-server)
+  --no-facade           Force the in-process streaming path (skip daemon)
 
 Observability:
   --wire-log <path>     Capture every JSON-RPC frame to <path>

@@ -84,7 +84,7 @@ const MODEL_ALIASES = new Map([
   // Gemini 2.5 concrete IDs.
   ["gemini-2.5-pro", "gemini-2.5-pro"],
   ["gemini-2.5-flash", "gemini-2.5-flash"],
-  ["gemini-2.5-flash-lite", "gemini-2.5-flash-lite"],
+  ["gemini-2.5-flash-lite", "gemini-2.5-flash-lite"]
 ]);
 
 /**
@@ -137,17 +137,17 @@ export const geminiBackend = {
         command: config.command ?? "gemini",
         args: config.args ?? buildGeminiArgs(config),
         env: config.env,
-        cwd: config.cwd,
+        cwd: config.cwd
       });
-    },
+    }
   },
   defaultTransport: "cli",
   setupHints: {
     // User-visible command to trigger interactive auth (typed at the host's
     // shell, not via the plugin).
     authCommand: "!gemini",
-    envVar: "GEMINI_API_KEY",
-  },
+    envVar: "GEMINI_API_KEY"
+  }
 };
 
 /**

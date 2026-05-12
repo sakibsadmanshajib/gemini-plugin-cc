@@ -21,7 +21,7 @@ import { shutdownAllStreamingRunners } from "#lib/runners/streaming/registry.mjs
 const base = createAgentContext({
   cwd: process.cwd(),
   env: process.env,
-  dispatch: { streaming: "on", facade: "default", broker: "auto" }
+  dispatch: { streaming: "on", facade: "default" }
 });
 
 async function turn(label, ctx, prompt) {

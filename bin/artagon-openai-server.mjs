@@ -249,7 +249,7 @@ try {
 const serverContext = createAgentContext({
   cwd: process.cwd(),
   env: process.env,
-  dispatch: { streaming: "on", facade: "default", broker: "auto" },
+  dispatch: { streaming: "on", facade: "default" },
   logging: opts.wireLog ? { wireLogPath: opts.wireLog } : {},
   debug: opts.debug === true ? true : undefined
 });

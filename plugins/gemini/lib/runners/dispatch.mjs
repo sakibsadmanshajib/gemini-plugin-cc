@@ -114,12 +114,12 @@ async function runStreaming(backendName, options, context) {
   const runner = getStreamingRunner(backendName, {
     cwd: context?.cwd ?? options.cwd,
     env: context?.env ?? options.env,
-    context,
+    context
   });
   if (!runner) {
     throw new Error(
       `runStatelessTurn: unknown backend "${String(backendName)}" — ` +
-        `expected one of ${Object.values(BACKEND_NAMES).join(", ")}`,
+        `expected one of ${Object.values(BACKEND_NAMES).join(", ")}`
     );
   }
   return runner.runTurn(
@@ -130,9 +130,9 @@ async function runStreaming(backendName, options, context) {
       model: context?.model ?? options.model,
       timeoutMs: context?.timeoutMs ?? options.timeoutMs,
       signal: options.signal,
-      onUpdate: options.onUpdate,
+      onUpdate: options.onUpdate
     },
-    context,
+    context
   );
 }
 
@@ -152,8 +152,8 @@ async function runFacade(backendName, options, context) {
       model: context?.model ?? options.model,
       timeoutMs: context?.timeoutMs ?? options.timeoutMs,
       bearerToken: context?.facade?.apiKey ?? options.bearerToken,
-      onUpdate: options.onUpdate,
+      onUpdate: options.onUpdate
     },
-    context,
+    context
   );
 }

@@ -122,8 +122,7 @@ try {
     env: process.env,
     dispatch: {
       streaming,
-      facade,
-      broker: opts.broker === false ? "disabled" : "auto"
+      facade
     },
     logging: {
       ...(opts.wireLog !== undefined && { wireLogPath: opts.wireLog }),

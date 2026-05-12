@@ -49,8 +49,7 @@ describe("createAgentContext", () => {
     expect(ctx.schemaVersion).toBe(1);
     expect(ctx.dispatch).toEqual({
       streaming: "default",
-      facade: "default",
-      broker: "auto"
+      facade: "default"
     });
     expect(ctx.logging).toEqual({});
     expect(ctx.cost).toEqual({});
@@ -63,8 +62,7 @@ describe("createAgentContext", () => {
     const ctx = createAgentContext({ dispatch: { streaming: "on" } });
     expect(ctx.dispatch).toEqual({
       streaming: "on",
-      facade: "default",
-      broker: "auto"
+      facade: "default"
     });
   });
 
@@ -202,13 +200,12 @@ describe("withOverrides", () => {
 
   test("sub-policies are shallow-merged: unmentioned fields preserved", () => {
     const base = createAgentContext({
-      dispatch: { streaming: "on", facade: "default", broker: "disabled" }
+      dispatch: { streaming: "on", facade: "default" }
     });
     const derived = withOverrides(base, { dispatch: { streaming: "off" } });
     expect(derived.dispatch).toEqual({
       streaming: "off",
-      facade: "default",
-      broker: "disabled"
+      facade: "default"
     });
   });
 
@@ -351,11 +348,6 @@ describe("buildAgentContextFromArgv:flag-mapping", () => {
     expect(context.dispatch.streaming).toBe("on");
   });
 
-  test("--no-broker maps to dispatch.broker = 'disabled'", () => {
-    const { context } = buildAgentContextFromArgv(["--no-broker", "x"], emptyEnv());
-    expect(context.dispatch.broker).toBe("disabled");
-  });
-
   test("--wire-log <path> maps to logging.wireLogPath; path validated", () => {
     const p = path.join(tmpDir, "wire.jsonl");
     const { context } = buildAgentContextFromArgv(["--wire-log", p, "x"], emptyEnv());
@@ -438,12 +430,6 @@ describe("buildAgentContextFromArgv:env-fallback", () => {
     expect(context.facade.apiKey).toBe("tok");
   });
 
-  test("ARTAGON_DISABLE_BROKER=1 → broker = 'disabled'", () => {
-    const env = withVar("ARTAGON_DISABLE_BROKER", "1");
-    const { context } = buildAgentContextFromArgv(["x"], env);
-    expect(context.dispatch.broker).toBe("disabled");
-  });
-
   test("ACP_WIRE_LOG fallback maps to logging.wireLogPath", () => {
     const p = path.join(tmpDir, "fallback.jsonl");
     const env = withVar("ACP_WIRE_LOG", p);
@@ -474,13 +460,6 @@ describe("buildAgentContextFromArgv:mixed-source", () => {
   test("--streaming flag + ARTAGON_STREAMING=1 → agreement, no throw", () => {
     const env = withVar("ARTAGON_STREAMING", "1");
     expect(() => buildAgentContextFromArgv(["--streaming", "x"], env)).not.toThrow();
-  });
-
-  test("--no-broker + ARTAGON_DISABLE_BROKER=0 → throws (negative env hint contradicts flag)", () => {
-    const env = withVar("ARTAGON_DISABLE_BROKER", "0");
-    expect(() => buildAgentContextFromArgv(["--no-broker", "x"], env)).toThrow(
-      /--no-broker.*ARTAGON_DISABLE_BROKER/
-    );
   });
 
   test("--facade flag + ARTAGON_USE_FACADE=0 → throws with both sources cited", () => {

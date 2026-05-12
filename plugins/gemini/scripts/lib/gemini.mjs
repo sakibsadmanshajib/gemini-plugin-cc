@@ -331,10 +331,18 @@ async function connectGeminiAcpV2(cwd, options = {}) {
   let capabilities = null;
 
   if (brokerEndpoint) {
-    const transport = geminiBackend.transports.brokerSocket(brokerEndpoint, {
+    // Step 5 removed the gemini broker; this code path is dead but
+    // kept compileable for the legacy companion's tests. The runtime
+    // cast bypasses the now-narrowed transports type.
+    const transport = /** @type {any} */ (geminiBackend.transports).brokerSocket?.(brokerEndpoint, {
       cwd,
       env: options.env
     });
+    if (!transport) {
+      throw new Error(
+        "legacy gemini companion: brokerSocket removed in Step 5 of the unified-facade plan"
+      );
+    }
     const candidate = createAcpClient(transport);
     try {
       await candidate.start();
@@ -861,13 +869,14 @@ export async function interruptAcpPrompt(cwd, options = {}) {
   // reach an in-flight session in another process — but neither did the
   // legacy code path; behavior parity is preserved.
   const session = loadBrokerSession(cwd);
+  if (session?.endpoint) {
+    // Step 5 removed broker support; this legacy path now throws.
+    throw new Error(
+      "legacy gemini companion: brokerSocket removed in Step 5 of the unified-facade plan"
+    );
+  }
   /** @type {import("#lib/acp/client.mjs").ClientTransport} */
-  const transport = session?.endpoint
-    ? geminiBackend.transports.brokerSocket(session.endpoint, {
-        cwd,
-        env: options.env
-      })
-    : geminiBackend.transports.cli({ cwd, env: options.env });
+  const transport = geminiBackend.transports.cli({ cwd, env: options.env });
   const client = createAcpClient(transport);
   try {
     await client.start();

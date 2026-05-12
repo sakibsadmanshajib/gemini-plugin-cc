@@ -59,20 +59,15 @@ describe("parser:tri-state", () => {
     expect(parseRunnerArgs(["--no-streaming", "x"]).flags.streaming).toBe("off");
   });
 
-  test("--auto-streaming → flags.streaming = 'default'", () => {
-    expect(parseRunnerArgs(["--auto-streaming", "x"]).flags.streaming).toBe("default");
-  });
-
   test("--streaming + --no-streaming → throws with both tokens named", () => {
     expect(() => parseRunnerArgs(["--streaming", "--no-streaming", "x"])).toThrow(
       /--streaming.*--no-streaming.*streaming/
     );
   });
 
-  test("--facade / --no-facade / --auto-facade map the same way", () => {
+  test("--facade / --no-facade map the same way", () => {
     expect(parseRunnerArgs(["--facade", "x"]).flags.facade).toBe("on");
     expect(parseRunnerArgs(["--no-facade", "x"]).flags.facade).toBe("off");
-    expect(parseRunnerArgs(["--auto-facade", "x"]).flags.facade).toBe("default");
   });
 
   test("setting the same tri-state twice with the same value is idempotent (no throw)", () => {
@@ -81,10 +76,6 @@ describe("parser:tri-state", () => {
 });
 
 describe("parser:booleans", () => {
-  test("--no-broker → flags.broker = 'disabled'", () => {
-    expect(parseRunnerArgs(["--no-broker", "x"]).flags.broker).toBe("disabled");
-  });
-
   test("--wire-log-raw → flags.wireLogRaw = true", () => {
     expect(parseRunnerArgs(["--wire-log-raw", "x"]).flags.wireLogRaw).toBe(true);
   });
