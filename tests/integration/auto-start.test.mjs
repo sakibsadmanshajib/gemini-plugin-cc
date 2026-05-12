@@ -355,10 +355,27 @@ test("drift guard: TOMBSTONE_MAX_AGE_MS matches the '1 hour' claim in docs", asy
   const ms = Number(new Function(`return ${match?.[1]}`)());
   expect(ms / 60_000 / 60).toBe(1); // exactly 1 hour
 
-  // Byte-exact assertion against the architecture doc claim.
+  // Verify the doc claim mentions the right hours. Reword-tolerant:
+  // pin the NUMBER (1 hour), not the literal phrase "files older
+  // than 1 hour" — a future copy-edit could rephrase "older than an
+  // hour" or "1-hour cutoff" and still be correct. Scope to the
+  // SWEEP paragraph specifically — there's also an unrelated
+  // "tombstone" mention in the stale-manifest-recovery bullet that
+  // doesn't talk about the age threshold.
   const archPath = url.fileURLToPath(new URL("../../docs/architecture.md", import.meta.url));
   const arch = fs.readFileSync(archPath, "utf8");
-  expect(arch).toMatch(/files older than 1 hour/);
+  // Match the bullet (or paragraph) that combines BOTH "sweep" and
+  // "tomb" — that's the age-threshold one. Bullets in this doc are
+  // newline-separated, so use a non-greedy [^\n]* to scope to one line.
+  const sweepSnippet = arch.match(/[^\n]*sweep[^\n]*tomb[^\n]*|[^\n]*tomb[^\n]*sweep[^\n]*/i);
+  expect(
+    sweepSnippet,
+    "architecture.md does not have a single-line 'sweep + tomb' description"
+  ).not.toBeNull();
+  if (sweepSnippet) {
+    const hours = ms / 60_000 / 60;
+    expect(sweepSnippet[0]).toMatch(new RegExp(`\\b${hours}\\b`));
+  }
 });
 
 test("drift guard: breaker constants in code match the '3 failures / 5 min' claim in docs", async () => {
@@ -396,9 +413,21 @@ test("drift guard: breaker constants in code match the '3 failures / 5 min' clai
   expect(threshold).toBe(3);
   expect(windowMinutes).toBe(5);
 
-  // Also assert the README claim is byte-exact. If a contributor
-  // touches just one of the four doc sites, this catches it.
+  // Also verify the README claim has the right NUMBERS. We don't
+  // pin the exact wording — README is operator-facing prose and may
+  // be reworded ("3 failures within 5 minutes" / "after 3 failures
+  // in a 5-minute window" / etc.) without changing the contract.
+  // What we DO pin: any sentence that talks about the breaker must
+  // mention both threshold and window-in-minutes correctly.
   const readmePath = url.fileURLToPath(new URL("../../README.md", import.meta.url));
   const readme = fs.readFileSync(readmePath, "utf8");
-  expect(readme).toMatch(/3 failures in 5 minutes/);
+  // Find the "circuit breaker" sentence/paragraph and assert it
+  // contains the right numbers. README is large; scope to a window
+  // around "circuit breaker" so unrelated 3s and 5s don't false-match.
+  const breakerSnippet = readme.match(/[^.]*circuit breaker[^.]*\./i);
+  expect(breakerSnippet, "README does not mention 'circuit breaker'").not.toBeNull();
+  if (breakerSnippet) {
+    expect(breakerSnippet[0]).toMatch(new RegExp(`\\b${threshold}\\b`));
+    expect(breakerSnippet[0]).toMatch(new RegExp(`\\b${windowMinutes}\\b`));
+  }
 });
