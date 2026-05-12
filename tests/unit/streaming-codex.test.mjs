@@ -332,6 +332,51 @@ describe("runTurn:rpc", () => {
     expect(startCall.params.model).toBe("gpt-5-codex");
   });
 
+  test("effort defaults to xhigh; `max` is normalized; codex values pass through", async () => {
+    // Default (no effort): xhigh.
+    {
+      const { runner, client } = await startedRunner();
+      client._enqueue("turn/start", { turn: { id: "tr_d" } });
+      const p = runner.runTurn({ prompt: "x" });
+      client._emit({
+        method: "turn/completed",
+        params: { turn: { status: "completed" } }
+      });
+      await p;
+      const call = client._calls.find((c) => c.method === "turn/start");
+      expect(call.params.effort).toBe("xhigh");
+    }
+    // Portable alias `max` → `xhigh` (codex rejects literal `max`).
+    {
+      const { runner, client } = await startedRunner();
+      client._enqueue("turn/start", { turn: { id: "tr_m" } });
+      const p = runner.runTurn({ prompt: "x", effort: "max" });
+      client._emit({
+        method: "turn/completed",
+        params: { turn: { status: "completed" } }
+      });
+      await p;
+      const call = client._calls.find((c) => c.method === "turn/start");
+      expect(call.params.effort).toBe("xhigh");
+    }
+    // Codex-native values pass through unchanged.
+    for (const codexEffort of ["low", "medium", "high", "xhigh", "minimal", "none"]) {
+      const { runner, client } = await startedRunner();
+      client._enqueue("turn/start", { turn: { id: `tr_${codexEffort}` } });
+      const p = runner.runTurn({
+        prompt: "x",
+        effort: /** @type {any} */ (codexEffort)
+      });
+      client._emit({
+        method: "turn/completed",
+        params: { turn: { status: "completed" } }
+      });
+      await p;
+      const call = client._calls.find((c) => c.method === "turn/start");
+      expect(call.params.effort).toBe(codexEffort);
+    }
+  });
+
   test("turn/start response is acknowledgment only — runTurn waits for turn/completed", async () => {
     const { runner, client } = await startedRunner();
     client._enqueue("turn/start", { turn: { id: "tr_1" } });

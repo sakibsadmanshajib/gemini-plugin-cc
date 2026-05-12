@@ -95,14 +95,33 @@
  */
 
 /**
+ * Claude model aliases — verified against the Anthropic SDK's Model
+ * union type (anthropics/anthropic-sdk-python/src/anthropic/types/model.py)
+ * retrieved via context7 on 2026-05-12. Current canonical IDs:
+ *   - claude-opus-4-7        (latest opus — what this session runs on)
+ *   - claude-opus-4-6
+ *   - claude-sonnet-4-6
+ *   - claude-haiku-4-5       (claude-haiku-4-5-20251001 pinned)
+ *
+ * Opus 4.7 1M-context: the SDK does NOT define a separate
+ * `claude-opus-4-7-1m` model ID. The 1M extended-context window is
+ * a billing tier toggled by the `context-1m-2025-08-07` anthropic-beta
+ * header on a regular `claude-opus-4-7` request. We expose `opus-1m`
+ * and `claude-opus-4-7-1m` as routing aliases so callers can request
+ * the 1M window by name; the claude-agent-acp runner (or any future
+ * adapter that talks directly to the Anthropic API) is responsible for
+ * setting the beta header when the resolved alias ends in `-1m`.
+ *
  * @type {ReadonlyMap<string, string>}
  */
 const MODEL_ALIASES = new Map([
   ["sonnet", "claude-sonnet-4-6"],
   ["opus", "claude-opus-4-7"],
+  ["opus-1m", "claude-opus-4-7-1m"],
   ["haiku", "claude-haiku-4-5"],
   ["claude-sonnet-4-6", "claude-sonnet-4-6"],
   ["claude-opus-4-7", "claude-opus-4-7"],
+  ["claude-opus-4-7-1m", "claude-opus-4-7-1m"],
   ["claude-haiku-4-5", "claude-haiku-4-5"]
 ]);
 

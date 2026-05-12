@@ -402,8 +402,15 @@ export function resolveModelToBackend(model) {
   }
 
   const lower = model.toLowerCase();
+  // A bare backend alias ("codex", "claude", "gemini") means
+  // "route to this backend using its default model"; we drop the
+  // override so the runner picks defaultModel rather than passing
+  // the alias through as a literal model id (which the upstream CLIs
+  // reject — codex returns 400 "The 'codex' model is not supported").
+  if (lower === "claude") return { backend: BACKEND_NAMES.CLAUDE, modelOverride: undefined };
+  if (lower === "codex") return { backend: BACKEND_NAMES.CODEX, modelOverride: undefined };
+  if (lower === "gemini") return { backend: BACKEND_NAMES.GEMINI, modelOverride: undefined };
   if (
-    lower === "claude" ||
     lower.startsWith("claude-") ||
     lower.startsWith("sonnet") ||
     lower.startsWith("opus") ||
@@ -412,7 +419,6 @@ export function resolveModelToBackend(model) {
     return { backend: BACKEND_NAMES.CLAUDE, modelOverride: model };
   }
   if (
-    lower === "codex" ||
     lower.startsWith("codex-") ||
     lower.startsWith("gpt-5") ||
     lower.startsWith("o3") ||
@@ -421,7 +427,7 @@ export function resolveModelToBackend(model) {
   ) {
     return { backend: BACKEND_NAMES.CODEX, modelOverride: model };
   }
-  if (lower === "gemini" || lower.startsWith("gemini-") || lower.startsWith("auto-gemini")) {
+  if (lower.startsWith("gemini-") || lower.startsWith("auto-gemini")) {
     return { backend: BACKEND_NAMES.GEMINI, modelOverride: model };
   }
   return null;
@@ -639,6 +645,12 @@ async function handleStreamingChatCompletion(
       {
         prompt,
         model: resolved.modelOverride,
+        // V3 (2026-05-12): forward OpenAI's standard `reasoning_effort`
+        // request field to the runner. OpenAI/codex/o1 all accept
+        // "low" | "medium" | "high"; codex additionally supports "max"
+        // as the highest budget. When unset the codex runner defaults
+        // to "max" (matching codexBackend.defaultEffort).
+        effort: /** @type {any} */ (body)?.reasoning_effort,
         timeoutMs: 5 * 60 * 1000,
         // Thread the abort signal so the runner SIGTERMs the subprocess
         // when the client disconnects.
@@ -1042,6 +1054,10 @@ export function createOpenAiFacadeServer(options = {}) {
             {
               prompt,
               model: resolved.modelOverride,
+              // V3 (2026-05-12): forward OpenAI's reasoning_effort to
+              // the runner (non-streaming path mirrors the streaming
+              // branch). Codex defaults to "max" when unset.
+              effort: /** @type {any} */ (body)?.reasoning_effort,
               timeoutMs: 5 * 60 * 1000
             },
             requestContext

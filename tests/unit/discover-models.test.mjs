@@ -52,16 +52,16 @@ describe("getBackendModels(claude)", () => {
 describe("getBackendModels(codex)", () => {
   const models = getBackendModels(BACKEND_NAMES.CODEX);
 
-  test("includes spark, gpt-5, gpt-5-codex, o3, o3-mini, o4-mini", () => {
+  test("includes the gpt-5.x lineup supported for ChatGPT accounts", () => {
     const ids = models.map((m) => m.id);
-    for (const expected of ["spark", "gpt-5", "gpt-5-codex", "o3", "o3-mini", "o4-mini"]) {
+    for (const expected of ["gpt-5.5", "gpt-5.4", "gpt-5.3-codex"]) {
       expect(ids).toContain(expected);
     }
   });
 
-  test("default is spark", () => {
+  test("default is gpt-5.5 (matches codexBackend.defaultModel)", () => {
     expect(models[0].is_default).toBe(true);
-    expect(models[0].id).toBe("spark");
+    expect(models[0].id).toBe("gpt-5.5");
   });
 });
 
@@ -134,13 +134,13 @@ describe("toOpenAiModelEntries", () => {
 
   test("no aliases: only canonical entry", () => {
     const entries = toOpenAiModelEntries({
-      id: "spark",
+      id: "gpt-5.5",
       backend: BACKEND_NAMES.CODEX,
       aliases: [],
       is_default: true,
       owned_by: "artagon-agent-cli-plugin (codex)"
     });
     expect(entries).toHaveLength(1);
-    expect(entries[0].id).toBe("spark");
+    expect(entries[0].id).toBe("gpt-5.5");
   });
 });

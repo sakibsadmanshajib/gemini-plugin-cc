@@ -86,6 +86,25 @@ describe("resolveModelToBackend", () => {
       modelOverride: "claude-sonnet-4-6"
     });
   });
+
+  test("bare backend alias drops the override", () => {
+    // `model: "codex"` means "route to codex and use ITS default model".
+    // Passing the literal alias through as the codex --model would fail
+    // upstream ("The 'codex' model is not supported when using Codex
+    // with a ChatGPT account"), so the override is undefined.
+    expect(resolveModelToBackend("codex")).toEqual({
+      backend: BACKEND_NAMES.CODEX,
+      modelOverride: undefined
+    });
+    expect(resolveModelToBackend("claude")).toEqual({
+      backend: BACKEND_NAMES.CLAUDE,
+      modelOverride: undefined
+    });
+    expect(resolveModelToBackend("gemini")).toEqual({
+      backend: BACKEND_NAMES.GEMINI,
+      modelOverride: undefined
+    });
+  });
 });
 
 describe("mapFinishReason", () => {
@@ -281,9 +300,9 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
     expect(ids).toContain("claude-sonnet-4-6");
     expect(ids).toContain("claude-opus-4-7");
     expect(ids).toContain("claude-haiku-4-5");
-    expect(ids).toContain("gpt-5");
-    expect(ids).toContain("gpt-5-codex");
-    expect(ids).toContain("spark");
+    expect(ids).toContain("gpt-5.5");
+    expect(ids).toContain("gpt-5.4");
+    expect(ids).toContain("gpt-5.3-codex");
     expect(ids).toContain("gemini-3.1-pro-preview");
     expect(ids).toContain("auto-gemini-3");
 

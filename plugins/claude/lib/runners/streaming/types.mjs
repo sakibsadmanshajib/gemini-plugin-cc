@@ -69,6 +69,7 @@
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
  *   model?: string,
+ *   effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max",
  *   timeoutMs?: number,
  *   signal?: AbortSignal,
  *   onUpdate?: (u: import("#lib/translate/stream-runner.mjs").SessionUpdate) => void
