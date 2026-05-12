@@ -70,6 +70,12 @@ describe("resolveModelToBackend", () => {
     expect(resolveModelToBackend("gemini")?.backend).toBe(BACKEND_NAMES.GEMINI);
     expect(resolveModelToBackend("gemini-3-flash-preview")?.backend).toBe(BACKEND_NAMES.GEMINI);
     expect(resolveModelToBackend("auto-gemini-3")?.backend).toBe(BACKEND_NAMES.GEMINI);
+    // Short aliases — `pro`/`flash`/`flash-lite` are well-known gemini
+    // short names. Without these heuristics, `model: "flash"` would
+    // 400 as "Cannot resolve model to a backend".
+    expect(resolveModelToBackend("pro")?.backend).toBe(BACKEND_NAMES.GEMINI);
+    expect(resolveModelToBackend("flash")?.backend).toBe(BACKEND_NAMES.GEMINI);
+    expect(resolveModelToBackend("flash-lite")?.backend).toBe(BACKEND_NAMES.GEMINI);
   });
 
   test("unknown model returns null", () => {
@@ -422,7 +428,7 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "gemini-3-pro-preview",
+        model: "gemini-3.1-pro-preview",
         messages: [{ role: "user", content: "x" }]
       })
     });

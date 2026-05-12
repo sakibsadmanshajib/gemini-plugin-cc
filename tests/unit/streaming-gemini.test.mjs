@@ -672,6 +672,106 @@ test("F9: client disconnect (AbortSignal) → session/cancel notification fires"
   await expect(turnPromise).rejects.toThrow();
 });
 
+// ──────────────────────────────────────────────────────────────────────
+// session/set_model wiring (per-turn model override → agent's catalog)
+// ──────────────────────────────────────────────────────────────────────
+
+test("turn-level model fires session/set_model with the resolved id", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-m" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  // `pro` alias → `gemini-3.1-pro-preview` (the agent's preview id).
+  await runner.runTurn({ prompt: "x", model: "pro" });
+  const setModelCall = client._calls.find((c) => c.method === "session/set_model");
+  expect(setModelCall).toBeDefined();
+  expect(setModelCall.params.modelId).toBe("gemini-3.1-pro-preview");
+  expect(setModelCall.params.sessionId).toBe("sess-m");
+});
+
+test("no model on turn AND no factory default → no session/set_model", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  await runner.runTurn({ prompt: "x" });
+  expect(client._calls.some((c) => c.method === "session/set_model")).toBe(false);
+});
+
+test("second turn with same model skips the set_model round-trip", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  await runner.runTurn({ prompt: "1", model: "flash" });
+  await runner.runTurn({ prompt: "2", model: "flash" });
+  const setModelCalls = client._calls.filter((c) => c.method === "session/set_model");
+  expect(setModelCalls).toHaveLength(1);
+});
+
+test("set_model failure aborts the turn before session/prompt", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/set_model", new Error("unknown model id"));
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  await expect(runner.runTurn({ prompt: "x", model: "gemini-not-a-real-model" })).rejects.toThrow(
+    /unknown model id/
+  );
+  expect(client._calls.some((c) => c.method === "session/prompt")).toBe(false);
+});
+
+test("factory's `model` option fires set_model after session/new in start()", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-default" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    model: "auto-gemini-2.5",
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const setModelCall = client._calls.find((c) => c.method === "session/set_model");
+  expect(setModelCall).toBeDefined();
+  expect(setModelCall.params.modelId).toBe("auto-gemini-2.5");
+  expect(setModelCall.params.sessionId).toBe("sess-default");
+});
+
 test("F9: no signal → no session/cancel call (no spurious notify)", async () => {
   const transport = makeFakeTransport();
   const client = makeFakeClient();

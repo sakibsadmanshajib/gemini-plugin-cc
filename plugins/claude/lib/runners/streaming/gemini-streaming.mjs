@@ -35,6 +35,7 @@
  *                supervisor calls start() again to recover
  */
 
+import { resolveGeminiModel } from "#lib/backends/gemini.mjs";
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
@@ -65,6 +66,7 @@ const DEFAULT_ARGS = ["--acp"];
  *   command?: string,
  *   args?: string[],
  *   protocolVersion?: number,
+ *   model?: string,
  *   context?: import("#lib/agent-context.mjs").AgentContext,
  *   createTransport?: typeof createCliTransport,
  *   createClient?: typeof createAcpClient
@@ -105,6 +107,39 @@ export function createGeminiStreamingRunner(options = {}) {
   /** @type {StreamingHealth} */
   let health = "starting";
   let started = false;
+  // Last canonical model id successfully applied via `session/set_model`.
+  // Tracked so per-turn model overrides skip the round-trip when the
+  // requested model already matches, and so a fresh/resumed session
+  // resets to null (new session = no model applied yet). Matches the
+  // pattern used by claude-streaming.mjs.
+  /** @type {string | null} */
+  let appliedModel = null;
+
+  /**
+   * Apply `targetAlias` to the current session via `session/set_model`.
+   * The gemini agent advertises a `models.availableModels` catalog on
+   * session/new (verified 2026-05-12: `auto-gemini-3`, `auto-gemini-2.5`,
+   * `gemini-3.1-pro-preview`, `gemini-3-flash-preview`,
+   * `gemini-3.1-flash-lite-preview`, `gemini-2.5-pro`, `gemini-2.5-flash`,
+   * `gemini-2.5-flash-lite`). resolveGeminiModel collapses our aliases
+   * onto those agent IDs.
+   *
+   * Throws on agent error — the caller decides whether to fail the
+   * whole turn (we do, same as claude).
+   *
+   * @param {string | null | undefined} targetAlias
+   */
+  async function applySessionModel(targetAlias) {
+    if (!targetAlias) return;
+    if (!client || !sessionId) return;
+    const resolved = resolveGeminiModel(targetAlias);
+    if (resolved === appliedModel) return;
+    await /** @type {any} */ (client).request("session/set_model", {
+      sessionId,
+      modelId: resolved
+    });
+    appliedModel = resolved;
+  }
 
   /**
    * The accumulator the per-turn notification handler writes into.
@@ -204,6 +239,11 @@ export function createGeminiStreamingRunner(options = {}) {
         if (!sessionId) {
           throw new Error("createGeminiStreamingRunner: broker returned no sessionId");
         }
+        // Apply the runner's default model to the new session if one
+        // was passed at construction time. Failures surface as start()
+        // errors so the operator sees "unknown model" rather than the
+        // request silently falling back.
+        await applySessionModel(options.model);
         started = true;
         health = "healthy";
       } catch (err) {
@@ -271,6 +311,8 @@ export function createGeminiStreamingRunner(options = {}) {
             }
             sessionId = freshId;
             turn.sessionId = freshId;
+            // New session — no model applied yet; force re-apply below.
+            appliedModel = null;
             break;
           }
           case "resume": {
@@ -284,12 +326,21 @@ export function createGeminiStreamingRunner(options = {}) {
             });
             sessionId = resumeId;
             turn.sessionId = resumeId;
+            // Resumed session: model selection is whatever the prior
+            // owner left; force a reapply for a well-defined state.
+            appliedModel = null;
             break;
           }
           default:
             // no-op — keep stored sessionId
             break;
         }
+
+        // Apply per-turn model override (turnOpts.model) on top of any
+        // factory default. Skips the round-trip when the requested
+        // model already matches what's applied. set_model failure
+        // aborts the turn — no silent fallback.
+        await applySessionModel(turnOpts.model);
 
         // F9: hook AbortSignal to a session/cancel notification so the
         // backend stops generating when the client disconnects mid-

@@ -436,7 +436,13 @@ export function resolveModelToBackend(model) {
   ) {
     return { backend: BACKEND_NAMES.CODEX, modelOverride: model };
   }
-  if (lower.startsWith("gemini-") || lower.startsWith("auto-gemini")) {
+  if (
+    lower.startsWith("gemini-") ||
+    lower.startsWith("auto-gemini") ||
+    lower === "pro" ||
+    lower === "flash" ||
+    lower === "flash-lite"
+  ) {
     return { backend: BACKEND_NAMES.GEMINI, modelOverride: model };
   }
   return null;
