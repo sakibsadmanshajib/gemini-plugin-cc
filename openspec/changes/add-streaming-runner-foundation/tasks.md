@@ -69,12 +69,27 @@
 
 ## 6. Out of scope (forward references)
 
+> **Status update (2026-05-11):** All three forward references below have
+> since shipped via the unified-facade work that landed on the
+> `chore/test-split-integration` branch. Checkboxes left unchecked to
+> preserve the historical "this was deferred" record; annotations point
+> at where each item actually landed.
+
 - [ ] 6.1 Wire CODEX streaming runner — covered by
       `add-unified-acp-server-with-mcp-aggregation` Phase 1.5
+      <br>**SHIPPED:** `lib/runners/streaming/codex-streaming.mjs` spawns
+      `codex app-server --listen stdio://` directly; covered by exact-
+      string lock-in tests in `tests/unit/streaming-registry.test.mjs`.
 - [ ] 6.2 Wire CLAUDE streaming runner — covered by
       `add-unified-acp-server-with-mcp-aggregation` Phase 1.6 with
       empirical Path A vs Path B determination
+      <br>**SHIPPED:** `lib/runners/streaming/claude-streaming.mjs` uses
+      `@agentclientprotocol/claude-agent-acp`. Path B (Zed's ACP server
+      backed by the Claude Agent SDK) was the empirical choice.
 - [ ] 6.3 Lift the legacy `gemini --acp` broker out of
       `plugins/gemini/scripts/lib/` so the streaming runner can own
       the subprocess directly — covered by
       `add-unified-acp-server-with-mcp-aggregation` Phase 1.4
+      <br>**SHIPPED:** broker-lifecycle.mjs is now stubbed (all functions
+      return null/no-op); `lib/runners/streaming/gemini-streaming.mjs`
+      spawns `gemini --acp` directly via `createCliTransport`.
