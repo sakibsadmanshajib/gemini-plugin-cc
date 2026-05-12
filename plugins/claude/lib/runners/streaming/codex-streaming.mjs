@@ -382,6 +382,8 @@ export function createCodexStreamingRunner(options = {}) {
       const signal = turnOpts.signal;
       /** @type {(() => void) | null} */
       let onAbort = null;
+      /** @type {(() => void) | null} */
+      let onAbortReject = null;
       // G2: `activeCompletion` is deferred to AFTER the session-policy
       // block. handleNotification resolves activeCompletion on the
       // first `turn/completed`. If we registered the waiter before
@@ -394,6 +396,28 @@ export function createCodexStreamingRunner(options = {}) {
       let completion = null;
 
       try {
+        // F9 (race fix): install signal-abort handler BEFORE any setup
+        // await (thread/start, thread/resume). Without this, an abort
+        // during pre-prompt setup would silently drop on the floor —
+        // no turn/cancel notify and no early throw. Handler reads
+        // `threadId` lazily so fresh/resume paths still notify the
+        // correct id.
+        if (signal) {
+          if (signal.aborted) {
+            throw signal.reason ?? new Error("aborted");
+          }
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("turn/cancel", {
+                threadId
+              });
+            } catch {
+              // best-effort
+            }
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         // Apply per-turn session intent INSIDE the try (F1). For codex:
         //   fresh → thread/start
         //   resume → thread/resume (codex 0.130.0 app-server)
@@ -437,22 +461,21 @@ export function createCodexStreamingRunner(options = {}) {
           activeCompletion = { resolve, reject };
         });
 
-        // F9: bridge AbortSignal → turn/cancel. Codex's cancel uses
-        // threadId (current value, post-policy). Best-effort; rejects
-        // already cascade through the timer race below.
-        if (signal) {
-          onAbort = () => {
-            try {
-              /** @type {any} */ (client).notify("turn/cancel", {
-                threadId
-              });
-            } catch {
-              // best-effort
-            }
-          };
-          if (signal.aborted) onAbort();
-          else signal.addEventListener("abort", onAbort, { once: true });
-        }
+        // F9 (race fix): abort during turn/start + turn-completed wait
+        // must unwedge the work promise locally, in addition to the
+        // turn/cancel notify already wired at the top of the try.
+        // Without this racer, the runner would block on the completion
+        // notification until the agent honored the cancel.
+        const abortPromise = signal
+          ? new Promise((_resolve, reject) => {
+              if (signal.aborted) {
+                reject(signal.reason ?? new Error("aborted"));
+                return;
+              }
+              onAbortReject = () => reject(signal.reason ?? new Error("aborted"));
+              signal.addEventListener("abort", onAbortReject, { once: true });
+            })
+          : null;
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
@@ -490,7 +513,9 @@ export function createCodexStreamingRunner(options = {}) {
           await completion;
         })();
 
-        await Promise.race([work, timeoutPromise]);
+        const racers = /** @type {Promise<any>[]} */ ([work, timeoutPromise]);
+        if (abortPromise) racers.push(abortPromise);
+        await Promise.race(racers);
         health = "healthy";
         appendCostRecord(
           {
@@ -527,6 +552,9 @@ export function createCodexStreamingRunner(options = {}) {
         if (timer) clearTimeout(timer);
         if (signal && onAbort) {
           signal.removeEventListener("abort", onAbort);
+        }
+        if (signal && onAbortReject) {
+          signal.removeEventListener("abort", onAbortReject);
         }
         activeTurn = null;
         activeOnUpdate = null;

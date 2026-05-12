@@ -962,6 +962,31 @@ describe("runTurn:errors", () => {
       transport: "codex-app-server"
     });
   });
+
+  // F9 (race fix) — pre-aborted signal must throw before any
+  // thread/start, thread/resume, or turn/start. Abort during turn/start
+  // must unwedge the work promise via the abort racer.
+  test("pre-aborted signal throws before any turn/start", async () => {
+    const { runner, client } = await startedRunner();
+    const callsBefore = client._calls.length;
+    const ac = new AbortController();
+    ac.abort();
+    await expect(runner.runTurn({ prompt: "x", signal: ac.signal })).rejects.toThrow();
+    const after = client._calls.slice(callsBefore);
+    expect(after.some((c) => c.method === "turn/start")).toBe(false);
+    expect(after.some((c) => c.method === "turn/cancel")).toBe(false);
+  });
+
+  test("abort during hanging turn/start unwedges work promise immediately", async () => {
+    const { runner, client } = await startedRunner();
+    client._enqueue("turn/start", new Promise(() => {}));
+    const ac = new AbortController();
+    const turnPromise = runner.runTurn({ prompt: "x", signal: ac.signal });
+    await new Promise((r) => setImmediate(r));
+    ac.abort();
+    await expect(turnPromise).rejects.toThrow();
+    expect(client._calls.some((c) => c.method === "turn/cancel" && c.kind === "notify")).toBe(true);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

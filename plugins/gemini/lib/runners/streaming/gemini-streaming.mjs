@@ -289,7 +289,31 @@ export function createGeminiStreamingRunner(options = {}) {
       const signal = turnOpts.signal;
       /** @type {(() => void) | null} */
       let onAbort = null;
+      /** @type {(() => void) | null} */
+      let onAbortReject = null;
       try {
+        // F9 (race fix): install signal-abort handler BEFORE any setup
+        // await (session/new, session/load, set_model). Without this,
+        // an abort during pre-prompt setup would silently drop on the
+        // floor — no session/cancel notify and no early throw. Handler
+        // reads `sessionId` lazily via closure so fresh/resume paths
+        // still notify the correct id.
+        if (signal) {
+          if (signal.aborted) {
+            throw signal.reason ?? new Error("aborted");
+          }
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("session/cancel", {
+                sessionId
+              });
+            } catch {
+              // best-effort — transport may be closed
+            }
+          };
+          signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         // Apply per-turn session intent BEFORE the prompt. Inside the
         // try so a failure here marks supervisor health, writes a cost
         // record with ok:false, and clears activeTurn in the finally.
@@ -342,25 +366,21 @@ export function createGeminiStreamingRunner(options = {}) {
         // aborts the turn — no silent fallback.
         await applySessionModel(turnOpts.model);
 
-        // F9: hook AbortSignal to a session/cancel notification so the
-        // backend stops generating when the client disconnects mid-
-        // turn. Fire-and-forget — the timeout / race-promise already
-        // rejects the turn locally; the cancel just prevents wasted
-        // tokens on the agent side. Transport stays open (we DO NOT
-        // close it — that would kill the warm path for other turns).
-        if (signal) {
-          onAbort = () => {
-            try {
-              /** @type {any} */ (client).notify("session/cancel", {
-                sessionId
-              });
-            } catch {
-              // best-effort — transport may be closed
-            }
-          };
-          if (signal.aborted) onAbort();
-          else signal.addEventListener("abort", onAbort, { once: true });
-        }
+        // F9 (race fix): abort during session/prompt must unwedge the
+        // work promise locally, in addition to the session/cancel notify
+        // already wired at the top of the try. Without this racer, the
+        // runner would block on the request/response cycle until the
+        // agent honored the cancel.
+        const abortPromise = signal
+          ? new Promise((_resolve, reject) => {
+              if (signal.aborted) {
+                reject(signal.reason ?? new Error("aborted"));
+                return;
+              }
+              onAbortReject = () => reject(signal.reason ?? new Error("aborted"));
+              signal.addEventListener("abort", onAbortReject, { once: true });
+            })
+          : null;
 
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
@@ -399,7 +419,9 @@ export function createGeminiStreamingRunner(options = {}) {
             turn.model = String(metaQuota.model_usage[0].model);
           }
         })();
-        await Promise.race([work, timeoutPromise]);
+        const racers = /** @type {Promise<any>[]} */ ([work, timeoutPromise]);
+        if (abortPromise) racers.push(abortPromise);
+        await Promise.race(racers);
         health = "healthy";
         appendCostRecord(
           {
@@ -439,6 +461,9 @@ export function createGeminiStreamingRunner(options = {}) {
         if (timer) clearTimeout(timer);
         if (signal && onAbort) {
           signal.removeEventListener("abort", onAbort);
+        }
+        if (signal && onAbortReject) {
+          signal.removeEventListener("abort", onAbortReject);
         }
         activeTurn = null;
         activeOnUpdate = null;

@@ -772,6 +772,53 @@ test("factory's `model` option fires set_model after session/new in start()", as
   expect(setModelCall.params.sessionId).toBe("sess-default");
 });
 
+test("F9 race: pre-aborted signal throws before any session/prompt or set_model", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s-pre" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const callsBefore = client._calls.length;
+  const ac = new AbortController();
+  ac.abort();
+  await expect(runner.runTurn({ prompt: "x", model: "pro", signal: ac.signal })).rejects.toThrow();
+  const after = client._calls.slice(callsBefore);
+  expect(after.some((c) => c.method === "session/prompt")).toBe(false);
+  expect(after.some((c) => c.method === "session/set_model")).toBe(false);
+  expect(after.some((c) => c.method === "session/cancel")).toBe(false);
+});
+
+test("F9 race: abort during session/prompt unwedges work promise immediately", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s-race" });
+  // session/prompt hangs forever — only the abort racer can unblock.
+  client._enqueue("session/prompt", new Promise(() => {}));
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const ac = new AbortController();
+  const turnPromise = runner.runTurn({ prompt: "x", signal: ac.signal });
+  // Yield so session/prompt is in flight before abort.
+  await new Promise((r) => setImmediate(r));
+  ac.abort();
+  await expect(turnPromise).rejects.toThrow();
+  expect(client.notify).toHaveBeenCalledWith("session/cancel", {
+    sessionId: "s-race"
+  });
+});
+
 test("F9: no signal → no session/cancel call (no spurious notify)", async () => {
   const transport = makeFakeTransport();
   const client = makeFakeClient();
