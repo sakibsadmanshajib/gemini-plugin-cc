@@ -397,7 +397,16 @@ export function resolveModelToBackend(model) {
     const prefix = model.slice(0, colonIdx);
     const suffix = model.slice(colonIdx + 1);
     if (isBackendName(prefix)) {
-      return { backend: prefix, modelOverride: suffix || undefined };
+      // A suffix that's just the backend name (`codex:codex`) is the
+      // same "use default model" signal as the bare-alias path below.
+      // Treat it identically: drop the override so the runner picks
+      // defaultModel instead of forwarding `"codex"` to upstream and
+      // tripping the 400 "model not supported" check.
+      const isBareSuffix = suffix === "" || suffix.toLowerCase() === prefix;
+      return {
+        backend: prefix,
+        modelOverride: isBareSuffix ? undefined : suffix
+      };
     }
   }
 

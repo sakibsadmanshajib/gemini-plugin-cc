@@ -87,6 +87,24 @@ describe("resolveModelToBackend", () => {
     });
   });
 
+  test("colon-prefix with bare backend suffix also drops the override", () => {
+    // `codex:codex` is the same "use default model" signal as `codex`
+    // alone — drop the override or upstream returns 400.
+    expect(resolveModelToBackend("codex:codex")).toEqual({
+      backend: BACKEND_NAMES.CODEX,
+      modelOverride: undefined
+    });
+    expect(resolveModelToBackend("claude:claude")).toEqual({
+      backend: BACKEND_NAMES.CLAUDE,
+      modelOverride: undefined
+    });
+    // Non-matching suffix still passes through as the override.
+    expect(resolveModelToBackend("codex:gpt-5.4")).toEqual({
+      backend: BACKEND_NAMES.CODEX,
+      modelOverride: "gpt-5.4"
+    });
+  });
+
   test("bare backend alias drops the override", () => {
     // `model: "codex"` means "route to codex and use ITS default model".
     // Passing the literal alias through as the codex --model would fail
