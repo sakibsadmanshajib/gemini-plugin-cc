@@ -299,3 +299,39 @@ test("R1 (round-12): breaker error message includes a copy-pasteable rm command"
     })
   ).rejects.toThrow(new RegExp(`rm ${failureLogPath.replace(/\//g, "\\/")}`));
 });
+
+test("T1 (round-13): tombstone sweep removes stale .tomb files older than 1 hour", async () => {
+  // Round-13 reviewer flagged: a SIGKILL between compareAndDeleteManifest's
+  // rename and its cleanup leaks `facade-endpoint.json.tomb.<pid>.<hex>`
+  // files in $XDG_STATE_HOME. autoStartFacade now sweeps them at entry.
+  const fakeDaemon = writeFakeDaemon();
+  fs.mkdirSync(manifestDir, { recursive: true, mode: 0o700 });
+
+  // Old tombstone (2 hours ago) — should be swept.
+  const oldTomb = path.join(manifestDir, "facade-endpoint.json.tomb.99999.abcdef");
+  fs.writeFileSync(oldTomb, "{}", { mode: 0o600 });
+  const twoHoursAgo = Date.now() / 1000 - 2 * 60 * 60;
+  fs.utimesSync(oldTomb, twoHoursAgo, twoHoursAgo);
+
+  // Recent tombstone (5 min ago) — should be PRESERVED so we don't race
+  // a concurrent compareAndDeleteManifest call.
+  const recentTomb = path.join(manifestDir, "facade-endpoint.json.tomb.99998.123456");
+  fs.writeFileSync(recentTomb, "{}", { mode: 0o600 });
+  const fiveMinAgo = Date.now() / 1000 - 5 * 60;
+  fs.utimesSync(recentTomb, fiveMinAgo, fiveMinAgo);
+
+  // Unrelated file — should NOT be touched.
+  const unrelated = path.join(manifestDir, "facade-endpoint.json.unrelated");
+  fs.writeFileSync(unrelated, "x", { mode: 0o600 });
+
+  await autoStartFacade({
+    env: testEnv,
+    daemonBin: fakeDaemon,
+    pollIntervalMs: 20,
+    pollTimeoutMs: 3000
+  });
+
+  expect(fs.existsSync(oldTomb)).toBe(false); // swept
+  expect(fs.existsSync(recentTomb)).toBe(true); // too young, preserved
+  expect(fs.existsSync(unrelated)).toBe(true); // wrong name, untouched
+});

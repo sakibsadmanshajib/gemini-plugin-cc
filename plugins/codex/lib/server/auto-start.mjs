@@ -178,6 +178,57 @@ function clearFailureLog(failureLogPath) {
   }
 }
 
+const TOMBSTONE_MAX_AGE_MS = 60 * 60_000; // 1 hour
+
+/**
+ * T1 (round-13): best-effort sweep of leaked tombstones from the
+ * S1 race-safe manifest deletion path.
+ *
+ * compareAndDeleteManifest in facade-endpoint.mjs renames the manifest
+ * to `facade-endpoint.json.tomb.<pid>.<hex>` before verifying the
+ * contents and either unlinking or restoring. If the slash-command
+ * process crashes (SIGKILL, OOM, host shutdown) between the rename
+ * and the cleanup, the tombstone file leaks. Over months these
+ * accumulate in $XDG_STATE_HOME.
+ *
+ * Sweep on each autoStartFacade entry — it's already on the slow path
+ * (we only reach this code when no live manifest exists), so a single
+ * directory read costs nothing operator-perceptible. Only unlink files
+ * older than 1 hour so we never race a tombstone created by a
+ * concurrent compareAndDeleteManifest call.
+ *
+ * @param {string} dir
+ * @param {number} nowMs
+ */
+function sweepStaleTombstones(dir, nowMs) {
+  /** @type {string[]} */
+  let entries;
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    // dir doesn't exist yet — nothing to sweep
+    return;
+  }
+  const cutoff = nowMs - TOMBSTONE_MAX_AGE_MS;
+  for (const name of entries) {
+    // Match the exact tombstone naming convention from
+    // facade-endpoint.mjs::compareAndDeleteManifest. We deliberately
+    // anchor at the manifest filename + ".tomb." prefix so we don't
+    // sweep unrelated files.
+    if (!name.startsWith("facade-endpoint.json.tomb.")) continue;
+    const fullPath = path.join(dir, name);
+    try {
+      const st = fs.statSync(fullPath);
+      if (st.mtimeMs < cutoff) {
+        fs.unlinkSync(fullPath);
+      }
+    } catch {
+      // Race with another process cleaning it, or permission issue.
+      // Best-effort sweep; ignore.
+    }
+  }
+}
+
 /**
  * Auto-start the facade daemon if no manifest is present (or the
  * manifest is stale). Returns the manifest once the daemon is reachable.
@@ -218,6 +269,13 @@ export async function autoStartFacade(options = {}) {
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
   const lockPath = path.join(dir, LOCK_FILENAME);
   const failureLogPath = path.join(dir, FAILURE_LOG_FILENAME);
+
+  // T1 (round-13): sweep any tombstone files leaked by a previous
+  // compareAndDeleteManifest call where the process was SIGKILL'd
+  // between the rename and the cleanup. Cheap (single directory
+  // read) and only runs on the slow path — we already know no live
+  // manifest exists, so we're about to spawn a daemon anyway.
+  sweepStaleTombstones(dir, Date.now());
 
   // Lockfile target must exist before proper-lockfile can lock it.
   try {
