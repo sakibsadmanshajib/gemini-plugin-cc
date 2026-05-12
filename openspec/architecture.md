@@ -90,6 +90,18 @@ OpenAI Chat Completions HTTP facade.
   cutover. The flag remains plumbed at
   `lib/feature-flags.mjs::getPluginVersion` for future opt-in
   behavior toggles; see the glossary entry for current state.
+- **Facade daemon is operator-bootable, slash-command-auto-bootable**.
+  `bin/artagon-openai-server` is a long-lived process that owns warm
+  streaming runners for all three backends. Slash-commands auto-spawn
+  it via `lib/server/auto-start.mjs::autoStartFacade` (proper-lockfile-
+  serialized, circuit-breaker-gated). Discovery is via
+  `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json`;
+  stale-manifest recovery uses atomic rename + verify + restore-via-
+  link (`compareAndDeleteManifest`). `GET /admin/status` reports
+  per-supervisor health with a redacted `LastErrorCode` enum
+  (full message stays in the daemon stderr log; the enum prevents
+  leaking filesystem paths or auth hints through the unauthed
+  endpoint when `--api-key` is unset). See `docs/openai-facade.md`.
 
 ## Pointers for newcomers
 
@@ -103,3 +115,7 @@ OpenAI Chat Completions HTTP facade.
   for the canonical AcpSession contract
 - Read the conformance suite source (location: `lib/test-utils/conformance.mjs`
   after Phase 4 implementation) for the executable behavioral contract
+- Read `../docs/openai-facade.md` for the HTTP facade endpoint reference
+  (including `/admin/status` with the `LastErrorCode` enum table) and
+  `../docs/architecture.md`'s "Unified-facade daemon" section for the
+  daemon-mode operator flow
