@@ -355,6 +355,36 @@ test("K2: non-network rejection (e.g. AbortError) does NOT delete manifest", asy
   expect(deleteManifest).not.toHaveBeenCalled();
 });
 
+test("Q5 (round-11): facade errors carry machine-readable .code", async () => {
+  // Downstream catch blocks should be able to switch on err.code
+  // instead of substring-matching the prose. Three classes:
+  // FACADE_UNREACHABLE / FACADE_RACE_REPLACED / FACADE_CONN_RESET.
+  vi.mocked(deleteManifest).mockReset();
+  const netErr = /** @type {any} */ (new Error("fetch failed"));
+  netErr.cause = { code: "ECONNREFUSED" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  let caught;
+  try {
+    await runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" });
+  } catch (err) {
+    caught = err;
+  }
+  expect(caught).toBeInstanceOf(Error);
+  expect(/** @type {any} */ (caught).code).toBe("FACADE_UNREACHABLE");
+
+  // ECONNRESET branch → FACADE_CONN_RESET
+  const rstErr = /** @type {any} */ (new Error("socket hang up"));
+  rstErr.cause = { code: "ECONNRESET" };
+  fetchMock.mockRejectedValueOnce(rstErr);
+  try {
+    await runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" });
+  } catch (err) {
+    caught = err;
+  }
+  expect(/** @type {any} */ (caught).code).toBe("FACADE_CONN_RESET");
+});
+
 test("L1: ECONNRESET surfaces 'connection reset' error WITHOUT wiping manifest", async () => {
   // ECONNRESET means "this connection dropped" — the daemon process may
   // still be alive and serving other concurrent requests. Wiping the

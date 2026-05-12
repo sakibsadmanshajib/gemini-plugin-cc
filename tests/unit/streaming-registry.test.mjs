@@ -251,9 +251,9 @@ describe("getSupervisorStatuses — round-7 TC2 populated case + M1 crash safety
     ]);
   });
 
-  test("M1: a supervisor whose .health() throws does NOT poison the whole snapshot", () => {
+  test("M1: a supervisor whose .health() AND .lastError() both throw → dead + introspect_failed", () => {
     const healthy = makeStubWithError("healthy", null);
-    const poisoned = /** @type {any} */ ({
+    const fullyPoisoned = /** @type {any} */ ({
       async start() {},
       async runTurn() {
         return /** @type {any} */ ({});
@@ -262,15 +262,14 @@ describe("getSupervisorStatuses — round-7 TC2 populated case + M1 crash safety
       health: () => {
         throw new Error("introspection blew up");
       },
-      lastError: () => null
+      lastError: () => {
+        throw new Error("lastError also blew up");
+      }
     });
     _setSupervisorForTest(BACKEND_NAMES.CLAUDE, healthy);
-    _setSupervisorForTest(BACKEND_NAMES.CODEX, poisoned);
+    _setSupervisorForTest(BACKEND_NAMES.CODEX, fullyPoisoned);
 
     const statuses = getSupervisorStatuses();
-    // Both backends appear — the poisoned one doesn't take down the
-    // whole list. Healthy entry reports normally; poisoned entry is
-    // marked dead + introspect_failed so operators see the failure.
     expect(statuses).toHaveLength(2);
     const byBackend = Object.fromEntries(statuses.map((s) => [s.backend, s]));
     expect(byBackend[BACKEND_NAMES.CLAUDE]).toEqual({
@@ -283,6 +282,51 @@ describe("getSupervisorStatuses — round-7 TC2 populated case + M1 crash safety
       health: "dead",
       lastError: "introspect_failed"
     });
+  });
+
+  test("P1 (round-11): only .health() throws → dead + truthful lastError (separated try-blocks)", () => {
+    // Round-8 reviewer C3: tighter try/catch scoping means a successful
+    // lastError() doesn't get overwritten by the synthetic introspect_failed
+    // marker just because health() threw. Operators get strictly more
+    // accurate signal — the supervisor reports "dead, but the actual
+    // error we last captured was X".
+    const partial = /** @type {any} */ ({
+      async start() {},
+      async runTurn() {
+        return /** @type {any} */ ({});
+      },
+      async close() {},
+      health: () => {
+        throw new Error("health getter broke");
+      },
+      // lastError() succeeds and returns a known error → classifier
+      // produces "spawn_not_found", NOT "introspect_failed".
+      lastError: () => new Error("spawn ENOENT")
+    });
+    _setSupervisorForTest(BACKEND_NAMES.CLAUDE, partial);
+
+    const [status] = getSupervisorStatuses();
+    expect(status.health).toBe("dead");
+    expect(status.lastError).toBe("spawn_not_found");
+  });
+
+  test("P1: only .lastError() throws → health stays truthful + lastError becomes introspect_failed", () => {
+    const partial = /** @type {any} */ ({
+      async start() {},
+      async runTurn() {
+        return /** @type {any} */ ({});
+      },
+      async close() {},
+      health: () => "healthy",
+      lastError: () => {
+        throw new Error("lastError getter broke");
+      }
+    });
+    _setSupervisorForTest(BACKEND_NAMES.CLAUDE, partial);
+
+    const [status] = getSupervisorStatuses();
+    expect(status.health).toBe("healthy");
+    expect(status.lastError).toBe("introspect_failed");
   });
 
   test("empty registry → empty array (lazy construction means no boot-time entries)", () => {

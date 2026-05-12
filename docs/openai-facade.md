@@ -39,7 +39,7 @@ Operator-facing snapshot. Uses the same bearer auth as `/v1/*`. Body:
   "startedAt": "2026-05-11T19:00:00.000Z",
   "uptimeMs": 1230456,
   "supervisors": [
-    { "backend": "claude", "health": "ready", "lastError": null },
+    { "backend": "claude", "health": "healthy", "lastError": null },
     { "backend": "codex", "health": "dead", "lastError": "auth_failed" }
   ],
   "stats": {
@@ -52,13 +52,33 @@ Operator-facing snapshot. Uses the same bearer auth as `/v1/*`. Body:
 ```
 
 `supervisors` is empty until the first chat-completions request lazily
-constructs a supervisor for that backend. `lastError` is a redacted
-short code (`spawn_not_found`, `spawn_denied`, `auth_failed`,
-`transport_closed`, `restart_budget_exhausted`, `timeout`, `oom`, or
-`unknown`) — the full error message stays in the daemon's stderr log.
-The redaction is intentional: `/admin/status` is reachable without a
-bearer when `--api-key` is unset, and raw error strings can contain
-filesystem paths or auth hints.
+constructs a supervisor for that backend.
+
+`health` is one of `starting | healthy | degraded | restarting | dead`
+(see `StreamingHealth` in `lib/runners/streaming/types.mjs`).
+
+`lastError` is a redacted enum code or `null`. The closed set is the
+`LastErrorCode` union in `types.mjs`:
+
+| Code                       | Meaning                                              |
+| -------------------------- | ---------------------------------------------------- |
+| `spawn_not_found`          | CLI bin missing on PATH (`ENOENT`)                   |
+| `spawn_denied`             | Permission failure starting the CLI (`EACCES/EPERM`) |
+| `timeout`                  | Operation timed out / `ETIMEDOUT`                    |
+| `auth_failed`              | 401/403, expired login, unauthorized                 |
+| `transport_closed`         | stdio pipe closed, EPIPE, non-zero exit, ECONNRESET  |
+| `restart_budget_exhausted` | Supervisor declared dead after too many restarts     |
+| `session_init_failed`      | `session/new` / `thread/start` returned no id        |
+| `internal_error`           | Our own invariants tripped (`runTurn before start`)  |
+| `introspect_failed`        | Supervisor object itself threw during introspection  |
+| `oom`                      | Out of memory / `ENOMEM`                             |
+| `unknown`                  | Unclassified runner error — check daemon stderr      |
+
+The full error message stays in the daemon's stderr log. The redaction
+is intentional: `/admin/status` is reachable without a bearer when
+`--api-key` is unset, and raw error strings can contain filesystem
+paths or auth hints. New codes require updating both the union in
+`types.mjs` AND this table.
 
 ## Backend routing — `model` field
 
