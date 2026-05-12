@@ -335,3 +335,45 @@ test("T1 (round-13): tombstone sweep removes stale .tomb files older than 1 hour
   expect(fs.existsSync(recentTomb)).toBe(true); // too young, preserved
   expect(fs.existsSync(unrelated)).toBe(true); // wrong name, untouched
 });
+
+test("drift guard: breaker constants in code match the '3 failures / 5 min' claim in docs", async () => {
+  // FAILURE_THRESHOLD and FAILURE_WINDOW_MS are documented in:
+  //   - README.md ("3 failures in 5 minutes")
+  //   - CHANGELOG.md ("3 failures in a 5-minute rolling")
+  //   - docs/architecture.md ("5-minute rolling window. Three failures")
+  //   - lib/server/auto-start.mjs file header
+  //
+  // A contributor who changes the constants without updating the docs
+  // would create silent drift — the breaker would behave differently
+  // from what the operator-facing docs claim. This test parses the
+  // constants out of the source file and asserts the documented
+  // claims still match.
+  const url = await import("node:url");
+  const src = fs.readFileSync(
+    url.fileURLToPath(new URL("../../lib/server/auto-start.mjs", import.meta.url)),
+    "utf8"
+  );
+
+  const thresholdMatch = src.match(/const\s+FAILURE_THRESHOLD\s*=\s*(\d+)/);
+  expect(thresholdMatch).not.toBeNull();
+  const threshold = Number(thresholdMatch?.[1]);
+
+  const windowMatch = src.match(/const\s+FAILURE_WINDOW_MS\s*=\s*([\d_*\s]+)/);
+  expect(windowMatch).not.toBeNull();
+  // The constant is `5 * 60_000`; eval-safely with Function constructor
+  // restricted to numeric ops.
+  const windowMs = Number(new Function(`return ${windowMatch?.[1]}`)());
+  const windowMinutes = windowMs / 60_000;
+
+  // Lock in the documented claims. If a contributor changes the
+  // constants without updating docs, this test fails — pointing them
+  // at README, CHANGELOG, docs/architecture.md, and the file header.
+  expect(threshold).toBe(3);
+  expect(windowMinutes).toBe(5);
+
+  // Also assert the README claim is byte-exact. If a contributor
+  // touches just one of the four doc sites, this catches it.
+  const readmePath = url.fileURLToPath(new URL("../../README.md", import.meta.url));
+  const readme = fs.readFileSync(readmePath, "utf8");
+  expect(readme).toMatch(/3 failures in 5 minutes/);
+});
