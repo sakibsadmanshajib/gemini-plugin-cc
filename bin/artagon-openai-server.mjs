@@ -114,6 +114,10 @@ program
   .option(
     "--wire-log <path>",
     "capture every JSON-RPC frame from every backend request into <path> (NDJSON)"
+  )
+  .option(
+    "--wire-log-raw",
+    "skip credential redaction in --wire-log output (local debugging only)"
   );
 
 program.exitOverride((err) => {
@@ -274,11 +278,25 @@ const statsSqlitePath = path.join(
   "artagon-agent-cli-plugin",
   "stats.sqlite"
 );
+// Boundary: ACP_WIRE_LOG / ACP_WIRE_LOG_RAW env-var fallback. The
+// bin advertises --strict-env for the ACP_WIRE_LOG* family (typo
+// guard) but used to ignore the actual env value, so an operator
+// could set `ACP_WIRE_LOG=/tmp/x.jsonl` and see no wire log without
+// any warning. Read it here so the same env value the auditor
+// validates also gets honored. CLI flag wins on conflict.
+const wireLogResolved = opts.wireLog ?? process.env.ACP_WIRE_LOG;
+const wireLogRawResolved = opts.wireLogRaw === true || process.env.ACP_WIRE_LOG_RAW === "1";
+/** @type {import("#lib/agent-context.mjs").LoggingPolicy} */
+const loggingResolved = {
+  ...(wireLogResolved ? { wireLogPath: wireLogResolved } : {}),
+  ...(wireLogRawResolved ? { wireLogRaw: true } : {})
+};
+
 const serverContext = createAgentContext({
   cwd: process.cwd(),
   env: process.env,
   dispatch: { streaming: "on", facade: "default" },
-  logging: opts.wireLog ? { wireLogPath: opts.wireLog } : {},
+  logging: loggingResolved,
   cost: { sqlitePath: statsSqlitePath },
   debug: opts.debug === true ? true : undefined
 });
