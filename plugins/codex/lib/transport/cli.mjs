@@ -22,6 +22,14 @@
  * transitions to `worker_missing` and `isOpen()` returns false. Pending
  * client requests should fail (the higher-level client handles that — see
  * `createAcpClient`'s pending map).
+ *
+ * **Error-message contract (round-16 lock-in).** The "CliTransport
+ * (<command>): stdin unavailable" string thrown when stdin is missing
+ * is byte-exact-locked in `tests/unit/streaming-registry.test.mjs` —
+ * it maps to the `transport_closed` LastErrorCode bucket. Rewording
+ * it (e.g. "stdin pipe not available") will fail the specific
+ * lock-in test; update the matching test case in lockstep with the
+ * source change.
  */
 
 import { spawn } from "node:child_process";
