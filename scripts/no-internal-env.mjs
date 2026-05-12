@@ -61,8 +61,28 @@ const ALLOWLIST = new Set([path.join(LIB_ROOT, "agent-context.mjs")]);
  * property access. An earlier version of this guard missed it; an
  * adversarial review caught the hole.
  */
-const VIOLATION =
+export const VIOLATION =
   /\b\w+\.env\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\b\w+\.(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b|\benv\[["'](ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)["']\]|\{[^}]*\b(ARTAGON_[A-Z_]+|ACP_WIRE_LOG[A-Z_]*)\b[^}]*\}\s*=\s*\w+\.env\b/g;
+
+/**
+ * Test a single line of source code for a violation. Exported so the
+ * meta-test in `tests/unit/no-internal-env-meta.test.mjs` can verify
+ * the regex actually catches the documented violation shapes — without
+ * this meta-test, a future refactor that subtly broke the regex would
+ * silently pass the pretest guard on every CI run.
+ *
+ * Skips pure comment lines so docstrings can mention legacy env-var
+ * names without tripping the guard.
+ *
+ * @param {string} line
+ * @returns {boolean}
+ */
+export function lineHasViolation(line) {
+  const trimmed = line.trimStart();
+  if (trimmed.startsWith("//") || trimmed.startsWith("*")) return false;
+  VIOLATION.lastIndex = 0;
+  return VIOLATION.test(line);
+}
 
 /** @type {{ file: string, line: number, content: string }[]} */
 const violations = [];
@@ -87,38 +107,39 @@ function checkFile(file) {
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Skip pure comment lines so docstrings can mention legacy env-var
-    // names without tripping the guard.
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("//") || trimmed.startsWith("*")) continue;
-    // Reset regex lastIndex for global re-use.
-    VIOLATION.lastIndex = 0;
-    if (VIOLATION.test(line)) {
-      violations.push({
-        file: path.relative(REPO_ROOT, file),
-        line: i + 1,
-        content: line.trim()
-      });
-    }
+    if (!lineHasViolation(line)) continue;
+    violations.push({
+      file: path.relative(REPO_ROOT, file),
+      line: i + 1,
+      content: line.trim()
+    });
   }
 }
 
-walk(LIB_ROOT);
+// CLI entry — only run when invoked directly via `node scripts/...`,
+// not when imported by the meta-test for `lineHasViolation`. Without
+// this guard, importing the module would execute the walk and
+// process.exit at load time, breaking any test that wants to verify
+// the regex behavior in isolation.
+const isMainModule = import.meta.url === `file://${process.argv[1]}`;
+if (isMainModule) {
+  walk(LIB_ROOT);
 
-if (violations.length === 0) {
-  process.exit(0);
-}
+  if (violations.length === 0) {
+    process.exit(0);
+  }
 
-process.stderr.write(
-  `[no-internal-env] FAIL — ${violations.length} internal env-var read(s) in lib/:\n\n`
-);
-for (const v of violations) {
-  process.stderr.write(`  ${v.file}:${v.line}\n    ${v.content}\n\n`);
+  process.stderr.write(
+    `[no-internal-env] FAIL — ${violations.length} internal env-var read(s) in lib/:\n\n`
+  );
+  for (const v of violations) {
+    process.stderr.write(`  ${v.file}:${v.line}\n    ${v.content}\n\n`);
+  }
+  process.stderr.write(
+    "Lib code must NOT read process.env.ARTAGON_* or process.env.ACP_WIRE_LOG* directly.\n" +
+      "Read from the AgentContext instead (lib/agent-context.mjs). The boundary builder\n" +
+      "buildAgentContextFromArgv translates env vars into the context; if you need a new\n" +
+      "knob, add it to AgentContext and have the boundary populate it.\n"
+  );
+  process.exit(1);
 }
-process.stderr.write(
-  "Lib code must NOT read process.env.ARTAGON_* or process.env.ACP_WIRE_LOG* directly.\n" +
-    "Read from the AgentContext instead (lib/agent-context.mjs). The boundary builder\n" +
-    "buildAgentContextFromArgv translates env vars into the context; if you need a new\n" +
-    "knob, add it to AgentContext and have the boundary populate it.\n"
-);
-process.exit(1);
