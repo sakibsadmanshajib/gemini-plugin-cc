@@ -334,3 +334,120 @@ test("runTurn forwards (turnOpts, context) to the wrapped runner verbatim — on
   // Same runner instance, different per-turn contexts — confirms the
   // "supervisor caches, context flows per-turn" design.
 });
+
+test("FIFO mutex: concurrent runTurn calls serialize through the wrapped runner", async () => {
+  // F1 — two parallel runTurn calls must NOT race the wrapped
+  // runner's single activeTurn slot. The supervisor's tail-promise
+  // mutex serializes them: turn N+1 doesn't start until turn N's
+  // promise has settled (resolved OR rejected).
+  //
+  // The suite's global beforeEach enables fake timers, so we use
+  // Promise-based gates (not setImmediate) to drive turn settlement.
+  vi.useRealTimers();
+  /** @type {Array<{ phase: "start" | "end", id: number }>} */
+  const trace = [];
+  let nextId = 0;
+  const runner = {
+    async start() {},
+    async runTurn() {
+      const id = ++nextId;
+      trace.push({ phase: "start", id });
+      // A microtask hop is enough — Promise.all schedules each turn's
+      // continuation, and the mutex's `.then(() => runTurnInner)` only
+      // fires once the prior turn's tail-promise resolves.
+      await Promise.resolve();
+      trace.push({ phase: "end", id });
+      return /** @type {any} */ ({
+        text: `t${id}`,
+        thoughtText: "",
+        chunkCount: 0,
+        chunkChars: 0,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: null,
+        reason: "stop",
+        model: null,
+        sessionId: null,
+        updates: []
+      });
+    },
+    async close() {},
+    health() {
+      return /** @type {any} */ ("healthy");
+    }
+  };
+  const sup = createSupervisor({
+    factory: () => runner,
+    idleMs: 0
+  });
+
+  const [a, b, c] = await Promise.all([
+    sup.runTurn({ prompt: "A" }),
+    sup.runTurn({ prompt: "B" }),
+    sup.runTurn({ prompt: "C" })
+  ]);
+
+  expect(a.text).toBe("t1");
+  expect(b.text).toBe("t2");
+  expect(c.text).toBe("t3");
+  // Every start must be immediately followed by its matching end (no
+  // interleaving). The exact event sequence for 3 turns is:
+  //   start:1 end:1 start:2 end:2 start:3 end:3
+  expect(trace).toEqual([
+    { phase: "start", id: 1 },
+    { phase: "end", id: 1 },
+    { phase: "start", id: 2 },
+    { phase: "end", id: 2 },
+    { phase: "start", id: 3 },
+    { phase: "end", id: 3 }
+  ]);
+});
+
+test("FIFO mutex: a failed turn doesn't poison the chain — subsequent turns run", async () => {
+  // Tail's `.catch(() => {})` keeps the chain alive after a rejection.
+  // The failing caller still gets the rejection back; later callers
+  // see a clean tail.
+  vi.useRealTimers();
+  const localState = { started: 0, closed: 0 };
+  let i = 0;
+  const runner = {
+    async start() {
+      localState.started += 1;
+    },
+    async runTurn() {
+      i += 1;
+      if (i === 1) throw new Error("boom");
+      return /** @type {any} */ ({
+        text: `t${i}`,
+        thoughtText: "",
+        chunkCount: 0,
+        chunkChars: 0,
+        thoughtCount: 0,
+        thoughtChars: 0,
+        toolCalls: [],
+        toolResults: [],
+        usage: null,
+        reason: "stop",
+        model: null,
+        sessionId: null,
+        updates: []
+      });
+    },
+    async close() {
+      localState.closed += 1;
+    },
+    health() {
+      return /** @type {any} */ ("healthy");
+    }
+  };
+  const sup = createSupervisor({
+    factory: () => runner,
+    idleMs: 0
+  });
+
+  await expect(sup.runTurn({ prompt: "A" })).rejects.toThrow(/boom/);
+  const result = await sup.runTurn({ prompt: "B" });
+  expect(result.text).toBe("t2");
+});

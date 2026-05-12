@@ -651,6 +651,118 @@ describe("createOpenAiFacadeServer — HTTP endpoints", () => {
   });
 });
 
+describe("Step 3: session policy via headers", () => {
+  /** @type {ReturnType<typeof createOpenAiFacadeServer>} */
+  let facade;
+  /** @type {string} */
+  let baseUrl;
+  /** @type {Array<{backend: string, options: any, context: any}>} */
+  let calls;
+
+  beforeEach(async () => {
+    calls = [];
+    facade = createOpenAiFacadeServer({
+      dispatch: async (backend, options, context) => {
+        calls.push({ backend, options, context });
+        return /** @type {any} */ ({
+          text: "echo",
+          thoughtText: "",
+          chunkCount: 0,
+          chunkChars: 0,
+          thoughtCount: 0,
+          thoughtChars: 0,
+          toolCalls: [],
+          toolResults: [],
+          usage: null,
+          reason: "stop",
+          model: null,
+          sessionId: context?.session?.action === "resume" ? context.session.id : "sid-fresh-1",
+          updates: []
+        });
+      }
+    });
+    const { port, host } = await facade.listen();
+    baseUrl = `http://${host}:${port}`;
+  });
+
+  afterEach(async () => {
+    await facade.close();
+  });
+
+  test("X-Artagon-Session: <id> → context.session = { action: 'resume', id }", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-Session": "sess-abc"
+      },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(200);
+    expect(calls[0].context.session).toEqual({
+      action: "resume",
+      id: "sess-abc"
+    });
+    // Effective session id echoed back to client.
+    expect(res.headers.get("x-artagon-session")).toBe("sess-abc");
+  });
+
+  test("X-Artagon-New-Session: 1 → context.session = { action: 'fresh' }", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-New-Session": "1"
+      },
+      body: JSON.stringify({
+        model: "codex",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(200);
+    expect(calls[0].context.session).toEqual({ action: "fresh" });
+    // Fake dispatch returns sid-fresh-1 for fresh-action turns.
+    expect(res.headers.get("x-artagon-session")).toBe("sid-fresh-1");
+  });
+
+  test("both X-Artagon-Session AND X-Artagon-New-Session → 400 invalid_request_error", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Artagon-Session": "abc",
+        "X-Artagon-New-Session": "1"
+      },
+      body: JSON.stringify({
+        model: "gemini",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(400);
+    const body = /** @type {any} */ (await res.json());
+    expect(body.error.message).toMatch(/mutually exclusive/);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("no session headers → context.session is the server's default (reuse)", async () => {
+    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude",
+        messages: [{ role: "user", content: "hi" }]
+      })
+    });
+    expect(res.status).toBe(200);
+    // The test facade has no serverContext, so context is undefined
+    // when no session header is set. Verify it stayed undefined.
+    expect(calls[0].context).toBeUndefined();
+  });
+});
+
 describe("resolveCorsPolicy", () => {
   test("cors: true → wildcard", () => {
     expect(resolveCorsPolicy(true)).toBe("*");

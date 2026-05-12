@@ -105,6 +105,18 @@ export async function runViaFacade(backend, options, context) {
   /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
   if (bearer) headers.authorization = `Bearer ${bearer}`;
+  // Step 3: forward the session policy from this client's context to
+  // the daemon via X-Artagon-Session / X-Artagon-New-Session headers.
+  // The daemon's request handler re-derives a per-request AgentContext
+  // from these so the streaming runner inside the daemon honors them.
+  const sessionAction = context?.session?.action;
+  if (sessionAction === "resume") {
+    headers["X-Artagon-Session"] = /** @type {{ action: "resume", id: string }} */ (
+      /** @type {any} */ (context.session)
+    ).id;
+  } else if (sessionAction === "fresh") {
+    headers["X-Artagon-New-Session"] = "1";
+  }
 
   const body = JSON.stringify({
     model: resolveModel(backend, options.model),
@@ -128,6 +140,7 @@ export async function runViaFacade(backend, options, context) {
     usage: null,
     reason: null,
     model: null,
+    sessionId: null,
     updates: []
   };
 
@@ -193,6 +206,12 @@ export async function runViaFacade(backend, options, context) {
   }
   if (json?.model) {
     turn.model = String(json.model);
+  }
+  // Step 3: surface the daemon's effective session id back to the
+  // caller via response header so they can persist it.
+  const echoedSession = response.headers.get("x-artagon-session");
+  if (echoedSession) {
+    turn.sessionId = echoedSession;
   }
   // Tool calls in OpenAI shape: choice.message.tool_calls = [{id, type, function:{name, arguments}}]
   if (Array.isArray(choice?.message?.tool_calls)) {

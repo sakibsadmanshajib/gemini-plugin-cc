@@ -219,6 +219,36 @@ describe("parser:conflicts", () => {
       /mutually exclusive/
     );
   });
+
+  test("--session and --new-session together → throws", () => {
+    expect(() => parseRunnerArgs(["--session", "abc-123", "--new-session", "x"])).toThrow(
+      /mutually exclusive/
+    );
+  });
+});
+
+describe("parser:session", () => {
+  test("--session <id> → flags.sessionId is the id", () => {
+    const r = parseRunnerArgs(["--session", "sess-7", "hello"]);
+    expect(r.flags.sessionId).toBe("sess-7");
+    expect(r.prompt).toBe("hello");
+  });
+
+  test("--new-session → flags.newSession is true", () => {
+    const r = parseRunnerArgs(["--new-session", "hello"]);
+    expect(r.flags.newSession).toBe(true);
+    expect(r.flags.sessionId).toBeUndefined();
+  });
+
+  test("--session without a value → throws", () => {
+    expect(() => parseRunnerArgs(["--session"])).toThrow(/--session/);
+  });
+
+  test("default (no session flags) → both fields absent", () => {
+    const r = parseRunnerArgs(["hello"]);
+    expect(r.flags.sessionId).toBeUndefined();
+    expect(r.flags.newSession).toBeUndefined();
+  });
 });
 
 describe("parser:errors", () => {

@@ -1,50 +1,41 @@
 /**
- * Gemini streaming runner — keeps one ACP connection open across many
- * turns, using the existing `gemini --acp` broker as the upstream.
+ * Gemini streaming runner — spawns `gemini --acp` as a child subprocess
+ * and keeps one ACP connection open across many turns over stdio. The
+ * runner OWNS the subprocess; lifetime is bounded by start()/close().
  *
- * Compared to `runGeminiViaBroker` which connects-runs-disconnects per
- * turn, this runner connects ONCE in `start()` and reuses the same
- * session for every `runTurn()` call. That removes the per-turn
- * connect+initialize+session/new round-trip (~50-150ms each) and keeps
- * any model-side warmup state alive between turns.
+ * Step 2 of the unified-facade plan replaced the previous broker-socket
+ * dependency with direct subprocess ownership. This makes the gemini
+ * runner symmetric with codex/claude — all three streaming runners now
+ * spawn their CLI directly via `lib/transport/cli.mjs::createCliTransport`.
  *
  * Lifecycle:
- *   start()    → probe for live broker → connect → initialize →
- *                session/new → ready
- *   runTurn()  → session/prompt → accumulate session/update notifications
- *                → return TurnResult
- *   close()    → close transport (broker stays alive for other clients)
+ *   start()    → spawn gemini --acp → initialize → session/new → ready
+ *   runTurn()  → (apply session policy) → session/prompt → accumulate
+ *                session/update notifications → return TurnResult
+ *   close()    → close transport (kills the subprocess)
  *
  * Health labels:
  *   "starting"   pre-start or start in flight
  *   "healthy"    last turn succeeded; transport is open
  *   "degraded"   last turn errored but transport is still open; caller
  *                may retry without restart
- *   "dead"       transport closed (broker died, network, idle reap);
- *                supervisor must call start() again to recover
- *
- * Why this depends on a running broker (not its own subprocess):
- *   - The legacy gemini broker is the canonical owner of `gemini --acp`
- *     subprocesses. Lifting that ownership into shared lib is a
- *     separate, larger task (Phase 1 of unified-acp-server).
- *   - For the Phase-3 quick win (this file), reusing the broker is
- *     enough: most users will have a broker running for slash commands
- *     anyway, and when they don't, the dispatcher falls back to
- *     cold-start cleanly.
+ *   "dead"       transport closed (subprocess died, idle reap); the
+ *                supervisor calls start() again to recover
  */
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { appendCostRecord, normalizeUsage } from "#lib/cost/recorder.mjs";
 import { TRANSPORT_NAMES } from "#lib/cost/transport-names.mjs";
 import { translateGeminiStreamEvent } from "#lib/translate/gemini-stream.mjs";
-import { findActiveBroker } from "#lib/transport/broker-probe.mjs";
-import { createBrokerSocketTransport } from "#lib/transport/broker-socket.mjs";
+import { createCliTransport } from "#lib/transport/cli.mjs";
 import { openWireLog } from "#lib/wire-log.mjs";
 
 import { createAcpClient } from "../../acp/client.mjs";
 
 const DEFAULT_PROTOCOL_VERSION = 1;
 const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_COMMAND = "gemini";
+const DEFAULT_ARGS = ["--acp"];
 
 /**
  * @typedef {import("./types.mjs").StreamingRunner} StreamingRunner
@@ -59,10 +50,11 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
  * @typedef {{
  *   cwd?: string,
  *   env?: NodeJS.ProcessEnv,
+ *   command?: string,
+ *   args?: string[],
  *   protocolVersion?: number,
  *   context?: import("#lib/agent-context.mjs").AgentContext,
- *   probe?: typeof findActiveBroker,
- *   createTransport?: typeof createBrokerSocketTransport,
+ *   createTransport?: typeof createCliTransport,
  *   createClient?: typeof createAcpClient
  * }} CreateGeminiStreamingOptions
  */
@@ -80,15 +72,17 @@ const DEFAULT_TURN_TIMEOUT_MS = 5 * 60 * 1000;
  */
 export function createGeminiStreamingRunner(options = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const env = options.env ?? process.env;
+  const command = options.command ?? DEFAULT_COMMAND;
+  const args = options.args ?? DEFAULT_ARGS;
   const protocolVersion = options.protocolVersion ?? DEFAULT_PROTOCOL_VERSION;
   // Wire-log binding is captured at construction; supervisor reuses
   // the runner across turns. `--wire-log` on later turns won't rebind.
   const factoryLogging = options.context?.logging;
-  const probe = options.probe ?? findActiveBroker;
-  const transportFactory = options.createTransport ?? createBrokerSocketTransport;
+  const transportFactory = options.createTransport ?? createCliTransport;
   const clientFactory = options.createClient ?? createAcpClient;
 
-  /** @type {ReturnType<typeof createBrokerSocketTransport> | null} */
+  /** @type {ReturnType<typeof createCliTransport> | null} */
   let transport = null;
   /** @type {ReturnType<typeof createAcpClient> | null} */
   let client = null;
@@ -175,15 +169,11 @@ export function createGeminiStreamingRunner(options = {}) {
   return {
     async start() {
       if (started) return;
-      const endpoint = probe(cwd, options.env);
-      if (!endpoint) {
-        health = "dead";
-        throw new Error(
-          "createGeminiStreamingRunner: no live broker for cwd; start `gemini --acp` first"
-        );
-      }
       transport = transportFactory({
-        endpoint,
+        command,
+        args,
+        env,
+        cwd,
         wireLog: openWireLog(factoryLogging)
       });
       client = clientFactory(/** @type {any} */ (transport));
@@ -218,6 +208,10 @@ export function createGeminiStreamingRunner(options = {}) {
       const startedAtMs = Date.now();
       const timeoutMs = turnOpts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
 
+      // Register the active-turn accumulator BEFORE any await so any
+      // notification that arrives mid-request (e.g. during session/load)
+      // is captured. We update turn.sessionId after the session-policy
+      // block resolves below.
       /** @type {TurnResult} */
       const turn = {
         text: "",
@@ -231,6 +225,7 @@ export function createGeminiStreamingRunner(options = {}) {
         usage: null,
         reason: null,
         model: null,
+        sessionId,
         updates: []
       };
       activeTurn = turn;
@@ -238,7 +233,68 @@ export function createGeminiStreamingRunner(options = {}) {
 
       /** @type {NodeJS.Timeout | null} */
       let timer = null;
+      // F9: hoisted so the finally block can detach the abort listener.
+      const signal = turnOpts.signal;
+      /** @type {(() => void) | null} */
+      let onAbort = null;
       try {
+        // Apply per-turn session intent BEFORE the prompt. Inside the
+        // try so a failure here marks supervisor health, writes a cost
+        // record with ok:false, and clears activeTurn in the finally.
+        // SessionPolicy is a tagged union (F6) — exhaustive switch.
+        switch (context?.session?.action ?? "reuse") {
+          case "fresh": {
+            /** @type {any} */
+            const fresh = await /** @type {any} */ (client).request("session/new", {
+              cwd,
+              mcpServers: []
+            });
+            const freshId = fresh?.sessionId;
+            if (!freshId) {
+              throw new Error("gemini streaming runner: session/new returned no sessionId");
+            }
+            sessionId = freshId;
+            turn.sessionId = freshId;
+            break;
+          }
+          case "resume": {
+            const resumeId = /** @type {{ action: "resume", id: string }} */ (
+              /** @type {any} */ (context.session)
+            ).id;
+            await /** @type {any} */ (client).request("session/load", {
+              sessionId: resumeId,
+              cwd,
+              mcpServers: []
+            });
+            sessionId = resumeId;
+            turn.sessionId = resumeId;
+            break;
+          }
+          default:
+            // no-op — keep stored sessionId
+            break;
+        }
+
+        // F9: hook AbortSignal to a session/cancel notification so the
+        // backend stops generating when the client disconnects mid-
+        // turn. Fire-and-forget — the timeout / race-promise already
+        // rejects the turn locally; the cancel just prevents wasted
+        // tokens on the agent side. Transport stays open (we DO NOT
+        // close it — that would kill the warm path for other turns).
+        if (signal) {
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("session/cancel", {
+                sessionId
+              });
+            } catch {
+              // best-effort — transport may be closed
+            }
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(new Error(`gemini streaming runner: turn timed out after ${timeoutMs}ms`));
@@ -314,6 +370,9 @@ export function createGeminiStreamingRunner(options = {}) {
         throw err;
       } finally {
         if (timer) clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
         activeTurn = null;
         activeOnUpdate = null;
       }

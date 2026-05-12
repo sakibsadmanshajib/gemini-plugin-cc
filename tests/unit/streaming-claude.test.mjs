@@ -349,6 +349,48 @@ describe("runTurn:rpc", () => {
     expect(result.model).not.toBe("sonnet");
   });
 
+  test("context.session.fresh → session/new before session/prompt; new id wins", async () => {
+    const { runner, client } = await startedRunner({ sessionId: "sess-orig" });
+    client._enqueue("session/new", { sessionId: "sess-fresh" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    const result = await runner.runTurn(
+      { prompt: "x" },
+      /** @type {any} */ ({ session: { action: "fresh" } })
+    );
+    const promptCall = client._calls.find((c) => c.method === "session/prompt");
+    expect(promptCall.params.sessionId).toBe("sess-fresh");
+    expect(result.sessionId).toBe("sess-fresh");
+  });
+
+  test("context.session.id → session/load with that id; that id wins", async () => {
+    const { runner, client } = await startedRunner({ sessionId: "sess-orig" });
+    client._enqueue("session/load", {});
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    const result = await runner.runTurn(
+      { prompt: "x" },
+      /** @type {any} */ ({
+        session: { action: "resume", id: "sess-resumed" }
+      })
+    );
+    const loadCall = client._calls.find((c) => c.method === "session/load");
+    expect(loadCall.params.sessionId).toBe("sess-resumed");
+    const promptCall = client._calls.find((c) => c.method === "session/prompt");
+    expect(promptCall.params.sessionId).toBe("sess-resumed");
+    expect(result.sessionId).toBe("sess-resumed");
+  });
+
+  test("no context.session → reuses sessionId from start() (warm path)", async () => {
+    const { runner, client, sessionId } = await startedRunner({
+      sessionId: "sess-orig"
+    });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    const result = await runner.runTurn({ prompt: "x" });
+    const methods = client._calls.map((c) => c.method);
+    // no extra session/new or session/load
+    expect(methods).toEqual(["initialize", "session/new", "session/prompt"]);
+    expect(result.sessionId).toBe(sessionId);
+  });
+
   test("factory-level model is used when the turn does not override", async () => {
     const transport = makeFakeTransport();
     const client = makeFakeClient();

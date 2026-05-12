@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 
 import { Command, InvalidArgumentError } from "commander";
 
+import { auditEnvKeys, createAgentContext } from "#lib/agent-context.mjs";
 import { provisionApiKey } from "#lib/server/api-key-store.mjs";
 import { deleteManifest, writeManifest } from "#lib/server/facade-endpoint.mjs";
 import { createOpenAiFacadeServer } from "#lib/server/openai-facade.mjs";
@@ -86,6 +87,15 @@ program
       }
       return value;
     }
+  )
+  // Runner-level flags propagated into the daemon's serverContext
+  // (F3). Without these, --debug / --strict-env / --wire-log from the
+  // CLI never reach the streaming runners or the env-typo audit.
+  .option("--debug", "enable verbose diagnostics on the runner path (context.debug = true)")
+  .option("--strict-env", "fail at boot on unknown ARTAGON_*/ACP_WIRE_LOG* env keys (typo guard)")
+  .option(
+    "--wire-log <path>",
+    "capture every JSON-RPC frame from every backend request into <path> (NDJSON)"
   );
 
 program.exitOverride((err) => {
@@ -216,11 +226,40 @@ if (opts.apiKeyFile !== undefined) {
 const apiKeyResolved = apiKey ?? process.env.ARTAGON_FACADE_API_KEY;
 const corsResolved = cors ?? process.env.ARTAGON_FACADE_CORS;
 
+// F3: env-typo audit at boot. Long-lived daemon would never surface
+// `ARTAGON_STREMING=1` etc. otherwise — `buildAgentContextFromArgv`
+// (which is the normal audit site) isn't called here.
+try {
+  auditEnvKeys(process.env, { strict: Boolean(opts.strictEnv) });
+} catch (err) {
+  process.stderr.write(
+    `artagon-openai-server: ${err instanceof Error ? err.message : String(err)}\n`
+  );
+  process.exit(2);
+}
+
+// Server context — captured at boot, threaded into every dispatch
+// call so the streaming supervisor cache (keyed by (backend, cwd))
+// inside this process survives across HTTP requests. That's the
+// warm path: one codex/claude/gemini subprocess per backend, shared
+// across all requests, instead of cold-spawning per call.
+//
+// F3: runner-level flags (--debug, --wire-log) are propagated through
+// the context so per-request dispatch picks them up.
+const serverContext = createAgentContext({
+  cwd: process.cwd(),
+  env: process.env,
+  dispatch: { streaming: "on", facade: "default", broker: "auto" },
+  logging: opts.wireLog ? { wireLogPath: opts.wireLog } : {},
+  debug: opts.debug === true ? true : undefined
+});
+
 const facade = createOpenAiFacadeServer({
   port: opts.port,
   host: opts.host,
   cors: corsResolved,
-  apiKey: apiKeyResolved
+  apiKey: apiKeyResolved,
+  context: serverContext
 });
 
 let address;

@@ -244,6 +244,73 @@ describe("withOverrides", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
+// SessionPolicy
+// ──────────────────────────────────────────────────────────────────────
+
+describe("createAgentContext:session", () => {
+  test("absent session → action='reuse' frozen object on context.session", () => {
+    const ctx = createAgentContext();
+    expect(ctx.session).toEqual({ action: "reuse" });
+    expect(Object.isFrozen(ctx.session)).toBe(true);
+  });
+
+  test("session.action='resume' with id sets the resume id", () => {
+    const ctx = createAgentContext({
+      session: { action: "resume", id: "sess-7" }
+    });
+    expect(ctx.session.action).toBe("resume");
+    expect(/** @type {any} */ (ctx.session).id).toBe("sess-7");
+  });
+
+  test("session.action='fresh' sets the fresh action", () => {
+    const ctx = createAgentContext({ session: { action: "fresh" } });
+    expect(ctx.session.action).toBe("fresh");
+    expect(/** @type {any} */ (ctx.session).id).toBeUndefined();
+  });
+
+  test("session.action='resume' without id → throws", () => {
+    expect(() =>
+      createAgentContext({
+        session: /** @type {any} */ ({ action: "resume" })
+      })
+    ).toThrow(/resume.*non-empty string id/);
+  });
+
+  test("session.action='resume' with empty id → throws", () => {
+    expect(() =>
+      createAgentContext({
+        session: /** @type {any} */ ({ action: "resume", id: "" })
+      })
+    ).toThrow(/non-empty string id/);
+  });
+
+  test("session.action='garbage' → throws", () => {
+    expect(() =>
+      createAgentContext({
+        session: /** @type {any} */ ({ action: "delete" })
+      })
+    ).toThrow(/must be one of/);
+  });
+
+  test("--session maps to context.session.action='resume' with id", () => {
+    const { context } = buildAgentContextFromArgv(["--session", "sess-7", "x"], emptyEnv());
+    expect(context.session.action).toBe("resume");
+    expect(/** @type {any} */ (context.session).id).toBe("sess-7");
+  });
+
+  test("--new-session maps to context.session.action='fresh'", () => {
+    const { context } = buildAgentContextFromArgv(["--new-session", "x"], emptyEnv());
+    expect(context.session.action).toBe("fresh");
+  });
+
+  test("--session + --new-session at the CLI → throws at parse", () => {
+    expect(() =>
+      buildAgentContextFromArgv(["--session", "x", "--new-session", "p"], emptyEnv())
+    ).toThrow(/mutually exclusive/);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────
 // buildAgentContextFromArgv — flag mapping
 // ──────────────────────────────────────────────────────────────────────
 

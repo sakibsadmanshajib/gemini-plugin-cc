@@ -115,13 +115,21 @@ afterEach(() => {
   fs.rmSync(tmpCostHome, { recursive: true, force: true });
 });
 
-test("start() with no broker → rejects with actionable message", async () => {
-  const runner = createGeminiStreamingRunner({
-    probe: () => null,
-    createTransport: /** @type {any} */ (() => makeFakeTransport()),
-    createClient: /** @type {any} */ (() => makeFakeClient())
+test("start() failure (transport.start throws) → health=dead, error propagates", async () => {
+  // Step 2: gemini runner now spawns its own subprocess via
+  // createCliTransport instead of probing for a broker socket. A
+  // failed spawn (here: simulated by transport.start throwing) marks
+  // health dead and bubbles the error up.
+  const transport = makeFakeTransport();
+  transport.start = vi.fn(async () => {
+    throw new Error("spawn ENOENT");
   });
-  await expect(runner.start()).rejects.toThrow(/no live broker/);
+  const client = makeFakeClient();
+  const runner = createGeminiStreamingRunner({
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await expect(runner.start()).rejects.toThrow(/spawn ENOENT/);
   expect(runner.health()).toBe("dead");
 });
 
@@ -132,7 +140,8 @@ test("start() happy path → initialize + session/new called once, health=health
   client._enqueue("session/new", { sessionId: "sess-1" });
 
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/broker.sock",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -148,7 +157,8 @@ test("start() rejects when broker returns no sessionId", async () => {
   client._enqueue("initialize", {});
   client._enqueue("session/new", { sessionId: null });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/broker.sock",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -172,7 +182,8 @@ test("runTurn forwards prompt + sessionId to session/prompt", async () => {
   client._enqueue("session/new", { sessionId: "sess-x" });
   client._enqueue("session/prompt", { stopReason: "stop", usage: null });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/broker.sock",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -194,7 +205,8 @@ test("runTurn accumulates agent_message_chunk notifications", async () => {
   // sequence: emit chunks first, then resolve.
   client._enqueue("session/prompt", { stopReason: "stop" });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/broker.sock",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -233,7 +245,8 @@ test("runTurn captures tool_call notifications", async () => {
   client._enqueue("session/new", { sessionId: "s" });
   client._enqueue("session/prompt", { stopReason: "stop" });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -265,7 +278,8 @@ test("runTurn reads stopReason/usage from prompt response", async () => {
     usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 }
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -306,7 +320,8 @@ test("runTurn picks usage from response._meta.quota.token_count (gemini --acp wi
     }
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -333,7 +348,8 @@ test("runTurn prefers _meta.quota over top-level usage when both are present", a
     _meta: { quota: { token_count: { input_tokens: 1, output_tokens: 2 } } }
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -352,7 +368,8 @@ test("runTurn falls back to top-level usage when _meta.quota is absent", async (
     usage: { input_tokens: 42, output_tokens: 8 }
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -380,7 +397,8 @@ test("runTurn does NOT overwrite model captured from turn_completed update with 
     }
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -405,7 +423,8 @@ test("runTurn error with transport still open → health=degraded", async () => 
   client._enqueue("session/new", { sessionId: "s" });
   client._enqueue("session/prompt", new Error("model overloaded"));
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -421,7 +440,8 @@ test("runTurn error with closed transport → health=dead", async () => {
   client._enqueue("session/new", { sessionId: "s" });
   client._enqueue("session/prompt", new Error("ECONNRESET"));
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -440,7 +460,8 @@ test("onUpdate fires for each translated notification", async () => {
   client._enqueue("session/prompt", { stopReason: "stop" });
   const updates = [];
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -477,7 +498,8 @@ test("close() closes client + transport, health=dead", async () => {
   client._enqueue("initialize", {});
   client._enqueue("session/new", { sessionId: "s" });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -490,7 +512,8 @@ test("close() closes client + transport, health=dead", async () => {
 
 test("close() before start is safe", async () => {
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => makeFakeTransport()),
     createClient: /** @type {any} */ (() => makeFakeClient())
   });
@@ -503,7 +526,8 @@ test("close() is idempotent", async () => {
   client._enqueue("initialize", {});
   client._enqueue("session/new", { sessionId: "s" });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
@@ -512,6 +536,80 @@ test("close() is idempotent", async () => {
   await runner.close();
   // close() should NOT call client.close twice (state cleared first call)
   expect(client.close).toHaveBeenCalledTimes(1);
+});
+
+test("runTurn with context.session.fresh → calls session/new before session/prompt", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-orig" });
+  client._enqueue("session/new", { sessionId: "sess-fresh" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn(
+    { prompt: "x" },
+    /** @type {any} */ ({ session: { action: "fresh" } })
+  );
+  const methods = client._calls.map((c) => c.method);
+  // initialize, session/new (start), session/new (fresh), session/prompt
+  expect(methods).toEqual(["initialize", "session/new", "session/new", "session/prompt"]);
+  // The prompt MUST be routed to the new session id, not the original.
+  const promptCall = client._calls.find((c) => c.method === "session/prompt");
+  expect(promptCall.params.sessionId).toBe("sess-fresh");
+  // TurnResult should reflect the new id.
+  expect(result.sessionId).toBe("sess-fresh");
+});
+
+test("runTurn with context.session.id → calls session/load and routes to that id", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-orig" });
+  client._enqueue("session/load", {}); // load returns nothing meaningful
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn(
+    { prompt: "x" },
+    /** @type {any} */ ({ session: { action: "resume", id: "sess-resumed" } })
+  );
+  const loadCall = client._calls.find((c) => c.method === "session/load");
+  expect(loadCall).toBeDefined();
+  expect(loadCall.params.sessionId).toBe("sess-resumed");
+  const promptCall = client._calls.find((c) => c.method === "session/prompt");
+  expect(promptCall.params.sessionId).toBe("sess-resumed");
+  expect(result.sessionId).toBe("sess-resumed");
+});
+
+test("runTurn without context.session → reuses sessionId from start()", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-orig" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  const result = await runner.runTurn({ prompt: "x" });
+  const methods = client._calls.map((c) => c.method);
+  // No second session/new or session/load on the warm path.
+  expect(methods).toEqual(["initialize", "session/new", "session/prompt"]);
+  expect(result.sessionId).toBe("sess-orig");
 });
 
 test("turnTimeout: timeoutMs rejects after the elapsed time", async () => {
@@ -526,10 +624,69 @@ test("turnTimeout: timeoutMs rejects after the elapsed time", async () => {
     return new Promise(() => {});
   });
   const runner = createGeminiStreamingRunner({
-    probe: () => "/tmp/b",
+    command: "gemini",
+    args: ["--acp"],
     createTransport: /** @type {any} */ (() => transport),
     createClient: /** @type {any} */ (() => client)
   });
   await runner.start();
   await expect(runner.runTurn({ prompt: "x", timeoutMs: 25 })).rejects.toThrow(/timed out/);
+});
+
+test("F9: client disconnect (AbortSignal) → session/cancel notification fires", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "sess-abort" });
+  // Hang session/prompt so we can fire the abort before it resolves.
+  client.request = vi.fn(async (method) => {
+    if (method === "initialize") return {};
+    if (method === "session/new") return { sessionId: "sess-abort" };
+    return new Promise(() => {});
+  });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+
+  const ac = new AbortController();
+  const turnPromise = runner.runTurn({
+    prompt: "x",
+    timeoutMs: 50,
+    signal: ac.signal
+  });
+  // Allow the runner to register the abort listener.
+  await new Promise((r) => setImmediate(r));
+  ac.abort(new Error("client gone"));
+
+  // session/cancel is a notification — fire-and-forget on the client.
+  expect(client.notify).toHaveBeenCalledWith("session/cancel", {
+    sessionId: "sess-abort"
+  });
+  // Turn rejects via the timer race (we didn't wire abort→reject in
+  // the runner; the cancel signal is purely about telling the agent
+  // to stop generating).
+  await expect(turnPromise).rejects.toThrow();
+});
+
+test("F9: no signal → no session/cancel call (no spurious notify)", async () => {
+  const transport = makeFakeTransport();
+  const client = makeFakeClient();
+  client._enqueue("initialize", {});
+  client._enqueue("session/new", { sessionId: "s" });
+  client._enqueue("session/prompt", { stopReason: "stop" });
+  const runner = createGeminiStreamingRunner({
+    command: "gemini",
+    args: ["--acp"],
+    createTransport: /** @type {any} */ (() => transport),
+    createClient: /** @type {any} */ (() => client)
+  });
+  await runner.start();
+  await runner.runTurn({ prompt: "x" });
+  // The fake client.notify is `vi.fn()`; with no signal, it's never
+  // called.
+  expect(client.notify).not.toHaveBeenCalled();
 });

@@ -48,9 +48,51 @@ import http from "node:http";
 
 import getRawBody from "raw-body";
 
+import { createAgentContext, withOverrides } from "#lib/agent-context.mjs";
 import { getAllBackendModels, toOpenAiModelEntries } from "#lib/backends/discover-models.mjs";
 import { BACKEND_NAMES, isBackendName } from "#lib/backends/names.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
+
+/**
+ * Step 3 — parse session-policy headers from an HTTP request:
+ *   `X-Artagon-Session: <id>`     → resume the named session
+ *   `X-Artagon-New-Session: 1`    → start a fresh session this turn
+ * Returns `{policy, conflict}`. The two headers are mutex; conflict=true
+ * → caller emits 400. `policy === null` means no per-request override
+ * (use the server's default session policy).
+ *
+ * @param {http.IncomingMessage} req
+ */
+function parseSessionHeaders(req) {
+  const sid = req.headers["x-artagon-session"];
+  const fresh = req.headers["x-artagon-new-session"];
+  const sidStr = Array.isArray(sid) ? sid[0] : sid;
+  const freshStr = Array.isArray(fresh) ? fresh[0] : fresh;
+  const sidSet = typeof sidStr === "string" && sidStr.trim().length > 0;
+  const freshSet =
+    typeof freshStr === "string" && (freshStr === "1" || freshStr.toLowerCase() === "true");
+  if (sidSet && freshSet) {
+    return { policy: null, conflict: true };
+  }
+  if (sidSet) {
+    return {
+      policy: /** @type {import("#lib/agent-context.mjs").SessionPolicy} */ ({
+        action: "resume",
+        id: sidStr.trim()
+      }),
+      conflict: false
+    };
+  }
+  if (freshSet) {
+    return {
+      policy: /** @type {import("#lib/agent-context.mjs").SessionPolicy} */ ({
+        action: "fresh"
+      }),
+      conflict: false
+    };
+  }
+  return { policy: null, conflict: false };
+}
 
 /**
  * Generate an OpenAI-style chat completion ID using crypto-strong
@@ -252,7 +294,11 @@ export function resolveCorsPolicy(cors, _env) {
  *   }
  * }} OpenAiChatResponse
  *
- * @typedef {(backendName: string, options: any) => Promise<import("#lib/translate/stream-runner.mjs").TurnResult>} DispatchFn
+ * @typedef {(
+ *   backendName: string,
+ *   options: any,
+ *   context?: import("#lib/agent-context.mjs").AgentContext
+ * ) => Promise<import("#lib/translate/stream-runner.mjs").TurnResult>} DispatchFn
  *
  * @typedef {{
  *   port?: number,
@@ -260,8 +306,16 @@ export function resolveCorsPolicy(cors, _env) {
  *   dispatch?: DispatchFn,
  *   defaultBackend?: import("#lib/backends/names.mjs").BackendName,
  *   cors?: string | string[] | boolean,
- *   apiKey?: string | string[]
+ *   apiKey?: string | string[],
+ *   context?: import("#lib/agent-context.mjs").AgentContext
  * }} FacadeOptions
+ *
+ * `context` is the long-lived "server context" the daemon was booted
+ * with. The request handler derives a per-request context from it via
+ * `withOverrides(serverCtx, { session, … })` and passes that to
+ * dispatch(). With `dispatch.streaming = "on"` on the server context,
+ * the streaming supervisor cached by `(backend, cwd)` inside this
+ * process survives across HTTP requests — that's the warm path.
  *
  * `apiKey` requires every /v1/* request to carry
  * `Authorization: Bearer <key>`; mismatches return 401. /health is
@@ -475,8 +529,17 @@ async function readJsonBody(req, options = {}) {
  * @param {{ backend: import("#lib/backends/names.mjs").BackendName, modelOverride: string | undefined }} resolved
  * @param {DispatchFn} dispatch
  * @param {string} prompt
+ * @param {import("#lib/agent-context.mjs").AgentContext} [serverContext]
  */
-async function handleStreamingChatCompletion(req, res, body, resolved, dispatch, prompt) {
+async function handleStreamingChatCompletion(
+  req,
+  res,
+  body,
+  resolved,
+  dispatch,
+  prompt,
+  serverContext
+) {
   const id = generateChatCompletionId();
   const created = Math.floor(Date.now() / 1000);
 
@@ -539,25 +602,29 @@ async function handleStreamingChatCompletion(req, res, body, resolved, dispatch,
   sendChunk({ role: "assistant" }, null);
 
   try {
-    const turn = await dispatch(resolved.backend, {
-      prompt,
-      model: resolved.modelOverride,
-      timeoutMs: 5 * 60 * 1000,
-      // Thread the abort signal so the runner SIGTERMs the subprocess
-      // when the client disconnects.
-      signal: abortController.signal,
-      onUpdate: (/** @type {any} */ update) => {
-        if (aborted) return;
-        if (update?.sessionUpdate === "agent_message_chunk") {
-          const text = update.content?.text ?? "";
-          if (text) sendChunk({ content: text }, null);
+    const turn = await dispatch(
+      resolved.backend,
+      {
+        prompt,
+        model: resolved.modelOverride,
+        timeoutMs: 5 * 60 * 1000,
+        // Thread the abort signal so the runner SIGTERMs the subprocess
+        // when the client disconnects.
+        signal: abortController.signal,
+        onUpdate: (/** @type {any} */ update) => {
+          if (aborted) return;
+          if (update?.sessionUpdate === "agent_message_chunk") {
+            const text = update.content?.text ?? "";
+            if (text) sendChunk({ content: text }, null);
+          }
+          // agent_thought_chunk, tool_call, tool_result, turn_completed
+          // are NOT mapped to delta content — OpenAI's streaming format
+          // doesn't have a clean home for them. Tools especially would
+          // need delta.tool_calls; deferred (see facade comment).
         }
-        // agent_thought_chunk, tool_call, tool_result, turn_completed
-        // are NOT mapped to delta content — OpenAI's streaming format
-        // doesn't have a clean home for them. Tools especially would
-        // need delta.tool_calls; deferred (see facade comment).
-      }
-    });
+      },
+      serverContext
+    );
 
     if (!aborted) {
       sendChunk({}, mapFinishReason(turn.reason));
@@ -655,6 +722,10 @@ export function createOpenAiFacadeServer(options = {}) {
   const host = options.host ?? "127.0.0.1";
   const corsPolicy = resolveCorsPolicy(options.cors);
   const apiKeyPolicy = resolveApiKeyPolicy(options.apiKey);
+  // Server context is captured at boot. Per-request overrides (session,
+  // trace-id, etc.) are derived via withOverrides on the request path
+  // — see step 3 of the facade-unification plan.
+  const serverContext = options.context;
 
   /**
    * Resolve a request's `Origin` against the CORS policy. Returns the
@@ -823,17 +894,64 @@ export function createOpenAiFacadeServer(options = {}) {
           return;
         }
 
+        // Step 3 — per-request session policy via headers.
+        const sessionHdr = parseSessionHeaders(req);
+        if (sessionHdr.conflict) {
+          sendError(
+            res,
+            400,
+            "X-Artagon-Session and X-Artagon-New-Session are mutually exclusive. " +
+              "Pick one per request.",
+            { type: "invalid_request_error", param: "x-artagon-session" }
+          );
+          return;
+        }
+        let requestContext = serverContext;
+        if (sessionHdr.policy) {
+          // Per-request session policy overrides the server's default.
+          // If serverContext wasn't provided (e.g. unit-test dispatch
+          // fake), synthesize a minimal context so the policy still
+          // reaches the runner.
+          requestContext = serverContext
+            ? withOverrides(serverContext, { session: sessionHdr.policy })
+            : createAgentContext({
+                dispatch: {
+                  streaming: "on",
+                  facade: "default",
+                  broker: "auto"
+                },
+                session: sessionHdr.policy
+              });
+        }
+
         if (body.stream === true) {
-          await handleStreamingChatCompletion(req, res, body, resolved, dispatch, prompt);
+          await handleStreamingChatCompletion(
+            req,
+            res,
+            body,
+            resolved,
+            dispatch,
+            prompt,
+            requestContext
+          );
           return;
         }
 
         try {
-          const turn = await dispatch(resolved.backend, {
-            prompt,
-            model: resolved.modelOverride,
-            timeoutMs: 5 * 60 * 1000
-          });
+          const turn = await dispatch(
+            resolved.backend,
+            {
+              prompt,
+              model: resolved.modelOverride,
+              timeoutMs: 5 * 60 * 1000
+            },
+            requestContext
+          );
+          // Echo the effective session id back so clients can persist
+          // it for follow-up requests.
+          if (turn.sessionId) {
+            res.setHeader("X-Artagon-Session", turn.sessionId);
+          }
           sendJson(res, 200, turnResultToOpenAiResponse(body.model, turn));
         } catch (err) {
           // Log the full backend error to stderr; return only the

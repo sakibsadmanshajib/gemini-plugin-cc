@@ -207,6 +207,44 @@ test("neither flag/context → registry is not consulted", async () => {
   expect(vi.mocked(getStreamingRunner)).not.toHaveBeenCalled();
 });
 
+test("F2: --session id WITHOUT streaming → boundary throws with actionable message", async () => {
+  const ctx = createAgentContext({
+    dispatch: { streaming: "off", facade: "default", broker: "auto" },
+    session: { action: "resume", id: "abc-123" }
+  });
+  await expect(runStatelessTurn(BACKEND_NAMES.CODEX, { prompt: "hi" }, ctx)).rejects.toThrow(
+    /--session.*--new-session.*requires streaming/
+  );
+});
+
+test("F2: --new-session WITHOUT streaming → boundary throws with actionable message", async () => {
+  const ctx = createAgentContext({
+    dispatch: { streaming: "off", facade: "default", broker: "auto" },
+    session: { action: "fresh" }
+  });
+  await expect(runStatelessTurn(BACKEND_NAMES.GEMINI, { prompt: "hi" }, ctx)).rejects.toThrow(
+    /--session.*--new-session.*requires streaming/
+  );
+});
+
+test("F2: session policy + streaming=on does NOT throw at boundary", async () => {
+  const runner = makeFakeRunner();
+  vi.mocked(getStreamingRunner).mockReturnValue(/** @type {any} */ (runner));
+  const ctx = createAgentContext({
+    dispatch: { streaming: "on", facade: "default", broker: "auto" },
+    session: { action: "fresh" }
+  });
+  await expect(runStatelessTurn(BACKEND_NAMES.CODEX, { prompt: "hi" }, ctx)).resolves.toBeDefined();
+});
+
+test("F2: no session policy + streaming=off → boundary does NOT throw (normal cold-start)", async () => {
+  vi.mocked(runCodexExec).mockResolvedValue(/** @type {any} */ (STUB));
+  const ctx = createAgentContext({
+    dispatch: { streaming: "off", facade: "default", broker: "auto" }
+  });
+  await expect(runStatelessTurn(BACKEND_NAMES.CODEX, { prompt: "hi" }, ctx)).resolves.toBeDefined();
+});
+
 test("forwards prompt + cwd + model + onUpdate to runTurn", async () => {
   const runner = makeFakeRunner();
   vi.mocked(getStreamingRunner).mockReturnValue(/** @type {any} */ (runner));

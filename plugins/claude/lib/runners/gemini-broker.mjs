@@ -90,6 +90,7 @@ export async function runGeminiViaBroker(options, context) {
     usage: null,
     reason: null,
     model: null,
+    sessionId: null,
     updates: []
   };
 

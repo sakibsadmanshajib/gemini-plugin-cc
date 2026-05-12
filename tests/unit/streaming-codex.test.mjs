@@ -368,6 +368,63 @@ describe("runTurn:rpc", () => {
     const result = await turnPromise;
     expect(result.model).toBe("gpt-5.1-codex");
   });
+
+  test("context.session.fresh → thread/start before turn/start; new id wins", async () => {
+    const { runner, client } = await startedRunner({ threadId: "thr_orig" });
+    client._enqueue("thread/start", { thread: { id: "thr_fresh" } });
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn(
+      { prompt: "x" },
+      /** @type {any} */ ({ session: { action: "fresh" } })
+    );
+    // F1: activeTurn is assigned BEFORE the session-policy await now,
+    // so emitting turn/completed synchronously after runTurn returns
+    // is sufficient (no microtask flush needed).
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
+    });
+    const result = await turnPromise;
+    const startCall = client._calls.find((c) => c.method === "turn/start");
+    expect(startCall.params.threadId).toBe("thr_fresh");
+    expect(result.sessionId).toBe("thr_fresh");
+  });
+
+  test("context.session.id → thread/resume with that id; that id wins", async () => {
+    const { runner, client } = await startedRunner({ threadId: "thr_orig" });
+    client._enqueue("thread/resume", {});
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn(
+      { prompt: "x" },
+      /** @type {any} */ ({ session: { action: "resume", id: "thr_resumed" } })
+    );
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
+    });
+    const result = await turnPromise;
+    const resumeCall = client._calls.find((c) => c.method === "thread/resume");
+    expect(resumeCall).toBeDefined();
+    expect(resumeCall.params.threadId).toBe("thr_resumed");
+    const startCall = client._calls.find((c) => c.method === "turn/start");
+    expect(startCall.params.threadId).toBe("thr_resumed");
+    expect(result.sessionId).toBe("thr_resumed");
+  });
+
+  test("no context.session → reuses threadId from start() (warm path)", async () => {
+    const { runner, client, threadId } = await startedRunner();
+    client._enqueue("turn/start", { turn: { id: "tr_1" } });
+    const turnPromise = runner.runTurn({ prompt: "x" });
+    client._emit({
+      method: "turn/completed",
+      params: { turn: { status: "completed" } }
+    });
+    const result = await turnPromise;
+    // No extra thread/start or thread/resume on the reuse path.
+    const methods = client._calls.map((c) => `${c.kind === "notify" ? "notify:" : ""}${c.method}`);
+    expect(methods).toEqual(["initialize", "notify:initialized", "thread/start", "turn/start"]);
+    expect(result.sessionId).toBe(threadId);
+  });
 });
 
 // ──────────────────────────────────────────────────────────────────────

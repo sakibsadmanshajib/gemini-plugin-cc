@@ -25,6 +25,7 @@ import process from "node:process";
 import { buildAgentContextFromArgv, withOverrides } from "#lib/agent-context.mjs";
 import { formatHelp } from "#lib/cli/flags.mjs";
 import { runStatelessTurn } from "#lib/runners/dispatch.mjs";
+import { readManifest } from "#lib/server/facade-endpoint.mjs";
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
@@ -70,16 +71,33 @@ export async function runSlashCommandScript(opts) {
     return process.exit(2);
   }
 
-  // Slash-command default: streaming is the warm-path winner for the
-  // plugin UX. If the user didn't explicitly choose (parsed value is
-  // "default"), promote to "on" so /codex:prompt etc. get the warm
-  // path automatically. `--no-streaming` (sets "off") still opts out
-  // cleanly; `--auto-streaming` explicitly keeps "default" for callers
-  // that want the lib-default (no streaming) behavior.
+  // Step 4: when an artagon-openai-server manifest is present, default
+  // the slash-command to facade=on. The daemon owns the warm streaming
+  // supervisors for all three backends; the slash-command becomes a
+  // thin HTTP client. Operator opt-out: --no-facade.
+  //
+  // When no manifest exists, fall through to the previous behavior:
+  // streaming=on directly in this process. That keeps the slash-
+  // command functional without a daemon (cold-start tax on first call).
+  const manifest = readManifest(parsedContext.env);
+  /** @type {{ dispatch?: any, facade?: any }} */
+  const overrides = {};
+  if (manifest && parsedContext.dispatch.facade === "default") {
+    overrides.dispatch = { ...parsedContext.dispatch, facade: "on" };
+    // If the manifest carries an auto-key retrieve hint AND the user
+    // didn't supply --facade-key, attempt to read the key file at the
+    // documented location (~/.local/state/artagon-agent-cli-plugin/
+    // api-key). When the manifest's autoKey.store is "keychain", the
+    // user must run the retrieveCommand themselves; we cannot shell
+    // out from here without breaking the auth-secrecy contract.
+    // (Auto-key resolution from the manifest is a follow-up.)
+  } else if (parsedContext.dispatch.streaming === "default") {
+    // No manifest → previous behavior: streaming default-on in this
+    // process. Warm path lives ONLY for the duration of this script.
+    overrides.dispatch = { ...parsedContext.dispatch, streaming: "on" };
+  }
   const context =
-    parsedContext.dispatch.streaming === "default"
-      ? withOverrides(parsedContext, { dispatch: { streaming: "on" } })
-      : parsedContext;
+    Object.keys(overrides).length > 0 ? withOverrides(parsedContext, overrides) : parsedContext;
 
   try {
     const turn = await runStatelessTurn(
@@ -101,6 +119,9 @@ export async function runSlashCommandScript(opts) {
     }
     if (turn.usage) {
       process.stdout.write(`— usage: ${JSON.stringify(turn.usage)}\n`);
+    }
+    if (turn.sessionId) {
+      process.stdout.write(`— session: ${turn.sessionId}\n`);
     }
     return process.exit(0);
   } catch (err) {

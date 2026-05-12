@@ -280,6 +280,9 @@ export function createCodexStreamingRunner(options = {}) {
       const startedAtMs = Date.now();
       const timeoutMs = turnOpts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
 
+      // Register the active-turn accumulator BEFORE any await so any
+      // notification arriving mid-policy (thread/start, thread/resume)
+      // is captured. `sessionId` field is updated after policy applies.
       /** @type {TurnResult} */
       const turn = {
         text: "",
@@ -293,6 +296,7 @@ export function createCodexStreamingRunner(options = {}) {
         usage: null,
         reason: null,
         model: turnOpts.model ?? defaultModel ?? null,
+        sessionId: threadId,
         updates: []
       };
       activeTurn = turn;
@@ -300,12 +304,67 @@ export function createCodexStreamingRunner(options = {}) {
 
       /** @type {NodeJS.Timeout | null} */
       let timer = null;
+      // F9: hoisted so the finally block can detach the abort listener.
+      const signal = turnOpts.signal;
+      /** @type {(() => void) | null} */
+      let onAbort = null;
       /** @type {Promise<void>} */
       const completion = new Promise((resolve, reject) => {
         activeCompletion = { resolve, reject };
       });
 
       try {
+        // Apply per-turn session intent INSIDE the try (F1). For codex:
+        //   fresh → thread/start
+        //   resume → thread/resume (codex 0.130.0 app-server)
+        //   reuse → keep current threadId
+        switch (context?.session?.action ?? "reuse") {
+          case "fresh": {
+            /** @type {any} */
+            const fresh = await /** @type {any} */ (client).request("thread/start", {
+              cwd,
+              ...(defaultModel ? { model: resolveCodexModel(defaultModel) } : {})
+            });
+            const freshId = fresh?.thread?.id;
+            if (!freshId) {
+              throw new Error("codex streaming runner: thread/start returned no thread id");
+            }
+            threadId = freshId;
+            turn.sessionId = freshId;
+            break;
+          }
+          case "resume": {
+            const resumeId = /** @type {{ action: "resume", id: string }} */ (
+              /** @type {any} */ (context.session)
+            ).id;
+            await /** @type {any} */ (client).request("thread/resume", {
+              threadId: resumeId
+            });
+            threadId = resumeId;
+            turn.sessionId = resumeId;
+            break;
+          }
+          default:
+            break;
+        }
+
+        // F9: bridge AbortSignal → turn/cancel. Codex's cancel uses
+        // threadId (current value, post-policy). Best-effort; rejects
+        // already cascade through the timer race below.
+        if (signal) {
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("turn/cancel", {
+                threadId
+              });
+            } catch {
+              // best-effort
+            }
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(new Error(`codex streaming runner: turn timed out after ${timeoutMs}ms`));
@@ -369,6 +428,9 @@ export function createCodexStreamingRunner(options = {}) {
         throw err;
       } finally {
         if (timer) clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
         activeTurn = null;
         activeOnUpdate = null;
         if (activeCompletion) {

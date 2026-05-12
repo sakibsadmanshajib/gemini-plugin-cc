@@ -247,6 +247,8 @@ export function createClaudeStreamingRunner(options = {}) {
       const timeoutMs = turnOpts.timeoutMs ?? DEFAULT_TURN_TIMEOUT_MS;
       const modelForTurn = turnOpts.model ?? defaultModel ?? null;
 
+      // Register the active-turn accumulator BEFORE any await so any
+      // notification arriving mid-policy (session/load) is captured.
       /** @type {TurnResult} */
       const turn = {
         text: "",
@@ -260,6 +262,7 @@ export function createClaudeStreamingRunner(options = {}) {
         usage: null,
         reason: null,
         model: modelForTurn ? resolveClaudeModel(modelForTurn) : null,
+        sessionId,
         updates: []
       };
       activeTurn = turn;
@@ -267,7 +270,61 @@ export function createClaudeStreamingRunner(options = {}) {
 
       /** @type {NodeJS.Timeout | null} */
       let timer = null;
+      // F9: hoisted so the finally block can detach the abort listener.
+      const signal = turnOpts.signal;
+      /** @type {(() => void) | null} */
+      let onAbort = null;
       try {
+        // Apply per-turn session intent INSIDE the try (F1). Tagged-
+        // union switch (F6): exactly one of reuse/fresh/resume.
+        switch (context?.session?.action ?? "reuse") {
+          case "fresh": {
+            /** @type {any} */
+            const fresh = await /** @type {any} */ (client).request("session/new", {
+              cwd,
+              mcpServers: []
+            });
+            const freshId = fresh?.sessionId;
+            if (!freshId) {
+              throw new Error("claude streaming runner: session/new returned no sessionId");
+            }
+            sessionId = freshId;
+            turn.sessionId = freshId;
+            break;
+          }
+          case "resume": {
+            const resumeId = /** @type {{ action: "resume", id: string }} */ (
+              /** @type {any} */ (context.session)
+            ).id;
+            await /** @type {any} */ (client).request("session/load", {
+              sessionId: resumeId,
+              cwd,
+              mcpServers: []
+            });
+            sessionId = resumeId;
+            turn.sessionId = resumeId;
+            break;
+          }
+          default:
+            break;
+        }
+
+        // F9: bridge AbortSignal → session/cancel. Best-effort; the
+        // local race-promise still rejects when signal aborts.
+        if (signal) {
+          onAbort = () => {
+            try {
+              /** @type {any} */ (client).notify("session/cancel", {
+                sessionId
+              });
+            } catch {
+              // best-effort
+            }
+          };
+          if (signal.aborted) onAbort();
+          else signal.addEventListener("abort", onAbort, { once: true });
+        }
+
         const timeoutPromise = new Promise((_resolve, reject) => {
           timer = setTimeout(() => {
             reject(new Error(`claude streaming runner: turn timed out after ${timeoutMs}ms`));
@@ -321,6 +378,9 @@ export function createClaudeStreamingRunner(options = {}) {
         throw err;
       } finally {
         if (timer) clearTimeout(timer);
+        if (signal && onAbort) {
+          signal.removeEventListener("abort", onAbort);
+        }
         activeTurn = null;
         activeOnUpdate = null;
       }

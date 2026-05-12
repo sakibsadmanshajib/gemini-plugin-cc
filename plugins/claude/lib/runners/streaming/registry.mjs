@@ -1,8 +1,18 @@
 /**
  * Streaming runner registry — module-scoped lazy supervisors keyed by
- * (backend, cwd). The first call to `getStreamingRunner(backend, cwd)`
+ * `backend` ONLY. The first call to `getStreamingRunner(backend, ...)`
  * creates a fresh supervisor; subsequent calls return the same instance
  * so the underlying CLI subprocess / ACP connection is reused.
+ *
+ * **Cwd handling (F7).** The cache is NOT keyed by cwd. The first call
+ * picks the subprocess's spawn cwd (the runner captures
+ * `options.cwd ?? process.cwd()` at construction). Subsequent turns
+ * with different per-turn cwds pass cwd through ACP `session/new` /
+ * `thread/start` params — both codex app-server and claude-agent-acp
+ * are designed for multi-workspace use over one process; per-session
+ * cwd is the protocol contract. This trades "subprocess cwd matches
+ * every turn's cwd" for "no spawn tax when developers cd between
+ * repos" — the daemon's reason to exist.
  *
  * Why module-scoped (not per-call-site or per-options):
  *   - The whole point of streaming is "keep one process open across
@@ -47,13 +57,27 @@ const supervisors = new Map();
  * @returns {StreamingRunner | null}
  */
 export function getStreamingRunner(backend, opts = {}) {
-  const cwd = opts.context?.cwd ?? opts.cwd ?? process.cwd();
-  const key = `${backend}::${cwd}`;
-  const cached = supervisors.get(key);
-  if (cached) return cached;
+  const cached = supervisors.get(backend);
+  if (cached) {
+    // F8: evict dead supervisors so the next call constructs a fresh
+    // one. Without this, three transient crashes (e.g. flaky network
+    // during auth refresh) permanently degrade the daemon to cold-
+    // start. The supervisor's restart-budget protection still applies
+    // inside each new instance — we just don't pin the dead instance.
+    if (cached.health() === "dead") {
+      supervisors.delete(backend);
+      // best-effort cleanup; the next start() will get a clean slate
+      cached.close().catch(() => {});
+    } else {
+      return cached;
+    }
+  }
 
+  // Subprocess spawn cwd: first caller's cwd wins for the supervisor's
+  // lifetime. Per-turn cwds for later turns flow through session/new.
+  const factoryCwd = opts.context?.cwd ?? opts.cwd ?? process.cwd();
   const factory = factoryFor(backend, {
-    cwd,
+    cwd: factoryCwd,
     env: opts.context?.env ?? opts.env,
     context: opts.context
   });
@@ -66,15 +90,15 @@ export function getStreamingRunner(backend, opts = {}) {
       process.stderr.write(`[streaming:${backend}] ${msg}\n`);
     }
   });
-  supervisors.set(key, supervisor);
+  supervisors.set(backend, supervisor);
   return supervisor;
 }
 
 /**
- * Backend → runner-factory dispatch.
- *   GEMINI  → connects to the existing `gemini --acp` broker socket.
- *   CODEX   → spawns `codex app-server` directly via the inline
- *             translator in `codex-streaming.mjs`.
+ * Backend → runner-factory dispatch. As of Step 2, all three streaming
+ * runners spawn their CLI subprocess directly (no external broker):
+ *   GEMINI  → spawns `gemini --acp` via createCliTransport.
+ *   CODEX   → spawns `codex app-server --listen stdio://`.
  *   CLAUDE  → spawns `@agentclientprotocol/claude-agent-acp` (Zed's
  *             ACP server backed by the Claude Agent SDK). Auth uses
  *             whatever credentials the host already has (claude login
@@ -150,4 +174,21 @@ export async function shutdownAllStreamingRunners() {
  */
 export function _resetStreamingRegistryForTest() {
   supervisors.clear();
+}
+
+/**
+ * Test-only: inject a (typically stub) supervisor for a backend so
+ * `getStreamingRunner` returns it. Used to exercise the F8 eviction
+ * path without spawning real subprocesses.
+ *
+ * @internal
+ * @param {BackendName} backend
+ * @param {StreamingRunner | null} supervisor
+ */
+export function _setSupervisorForTest(backend, supervisor) {
+  if (supervisor === null) {
+    supervisors.delete(backend);
+  } else {
+    supervisors.set(backend, supervisor);
+  }
 }

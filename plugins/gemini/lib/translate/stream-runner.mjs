@@ -55,8 +55,28 @@ import readline from "node:readline";
  *   usage: any | null,
  *   reason: string | null,
  *   model: string | null,
+ *   sessionId: string | null,
  *   updates: SessionUpdate[]
  * }} TurnResult
+ *
+ * `sessionId` is the per-backend handle for the conversation this turn
+ * belongs to. `null` carries two distinct meanings — readers should
+ * distinguish via the dispatching runner:
+ *   1. "This runner class never surfaces a session" (cold-start +
+ *      facade today): `claude-print`, `codex-exec`, `gemini-print`,
+ *      `facade-dispatch::runViaFacade`. These return null on EVERY
+ *      successful turn. Resuming requires a different dispatch path.
+ *   2. "Session id was expected but the backend didn't return one"
+ *      (would be a bug): the streaming runners throw before returning
+ *      a null sessionId, so this case should never reach a caller.
+ * Populated values, by runner:
+ *   - codex-streaming  → `threadId` from `thread/start` / `thread/resume`
+ *   - claude-streaming → `sessionId` from `session/new` / `session/load`
+ *   - gemini-streaming → `sessionId` from `session/new` / `session/load`
+ * Callers that want to RESUME a prior conversation pass the id back via
+ * `context.session.id` — see `AgentContext.session` and the
+ * `--session <id>` CLI flag. F2's boundary guard ensures the resume
+ * request only reaches a runner that honors it.
  *
  * @typedef {{
  *   onUpdate?: (u: SessionUpdate) => void,
@@ -87,6 +107,7 @@ export function consumeStreamJson(stdout, translator, options = {}) {
     usage: null,
     reason: null,
     model: null,
+    sessionId: null,
     updates: []
   };
 

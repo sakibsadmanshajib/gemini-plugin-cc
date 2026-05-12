@@ -68,6 +68,18 @@ export function createSupervisor(opts) {
   /** @type {number[]} */
   const restartTimestamps = [];
   let dead = false;
+  // FIFO turn queue. Two concurrent runTurn() calls would otherwise
+  // race the underlying runner's single `activeTurn`/`activeCompletion`
+  // slot (each protocol — codex app-server, claude-agent-acp,
+  // gemini --acp — accepts one in-flight prompt per session). We chain
+  // each new turn onto the tail of the prior turn's settlement so the
+  // wrapped runner only ever sees one runTurn at a time.
+  //
+  // The `.catch(() => {})` keeps a failed turn from poisoning the
+  // chain — subsequent turns see a resolved tail. Each caller still
+  // gets their own per-turn rejection back via `myTurn`.
+  /** @type {Promise<unknown>} */
+  let turnTail = Promise.resolve();
 
   function clearIdleTimer() {
     if (idleTimer) {
@@ -124,6 +136,43 @@ export function createSupervisor(opts) {
     }
   }
 
+  /**
+   * Body of one turn — lazy start, run, restart-on-error within budget.
+   * Called serially from the FIFO chain in `runTurn` above.
+   *
+   * @param {StreamingTurnOptions} turnOpts
+   * @param {import("#lib/agent-context.mjs").AgentContext} [context]
+   * @returns {Promise<TurnResult>}
+   */
+  async function runTurnInner(turnOpts, context) {
+    if (dead) {
+      throw new Error("supervisor: runner is dead (max restarts exceeded)");
+    }
+    if (!runner) {
+      await startInner();
+    }
+    armIdleTimer();
+    try {
+      const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts, context);
+      armIdleTimer();
+      return result;
+    } catch (err) {
+      const wrapped = runner;
+      const wrappedHealth = wrapped ? wrapped.health() : "dead";
+      if (wrappedHealth === "dead" || wrappedHealth === "restarting") {
+        const count = recordRestart();
+        await closeInner("restart attempt");
+        if (count > maxRestarts) {
+          dead = true;
+          onWarning(
+            `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead`
+          );
+        }
+      }
+      throw err;
+    }
+  }
+
   /** @param {string} reason */
   async function closeInner(reason) {
     clearIdleTimer();
@@ -148,36 +197,14 @@ export function createSupervisor(opts) {
       armIdleTimer();
     },
 
-    async runTurn(turnOpts, context) {
-      if (dead) {
-        throw new Error("supervisor: runner is dead (max restarts exceeded)");
-      }
-      // Lazy start
-      if (!runner) {
-        await startInner();
-      }
-      armIdleTimer();
-      try {
-        const result = await /** @type {StreamingRunner} */ (runner).runTurn(turnOpts, context);
-        armIdleTimer();
-        return result;
-      } catch (err) {
-        // If the underlying runner is no longer healthy, close + retry
-        // within the restart budget.
-        const wrapped = runner;
-        const wrappedHealth = wrapped ? wrapped.health() : "dead";
-        if (wrappedHealth === "dead" || wrappedHealth === "restarting") {
-          const count = recordRestart();
-          await closeInner("restart attempt");
-          if (count > maxRestarts) {
-            dead = true;
-            onWarning(
-              `supervisor: exceeded ${maxRestarts} restarts in ${restartWindowMs}ms — declaring dead`
-            );
-          }
-        }
-        throw err;
-      }
+    runTurn(turnOpts, context) {
+      // Queue this turn at the tail. Concurrent callers serialize
+      // through this single chain — the wrapped runner sees at most
+      // one runTurn at a time. The `.catch(() => {})` on the tail
+      // assignment ensures a failed turn doesn't poison the chain.
+      const myTurn = turnTail.then(() => runTurnInner(turnOpts, context));
+      turnTail = myTurn.catch(() => {});
+      return /** @type {Promise<TurnResult>} */ (myTurn);
     },
 
     async close() {
