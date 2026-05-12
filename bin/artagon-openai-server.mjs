@@ -21,8 +21,26 @@
  * only). Run behind a reverse proxy that handles auth before exposing
  * publicly, OR enable --api-key (constant-time-compared bearer tokens).
  *
+ * Operator surfaces (besides the OpenAI Chat Completions API):
+ *
+ *   - **Discovery manifest** — on successful listen, writes the
+ *     host/port/pid to
+ *     `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json`
+ *     (mode 0o600, parent dir 0o700). Slash-commands look here to
+ *     auto-route through the daemon instead of cold-spawning a CLI.
+ *     Deleted on SIGINT/SIGTERM.
+ *   - **GET /admin/status** — operator health snapshot
+ *     (`{pid, startedAt, uptimeMs, supervisors, stats, auth}`).
+ *     Bearer-gated when --api-key is set; `lastError` is a redacted
+ *     `LastErrorCode` enum so unauthed status reads can't exfiltrate
+ *     spawn paths or auth hints. See `docs/openai-facade.md`.
+ *   - **SQLite cost stats** — every turn appends to
+ *     `$XDG_STATE_HOME/artagon-agent-cli-plugin/stats.db` (WAL mode,
+ *     0o600). Aggregate via `artagon-stats`.
+ *
  * Lifecycle:
- *   - Listens until SIGINT / SIGTERM, then closes the server gracefully.
+ *   - Listens until SIGINT / SIGTERM, then closes the server gracefully
+ *     (writeManifest on listen → deleteManifest on close).
  *   - Exit codes: 0 clean shutdown, 1 listen error, 2 usage error.
  */
 
