@@ -20,10 +20,11 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 vi.mock("#lib/server/facade-endpoint.mjs", () => ({
   readManifest: vi.fn(),
-  deleteManifest: vi.fn()
+  deleteManifest: vi.fn(),
+  compareAndDeleteManifest: vi.fn()
 }));
 
-const { readManifest, deleteManifest } = await import("#lib/server/facade-endpoint.mjs");
+const { readManifest, compareAndDeleteManifest } = await import("#lib/server/facade-endpoint.mjs");
 const { runViaFacade } = await import("#lib/runners/facade-dispatch.mjs");
 const { BACKEND_NAMES } = await import("#lib/backends/names.mjs");
 
@@ -319,8 +320,9 @@ test("network error → reject and emit a cost record with ok=false (round-7 TC3
   });
 });
 
-test("K2: ECONNREFUSED with err.code → deleteManifest fires + actionable error", async () => {
-  vi.mocked(deleteManifest).mockReset();
+test("K2: ECONNREFUSED with err.code → compareAndDeleteManifest fires + actionable error", async () => {
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({ committed: true });
   // Mimic undici's structured network error: err.cause.code === "ECONNREFUSED"
   const netErr = /** @type {any} */ (new Error("fetch failed"));
   netErr.cause = { code: "ECONNREFUSED" };
@@ -330,13 +332,17 @@ test("K2: ECONNREFUSED with err.code → deleteManifest fires + actionable error
     /Stale manifest deleted.*retry the command/
   );
 
-  // Manifest was actually wiped so the next slash-command's auto-start
-  // spawns a fresh daemon instead of getting refused again.
-  expect(deleteManifest).toHaveBeenCalledTimes(1);
+  // Manifest was atomically wiped via compareAndDeleteManifest.
+  expect(compareAndDeleteManifest).toHaveBeenCalledTimes(1);
+  expect(compareAndDeleteManifest).toHaveBeenCalledWith(
+    { pid: process.pid, port: 31337 },
+    expect.anything()
+  );
 });
 
-test("K2: ENOTFOUND with err.code → also deletes manifest (same recovery path)", async () => {
-  vi.mocked(deleteManifest).mockReset();
+test("K2: ENOTFOUND with err.code → also wipes (same recovery path)", async () => {
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({ committed: true });
   const netErr = /** @type {any} */ (new Error("dns lookup"));
   netErr.cause = { code: "ENOTFOUND" };
   fetchMock.mockRejectedValueOnce(netErr);
@@ -344,22 +350,23 @@ test("K2: ENOTFOUND with err.code → also deletes manifest (same recovery path)
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /Stale manifest deleted/
   );
-  expect(deleteManifest).toHaveBeenCalledTimes(1);
+  expect(compareAndDeleteManifest).toHaveBeenCalledTimes(1);
 });
 
-test("K2: non-network rejection (e.g. AbortError) does NOT delete manifest", async () => {
-  vi.mocked(deleteManifest).mockReset();
+test("K2: non-network rejection (e.g. AbortError) does NOT call compareAndDeleteManifest", async () => {
+  vi.mocked(compareAndDeleteManifest).mockReset();
   fetchMock.mockRejectedValueOnce(new Error("aborted"));
 
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(/aborted/);
-  expect(deleteManifest).not.toHaveBeenCalled();
+  expect(compareAndDeleteManifest).not.toHaveBeenCalled();
 });
 
 test("Q5 (round-11): facade errors carry machine-readable .code", async () => {
   // Downstream catch blocks should be able to switch on err.code
   // instead of substring-matching the prose. Three classes:
   // FACADE_UNREACHABLE / FACADE_RACE_REPLACED / FACADE_CONN_RESET.
-  vi.mocked(deleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({ committed: true });
   const netErr = /** @type {any} */ (new Error("fetch failed"));
   netErr.cause = { code: "ECONNREFUSED" };
   fetchMock.mockRejectedValueOnce(netErr);
@@ -373,7 +380,7 @@ test("Q5 (round-11): facade errors carry machine-readable .code", async () => {
   expect(caught).toBeInstanceOf(Error);
   expect(/** @type {any} */ (caught).code).toBe("FACADE_UNREACHABLE");
 
-  // ECONNRESET branch → FACADE_CONN_RESET
+  // ECONNRESET branch → FACADE_CONN_RESET (doesn't go through wipe path)
   const rstErr = /** @type {any} */ (new Error("socket hang up"));
   rstErr.cause = { code: "ECONNRESET" };
   fetchMock.mockRejectedValueOnce(rstErr);
@@ -386,11 +393,7 @@ test("Q5 (round-11): facade errors carry machine-readable .code", async () => {
 });
 
 test("L1: ECONNRESET surfaces 'connection reset' error WITHOUT wiping manifest", async () => {
-  // ECONNRESET means "this connection dropped" — the daemon process may
-  // still be alive and serving other concurrent requests. Wiping the
-  // manifest would yank the discovery file out from under healthy
-  // parallel requests.
-  vi.mocked(deleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReset();
   const netErr = /** @type {any} */ (new Error("socket hang up"));
   netErr.cause = { code: "ECONNRESET" };
   fetchMock.mockRejectedValueOnce(netErr);
@@ -398,11 +401,12 @@ test("L1: ECONNRESET surfaces 'connection reset' error WITHOUT wiping manifest",
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /connection.*reset.*ECONNRESET/i
   );
-  expect(deleteManifest).not.toHaveBeenCalled();
+  expect(compareAndDeleteManifest).not.toHaveBeenCalled();
 });
 
 test("M3: EHOSTUNREACH triggers the same race-safe wipe path as ECONNREFUSED", async () => {
-  vi.mocked(deleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({ committed: true });
   const netErr = /** @type {any} */ (new Error("host unreachable"));
   netErr.cause = { code: "EHOSTUNREACH" };
   fetchMock.mockRejectedValueOnce(netErr);
@@ -410,11 +414,12 @@ test("M3: EHOSTUNREACH triggers the same race-safe wipe path as ECONNREFUSED", a
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /Stale manifest deleted|EHOSTUNREACH/
   );
-  expect(deleteManifest).toHaveBeenCalledTimes(1);
+  expect(compareAndDeleteManifest).toHaveBeenCalledTimes(1);
 });
 
 test("M3: ENETUNREACH also wipes (same fatal-network semantic)", async () => {
-  vi.mocked(deleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({ committed: true });
   const netErr = /** @type {any} */ (new Error("network unreachable"));
   netErr.cause = { code: "ENETUNREACH" };
   fetchMock.mockRejectedValueOnce(netErr);
@@ -422,40 +427,40 @@ test("M3: ENETUNREACH also wipes (same fatal-network semantic)", async () => {
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
     /Stale manifest deleted|ENETUNREACH/
   );
-  expect(deleteManifest).toHaveBeenCalledTimes(1);
+  expect(compareAndDeleteManifest).toHaveBeenCalledTimes(1);
 });
 
-test("M2: race-safe wipe — manifest already replaced by another process is NOT deleted", async () => {
-  // Captured manifest at start of runViaFacade points at pid=31337/port=31337.
-  // Mid-call, another auto-start replaced it with pid=99999/port=44444.
-  // The race-safe check inspects the current on-disk manifest before
-  // unlinking; pid mismatch → DO NOT delete (we'd nuke a healthy daemon).
-  vi.mocked(deleteManifest).mockReset();
-  // First readManifest call (top of runViaFacade) sees the OLD manifest.
-  // Second readManifest call (inside the wipe branch) sees the NEW one.
-  vi.mocked(readManifest)
-    .mockReturnValueOnce({
-      host: "127.0.0.1",
-      port: 31337,
-      pid: process.pid,
-      startedAt: "2026-05-11T00:00:00.000Z",
-      autoKey: null
-    })
-    .mockReturnValueOnce({
-      host: "127.0.0.1",
-      port: 44444,
-      pid: process.pid,
-      startedAt: "2026-05-11T00:01:00.000Z",
-      autoKey: null
-    });
+test("S1 (round-13): compareAndDeleteManifest reports race → FACADE_RACE_REPLACED + reason", async () => {
+  // The atomic rename + verify saw a different pid+port at the manifest
+  // path than what we captured. compareAndDeleteManifest restored the
+  // file (or saw it was already gone) and reported committed:false.
+  // Dispatcher should NOT claim it wiped; the error string should
+  // reflect the actual reason.
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({
+    committed: false,
+    reason: "different_manifest_restored"
+  });
   const netErr = /** @type {any} */ (new Error("connection refused"));
   netErr.cause = { code: "ECONNREFUSED" };
   fetchMock.mockRejectedValueOnce(netErr);
 
   await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
-    /Another process has already refreshed/
+    /Another process has already refreshed.*different_manifest_restored/
   );
-  // The whole point: the wipe-check saw a different pid/port and bailed
-  // out, leaving the new daemon's manifest intact.
-  expect(deleteManifest).not.toHaveBeenCalled();
+});
+
+test("S1: 'already gone' race → same FACADE_RACE_REPLACED outcome", async () => {
+  vi.mocked(compareAndDeleteManifest).mockReset();
+  vi.mocked(compareAndDeleteManifest).mockReturnValue({
+    committed: false,
+    reason: "manifest_already_gone"
+  });
+  const netErr = /** @type {any} */ (new Error("connection refused"));
+  netErr.cause = { code: "ECONNREFUSED" };
+  fetchMock.mockRejectedValueOnce(netErr);
+
+  await expect(runViaFacade(BACKEND_NAMES.CLAUDE, { prompt: "hi" })).rejects.toThrow(
+    /manifest_already_gone/
+  );
 });

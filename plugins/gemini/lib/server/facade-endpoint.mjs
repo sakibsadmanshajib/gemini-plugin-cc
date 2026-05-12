@@ -28,6 +28,7 @@
  *   }
  */
 
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -103,6 +104,136 @@ export function deleteManifest(env = process.env) {
       // Log via stderr but continue.
       process.stderr.write(`[facade-endpoint] delete failed: ${String(err)}\n`);
     }
+  }
+}
+
+/**
+ * S1 (round-13) — closes the M2 TOCTOU race: atomically claim the
+ * manifest via rename, verify it matches the expected pid+port, and
+ * either commit the delete (tombstone unlinked) or restore the file
+ * if we tombstoned a different daemon's fresher manifest.
+ *
+ * The TOCTOU race the previous K2/M2 implementation had:
+ *   1. Caller hits ECONNREFUSED with captured manifest M1 (pid+port)
+ *   2. readManifest still returns M1 from disk
+ *   3. → another process spawns a new daemon and atomically writes M2
+ *   4. Caller's deleteManifest unlinks M2 — wiping a healthy daemon's
+ *      discovery file
+ *
+ * With this function:
+ *   - `rename(manifest, tombstone)` atomically claims whatever's at
+ *     the path right now. Only one process can win.
+ *   - We then read the tombstone and compare against the expected
+ *     pid+port the caller captured.
+ *   - On match: unlink the tombstone. The wipe is committed.
+ *   - On mismatch: someone wrote a fresher manifest into the path
+ *     between our capture and our rename. Restore the tombstoned
+ *     file via `link()` (atomic-or-fail: succeeds only when the
+ *     target path is empty), then unlink the tombstone copy.
+ *   - On link-EEXIST (yet another even-fresher manifest is now at
+ *     the path): give up on restore, drop the tombstone. The
+ *     freshest manifest wins; the daemon we tombstoned loses its
+ *     discovery file but the operator has the newest one.
+ *
+ * Returns `{ committed }` so the caller can shape an error message
+ * with the correct outcome.
+ *
+ * @param {{ pid: number, port: number }} expected
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ committed: boolean, reason?: string }}
+ *   `committed: true` → manifest matched expectation and was deleted.
+ *   `committed: false` → manifest didn't match; reason describes why.
+ */
+export function compareAndDeleteManifest(expected, env = process.env) {
+  const { file } = manifestPaths(env);
+  // Per-process unique tombstone name — `randomBytes` keeps two
+  // concurrent processes' tombstones from colliding even within the
+  // same pid (which can happen with fork-spawned tests).
+  const tombstone = `${file}.tomb.${process.pid}.${randomBytes(6).toString("hex")}`;
+
+  try {
+    fs.renameSync(file, tombstone);
+  } catch (err) {
+    const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+    if (code === "ENOENT") {
+      // Someone else already deleted the manifest. The wipe intent is
+      // satisfied; just report it.
+      return { committed: false, reason: "manifest_already_gone" };
+    }
+    // Permissions / disk-full / other unexpected error.
+    return {
+      committed: false,
+      reason: `rename_failed:${err instanceof Error ? err.message : String(err)}`
+    };
+  }
+
+  // We now own the tombstone file. Verify its contents match the
+  // caller's expectation BEFORE committing the delete. Use the same
+  // ownership + JSON-parse gates as readManifest.
+  if (!isManifestOwned(tombstone)) {
+    // Foreign-uid file — best-effort cleanup, refuse to delete.
+    try {
+      fs.unlinkSync(tombstone);
+    } catch {
+      /* best-effort */
+    }
+    return { committed: false, reason: "ownership_mismatch" };
+  }
+  /** @type {FacadeManifest | null} */
+  let tombManifest = null;
+  try {
+    const text = fs.readFileSync(tombstone, "utf8");
+    const parsed = JSON.parse(text);
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      typeof parsed.host === "string" &&
+      typeof parsed.port === "number" &&
+      typeof parsed.pid === "number"
+    ) {
+      tombManifest = /** @type {FacadeManifest} */ (parsed);
+    }
+  } catch {
+    // malformed tombstone — same as mismatch
+  }
+
+  if (tombManifest && tombManifest.pid === expected.pid && tombManifest.port === expected.port) {
+    // Match: commit the delete by unlinking the tombstone.
+    try {
+      fs.unlinkSync(tombstone);
+    } catch {
+      // The rename succeeded, so the manifest IS gone from the
+      // original path. A failed tombstone unlink leaks a file but
+      // doesn't break the wipe intent.
+    }
+    return { committed: true };
+  }
+
+  // Mismatch — we tombstoned a different daemon's manifest. Try to
+  // restore it via link (atomic-or-fail: only succeeds if the
+  // original path is currently empty).
+  try {
+    fs.linkSync(tombstone, file);
+    fs.unlinkSync(tombstone);
+    return { committed: false, reason: "different_manifest_restored" };
+  } catch (linkErr) {
+    const linkCode = /** @type {NodeJS.ErrnoException} */ (linkErr).code;
+    // Best-effort cleanup of the tombstone.
+    try {
+      fs.unlinkSync(tombstone);
+    } catch {
+      /* best-effort */
+    }
+    if (linkCode === "EEXIST") {
+      // Yet-another-fresher manifest is at the path. Operator has
+      // the newest one; the daemon we tombstoned just loses its
+      // discovery file. Bounded loss.
+      return { committed: false, reason: "newer_manifest_present" };
+    }
+    return {
+      committed: false,
+      reason: `restore_failed:${linkErr instanceof Error ? linkErr.message : String(linkErr)}`
+    };
   }
 }
 

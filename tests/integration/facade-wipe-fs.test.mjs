@@ -23,7 +23,12 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 
 import { BACKEND_NAMES } from "#lib/backends/names.mjs";
 import { runViaFacade } from "#lib/runners/facade-dispatch.mjs";
-import { manifestPaths, writeManifest } from "#lib/server/facade-endpoint.mjs";
+import {
+  compareAndDeleteManifest,
+  manifestPaths,
+  readManifest,
+  writeManifest
+} from "#lib/server/facade-endpoint.mjs";
 
 /**
  * Bind a server briefly to get a definitely-unbound port, then close.
@@ -102,3 +107,39 @@ test("K2 end-to-end: ECONNREFUSED against an unreachable port → manifest file 
 // delete manifest"). Reproducing it here with a real 1ms timeout is
 // racy because the OS connect can finish with ECONNREFUSED before
 // the AbortController fires under load.
+
+test("S1 (round-13): compareAndDeleteManifest commits when pid+port match", async () => {
+  writeManifest({ host: "127.0.0.1", port: 12345, pid: process.pid, autoKey: null }, process.env);
+  expect(fs.existsSync(manifestFile)).toBe(true);
+
+  const result = compareAndDeleteManifest({ pid: process.pid, port: 12345 }, process.env);
+  expect(result.committed).toBe(true);
+  expect(fs.existsSync(manifestFile)).toBe(false);
+});
+
+test("S1: compareAndDeleteManifest RESTORES when pid+port mismatch", async () => {
+  // Pre-existing manifest from a DIFFERENT daemon than what we expect
+  // to delete. The atomic rename+verify+link path should restore it.
+  writeManifest({ host: "127.0.0.1", port: 22222, pid: process.pid, autoKey: null }, process.env);
+
+  // Caller captured manifest with port 11111 (long-dead daemon) but
+  // disk now has port 22222 (a fresher daemon). The function must NOT
+  // wipe the on-disk file.
+  const result = compareAndDeleteManifest({ pid: process.pid, port: 11111 }, process.env);
+  expect(result.committed).toBe(false);
+  expect(result.reason).toBe("different_manifest_restored");
+
+  // The fresher manifest is still on disk, intact.
+  expect(fs.existsSync(manifestFile)).toBe(true);
+  const restored = readManifest(process.env);
+  expect(restored?.port).toBe(22222);
+});
+
+test("S1: compareAndDeleteManifest reports already_gone when nothing on disk", async () => {
+  // No manifest written. Function should report committed:false /
+  // manifest_already_gone rather than throwing.
+  expect(fs.existsSync(manifestFile)).toBe(false);
+  const result = compareAndDeleteManifest({ pid: process.pid, port: 5000 }, process.env);
+  expect(result.committed).toBe(false);
+  expect(result.reason).toBe("manifest_already_gone");
+});
