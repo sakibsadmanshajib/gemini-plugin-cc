@@ -1,8 +1,9 @@
 /**
  * Facade endpoint manifest — record where a running
- * `artagon-openai-server` is listening so other tools (the dispatcher's
- * `ARTAGON_USE_FACADE=1` path, `artagon-agent --via-facade`) can find it
- * without prior knowledge of the port.
+ * `artagon-openai-server` is listening so other tools (the slash-command
+ * boundary's auto-start path, `runViaFacade` in the dispatcher,
+ * `artagon-agent --via-facade`) can find it without prior knowledge of
+ * the port.
  *
  * Path: `$XDG_STATE_HOME/artagon-agent-cli-plugin/facade-endpoint.json`
  *   (default `~/.local/state/artagon-agent-cli-plugin/facade-endpoint.json`)
@@ -14,9 +15,20 @@
  * `lib/server/api-key-store.mjs`).
  *
  * Lifecycle: written on `facade.listen()`, deleted on `facade.close()`.
- * Stale-detection contract: readers MUST verify `pid` is alive AND
- * matches the current uid; mismatched ownership returns null and the
- * caller falls back to a non-facade path.
+ * The dispatcher's stale-manifest recovery path additionally deletes
+ * the manifest via `compareAndDeleteManifest` (S1, round-13) when
+ * `runViaFacade` hits a fatal-network code AND the on-disk pid+port
+ * still match the captured manifest. Atomic rename + verify + restore-
+ * via-link prevents wiping a freshly-replaced manifest.
+ *
+ * Stale-detection contract: readers MUST verify ALL of:
+ *   1. file exists and parses as JSON with `host`, `port`, `pid`
+ *   2. `lstat` is a regular FILE (not a symlink — U1, round-13)
+ *   3. file is owned by current uid (cross-uid hand-off refused)
+ *   4. pid is alive (`process.kill(pid, 0)` doesn't throw)
+ *
+ * Any failure → null. Caller falls back to a non-facade path (in-
+ * process streaming) or hits the slash-command's auto-start.
  *
  * Format:
  *   {
@@ -26,6 +38,14 @@
  *     "startedAt": "2026-05-09T16:21:33.001Z",
  *     "autoKey": null | { "store": "keychain"|"file", "retrieveCommand": "..." }
  *   }
+ *
+ * Exports:
+ *   - `manifestPaths(env)` — resolve {dir, file} per XDG_STATE_HOME
+ *   - `writeManifest(entry, env)` — atomic temp+rename write at listen
+ *   - `deleteManifest(env)` — best-effort unlink at close
+ *   - `readManifest(env)` — full gates + null on any failure
+ *   - `compareAndDeleteManifest(expected, env)` — race-safe wipe with
+ *     atomic claim, verify, and restore-via-link if mismatch
  */
 
 import { randomBytes } from "node:crypto";
