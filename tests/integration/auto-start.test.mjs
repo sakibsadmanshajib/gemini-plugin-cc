@@ -364,17 +364,22 @@ test("drift guard: TOMBSTONE_MAX_AGE_MS matches the '1 hour' claim in docs", asy
   // doesn't talk about the age threshold.
   const archPath = url.fileURLToPath(new URL("../../docs/architecture.md", import.meta.url));
   const arch = fs.readFileSync(archPath, "utf8");
-  // Match the bullet (or paragraph) that combines BOTH "sweep" and
-  // "tomb" — that's the age-threshold one. Bullets in this doc are
-  // newline-separated, so use a non-greedy [^\n]* to scope to one line.
-  const sweepSnippet = arch.match(/[^\n]*sweep[^\n]*tomb[^\n]*|[^\n]*tomb[^\n]*sweep[^\n]*/i);
+  // Match the markdown bullet that combines BOTH "sweep" and "tomb"
+  // — the age-threshold one. Architecture doc bullets start with
+  // "- **" and run until the next bullet or blank line; scoping to
+  // the whole bullet (not a single line) means a future doc rewrite
+  // that wraps the description across multiple lines within the same
+  // bullet won't false-positive.
+  const sweepBullet = arch.match(
+    /^- [^\n]*(?:sweep[^\n]*tomb|tomb[^\n]*sweep)[\s\S]*?(?=\n- |\n\n|$)/im
+  );
   expect(
-    sweepSnippet,
-    "architecture.md does not have a single-line 'sweep + tomb' description"
+    sweepBullet,
+    "architecture.md does not have a bullet matching both 'sweep' and 'tomb'"
   ).not.toBeNull();
-  if (sweepSnippet) {
+  if (sweepBullet) {
     const hours = ms / 60_000 / 60;
-    expect(sweepSnippet[0]).toMatch(new RegExp(`\\b${hours}\\b`));
+    expect(sweepBullet[0]).toMatch(new RegExp(`\\b${hours}\\b`));
   }
 });
 
@@ -421,13 +426,16 @@ test("drift guard: breaker constants in code match the '3 failures / 5 min' clai
   // mention both threshold and window-in-minutes correctly.
   const readmePath = url.fileURLToPath(new URL("../../README.md", import.meta.url));
   const readme = fs.readFileSync(readmePath, "utf8");
-  // Find the "circuit breaker" sentence/paragraph and assert it
-  // contains the right numbers. README is large; scope to a window
-  // around "circuit breaker" so unrelated 3s and 5s don't false-match.
-  const breakerSnippet = readme.match(/[^.]*circuit breaker[^.]*\./i);
-  expect(breakerSnippet, "README does not mention 'circuit breaker'").not.toBeNull();
-  if (breakerSnippet) {
-    expect(breakerSnippet[0]).toMatch(new RegExp(`\\b${threshold}\\b`));
-    expect(breakerSnippet[0]).toMatch(new RegExp(`\\b${windowMinutes}\\b`));
+  // Find the "circuit breaker" bullet and assert it contains the right
+  // numbers. Scope is the full markdown bullet (lines starting with
+  // "- " up to but not including the next bullet or blank-line break),
+  // not a single sentence — a future doc rewrite that splits the
+  // explanation across two sentences within the same bullet would
+  // otherwise look like drift even though the contract is unchanged.
+  const breakerBulletMatch = readme.match(/^- [^\n]*circuit breaker[\s\S]*?(?=\n- |\n\n|$)/im);
+  expect(breakerBulletMatch, "README does not mention 'circuit breaker'").not.toBeNull();
+  if (breakerBulletMatch) {
+    expect(breakerBulletMatch[0]).toMatch(new RegExp(`\\b${threshold}\\b`));
+    expect(breakerBulletMatch[0]).toMatch(new RegExp(`\\b${windowMinutes}\\b`));
   }
 });
