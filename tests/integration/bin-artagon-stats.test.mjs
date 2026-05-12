@@ -36,7 +36,17 @@ beforeEach(() => {
     path.join(os.tmpdir(), `stats-bin-${crypto.randomBytes(4).toString("hex")}-`)
   );
   costLog = path.join(tmpDir, "cost.jsonl");
-  env = { ...process.env, ARTAGON_COST_LOG: costLog };
+  // XDG_STATE_HOME redirects the sqlite stats DB to the tmp dir so
+  // production state (`~/.local/state/artagon-agent-cli-plugin/stats.sqlite`,
+  // populated by real-CLI smoke tests) cannot leak into these tests.
+  // See bin/artagon-stats.mjs — it merges JSONL records with SQLite
+  // rows, so omitting this lets stale smoke-test sqlite rows show up
+  // in assertions that expect only the test's seeded JSONL records.
+  env = {
+    ...process.env,
+    ARTAGON_COST_LOG: costLog,
+    XDG_STATE_HOME: tmpDir
+  };
 });
 
 afterEach(() => {
