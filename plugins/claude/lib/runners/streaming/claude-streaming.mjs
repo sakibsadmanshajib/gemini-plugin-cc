@@ -175,6 +175,13 @@ export function createClaudeStreamingRunner(options = {}) {
       modelId: resolved
     });
     appliedModel = resolved;
+    // claude-agent-acp rebuilds the effort configOption catalog
+    // after a model switch (effort levels depend on the selected
+    // model — see acp-agent.js's "Rebuild config options" branch).
+    // Invalidate our cache so the next applySessionEffort re-issues
+    // set_config_option, ensuring the agent's effort matches what
+    // the caller asked for.
+    appliedEffort = null;
   }
 
   /**

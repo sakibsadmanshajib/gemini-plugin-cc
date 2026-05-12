@@ -460,6 +460,24 @@ describe("runTurn:rpc", () => {
     expect(cfgCalls[1].params.sessionId).toBe("sess-fresh");
   });
 
+  test("set_model invalidates applied-effort — subsequent effort re-applies", async () => {
+    // claude-agent-acp rebuilds the effort catalog after a model
+    // switch (effort levels depend on the model). Without the cache
+    // invalidation, turn 2's set_config_option would no-op believing
+    // effort is unchanged, but the agent would silently use a
+    // different effort.
+    const { runner, client } = await startedRunner();
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    client._enqueue("session/prompt", { stopReason: "end_turn" });
+    await runner.runTurn({ prompt: "1", model: "sonnet", effort: "high" });
+    await runner.runTurn({ prompt: "2", model: "opus", effort: "high" });
+    const cfgCalls = client._calls.filter((c) => c.method === "session/set_config_option");
+    // Both turns must re-issue set_config_option because turn 2's
+    // set_model invalidated the effort cache.
+    expect(cfgCalls).toHaveLength(2);
+    expect(cfgCalls[1].params.value).toBe("high");
+  });
+
   test("set_config_option rejection aborts the turn before session/prompt", async () => {
     const { runner, client } = await startedRunner();
     client._enqueue("session/set_config_option", new Error("unknown effort"));
