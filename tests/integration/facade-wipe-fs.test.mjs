@@ -143,3 +143,36 @@ test("S1: compareAndDeleteManifest reports already_gone when nothing on disk", a
   expect(result.committed).toBe(false);
   expect(result.reason).toBe("manifest_already_gone");
 });
+
+test("U1 (round-13 B2): symlink at manifest path is REFUSED outright", async () => {
+  // Round-13 reviewer flagged: if an attacker with write access to
+  // $XDG_STATE_HOME placed the manifest path as a symlink, the
+  // previous statSync would follow it. Now lstatSync refuses any
+  // symlink as the manifest. After compareAndDeleteManifest renames
+  // the symlink to a tombstone, the ownership check sees a symbolic
+  // link and bails — neither commits the delete nor mistakenly
+  // accepts it as a real manifest.
+  const { dir } = manifestPaths(process.env);
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // Create a target file we own, then symlink the manifest path to it.
+  // (Simulates the "attacker put a symlink here" scenario but using
+  // our own uid since we can't easily test cross-uid in a unit test.)
+  const target = path.join(dir, "decoy.json");
+  fs.writeFileSync(target, JSON.stringify({ host: "127.0.0.1", port: 7777, pid: process.pid }), {
+    mode: 0o600
+  });
+  fs.symlinkSync(target, manifestFile);
+
+  // Direct readManifest must refuse the symlink (isManifestOwned now
+  // gates on lstat + isFile).
+  expect(readManifest(process.env)).toBeNull();
+
+  // compareAndDeleteManifest tombstones the symlink, sees it's not a
+  // regular file via isManifestOwned, and bails without committing.
+  const result = compareAndDeleteManifest({ pid: process.pid, port: 7777 }, process.env);
+  expect(result.committed).toBe(false);
+  expect(result.reason).toBe("ownership_mismatch");
+
+  // The decoy target is untouched.
+  expect(fs.existsSync(target)).toBe(true);
+});
