@@ -1,5 +1,31 @@
 # Gemini Plugin for Claude Code
 
+> ## ⚠️ DEPRECATED — superseded by [`antigravity-plugin`](https://github.com/sakibsadmanshajib/antigravity-plugin)
+>
+> Google [retires Gemini CLI on **June 18, 2026**](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/)
+> for free / personal users in favour of the new **Antigravity CLI (`agy`)**.
+> This plugin spawns `gemini --experimental-acp` and will stop working on that
+> date. There is no transition fallback.
+>
+> The replacement —
+> [**`antigravity-plugin`**](https://github.com/sakibsadmanshajib/antigravity-plugin) —
+> targets `agy --print` / `--continue` / `--conversation` and ships under four
+> hosts: Claude Code, Codex CLI, agy native, and standalone `npx`. Migration:
+>
+> ```bash
+> # remove the old plugin
+> claude plugin uninstall gemini@google-gemini
+>
+> # install the new one
+> claude plugin marketplace add sakibsadmanshajib/antigravity-plugin
+> claude plugin install antigravity@sakibsadmanshajib
+> /antigravity:setup
+> ```
+>
+> Open issues against this repo will be closed as `wontfix` with a pointer to
+> the new project. File new reports against
+> [`antigravity-plugin`](https://github.com/sakibsadmanshajib/antigravity-plugin/issues).
+
 Use Google's [Gemini CLI](https://github.com/google-gemini/gemini-cli) from inside [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to review code or delegate tasks.
 
 **Why bring Gemini into Claude Code?** Gemini 2.5 Pro offers a 1M-token context window, a distinct reasoning style, and strong code analysis — making it a useful second opinion alongside Claude. Instead of switching tools, you get both models collaborating in the same session: Claude drives, Gemini reviews or investigates, results come back inline.
